@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Sora", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* deep clinical neutrals (teal-slate) */
+  --color-ink-25: #f5f8f8;
+  --color-ink-50: #eef3f4;
+  --color-ink-100: #dbe4e6;
+  --color-ink-200: #bccacd;
+  --color-ink-300: #93a8ad;
+  --color-ink-400: #6b8389;
+  --color-ink-500: #4f6a71;
+  --color-ink-600: #3d545b;
+  --color-ink-700: #2f4248;
+  --color-ink-800: #1d2c31;
+  --color-ink-900: #122026;
+  --color-ink-950: #0a171c;
+
+  /* brand — clinical teal */
+  --color-brand-25: #ecfbf8;
+  --color-brand-50: #d3f5ef;
+  --color-brand-100: #a9eae0;
+  --color-brand-200: #73d8ca;
+  --color-brand-300: #40beae;
+  --color-brand-400: #1e9e90;
+  --color-brand-500: #0f8377;
+  --color-brand-600: #0d6961;
+  --color-brand-700: #0e544e;
+  --color-brand-800: #10433f;
+  --color-brand-900: #0f3532;
+
+  /* semantic accents */
+  --color-amberly-50: #fff6e6;
+  --color-amberly-500: #e08600;
+  --color-amberly-600: #b96c00;
+  --color-coral-50: #fff1f1;
+  --color-coral-500: #d94a4a;
+  --color-coral-600: #b93636;
+  --color-mint-50: #eafaf1;
+  --color-mint-500: #1f9d63;
+  --color-mint-600: #167b4d;
+  --color-lagoon-50: #eef4ff;
+  --color-lagoon-500: #3d6fd1;
+  --color-lagoon-600: #2f58ad;
+
+  --shadow-card: 0 1px 2px rgba(10, 23, 28, 0.05), 0 8px 24px -12px rgba(10, 23, 28, 0.14);
+  --shadow-pop: 0 18px 48px -18px rgba(10, 23, 28, 0.34);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.35s ease-out both;
+  --animate-slide-in: slide-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-ring: ring 1.4s linear infinite;
+  --animate-bar: bar 1.6s ease-in-out infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(28px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes ring {
+  to { transform: rotate(360deg); }
+}
+@keyframes bar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background-color: var(--color-ink-25);
+    color: var(--color-ink-800);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4, .font-display { font-family: var(--font-display); letter-spacing: -0.021em; }
+  :focus-visible { outline: 2px solid var(--color-brand-400); outline-offset: 2px; }
+  ::placeholder { color: color-mix(in oklab, var(--color-ink-400), transparent 15%); }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { width: 0; height: 0; }
+}
+
+/* Sidebar nav: scrollbar stays inside the sidebar, revealed only while scrolling */
+@utility nav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+  &:hover { scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+  &:hover::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+}
+
+@utility app-grid-bg {
+  background-image:
+    radial-gradient(circle at 12% -10%, rgba(30, 158, 144, 0.13), transparent 45%),
+    radial-gradient(circle at 92% 4%, rgba(61, 111, 209, 0.1), transparent 42%),
+    linear-gradient(to right, rgba(45, 78, 86, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(45, 78, 86, 0.055) 1px, transparent 1px);
+  background-size: auto, auto, 46px 46px, 46px 46px;
+}
+
+@utility ekg-line {
+  stroke-dasharray: 8 14;
+  animation: ekg 3.4s linear infinite;
+}
+@keyframes ekg {
+  to { stroke-dashoffset: -220; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  .print-sheet { box-shadow: none !important; border: none !important; }
+}
