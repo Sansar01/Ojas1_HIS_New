@@ -10,7 +10,7 @@ import {
   clearEntitlements,
   fetchEntitlements,
 } from "../entitlement/entitlementSlice";
-import { store } from "@/store";
+
 import { Entitlements } from "@/types/entitlement";
 
 /* ---------------------------------------------------------------------------
@@ -51,25 +51,41 @@ export const login = createAsyncThunk(
   ) => {
     try {
       const res = await authApi.login(email, password);
-      localStorage.setItem(
-        TOKEN_KEY,
-        JSON.stringify({
-          token: res.data.accessToken,
-          user: res.data.user,
-          expiresAt: res.data.expiresAt,
-        }),
-      );
-      setToken(res.data.accessToken);
-      dispatch(
-        toast.success(
-          `Welcome back, ${res.data.user.firstName}`,
-          `Signed in as ${res.data.user.userType}`,
-        ),
-      );
-      return res.data;
+
+      if (res.data) {
+        // Save token
+        localStorage.setItem(
+          TOKEN_KEY,
+          JSON.stringify({
+            token: res.data.accessToken,
+            user: res.data.user,
+            expiresAt: res.data.expiresAt,
+          }),
+        );
+        setToken(res.data.accessToken);
+
+        // Success toast
+        dispatch(
+          toast.success(
+            `Welcome back, ${res.data.user.firstName}`,
+            `Signed in as ${res.data.user.userType}`,
+          ),
+        );
+
+        // Fetch entitlements after successful login
+        dispatch(fetchEntitlements());
+
+        return res.data;
+      }
+
+      // If response is not successful
+      const errorMessage = res.message || "Login failed";
+      dispatch(toast.error("Sign in failed", errorMessage));
+      return rejectWithValue(errorMessage);
     } catch (error: any) {
-      dispatch(toast.error("Sign in failed", error?.message));
-      return rejectWithValue(error?.message ?? "Unable to sign in.");
+      const errorMessage = error?.message || "Unable to sign in.";
+      dispatch(toast.error("Sign in failed", errorMessage));
+      return rejectWithValue(errorMessage);
     }
   },
 );
@@ -111,6 +127,38 @@ export const resetPassword = createAsyncThunk(
     } catch (error: any) {
       dispatch(toast.error("Password reset failed", error?.message));
       return rejectWithValue(error?.message ?? "Unable to reset password.");
+    }
+  },
+);
+
+// ==================== LOGOUT THUNK ====================
+export const logoutUser = createAsyncThunk(
+  "auth/logoutUser",
+  async (_, { dispatch }) => {
+    try {
+      // Call logout API
+      await authApi.logout();
+
+      // Clear local storage and token
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+
+      // Clear entitlements
+      dispatch(clearEntitlements());
+
+      dispatch(toast.success("Logged out successfully"));
+
+      return true;
+    } catch (error: any) {
+      // Even if API fails, we still logout locally
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      dispatch(clearEntitlements());
+
+      dispatch(
+        toast.warning(error?.message || "Logged out (server error ignored)"),
+      );
+      return true;
     }
   },
 );
@@ -163,11 +211,6 @@ const authSlice = createSlice({
       .addCase(login.fulfilled, (state, action) => {
         state.status = "authenticated";
         state.session = action.payload;
-
-        // Fetch entitlements after login
-        if (action.payload?.accessToken) {
-          store.dispatch(fetchEntitlements());
-        }
       })
       .addCase(login.rejected, (state, action) => {
         state.status = "unauthenticated";
@@ -182,9 +225,12 @@ const authSlice = createSlice({
       .addCase(resetPassword.fulfilled, (state) => {
         state.reset = { email: null, token: null };
       })
-      .addCase(logout, (state) => {
+      // ==================== LOGOUT THUNK HANDLERS ====================
+      .addCase(logoutUser.fulfilled, (state) => {
         state.session = null;
-        store.dispatch(clearEntitlements());
+        state.status = "unauthenticated";
+        state.error = null;
+        state.reset = { email: null, token: null };
       });
   },
 });

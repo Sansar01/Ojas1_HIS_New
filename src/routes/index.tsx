@@ -33,7 +33,7 @@ export function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route
           path="/accounts/login"
           element={
@@ -60,7 +60,7 @@ export function AppRoutes() {
         />
 
         <Route
-          path="/app"
+          path="/"
           element={
             <RequireAuth>
               <DashboardLayout />
@@ -77,7 +77,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="patients"
+            path="/patients"
             element={
               <RequireModule module="patients">
                 <PatientsPage />
@@ -101,7 +101,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="doctors"
+            path="/doctors"
             element={
               <RequireModule module="doctors">
                 <DoctorsPage />
@@ -117,7 +117,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="departments"
+            path="/departments"
             element={
               <RequireModule module="departments">
                 <DepartmentsPage />
@@ -125,7 +125,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="specializations"
+            path="/specializations"
             element={
               <RequireModule module="specializations">
                 <SpecializationsPage />
@@ -133,7 +133,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="appointments"
+            path="/appointments"
             element={
               <RequireModule module="appointments">
                 <AppointmentsPage />
@@ -141,7 +141,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="consultations"
+            path="/consultation"
             element={
               <RequireModule module="consultations">
                 <ConsultationsPage />
@@ -149,7 +149,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="consultations/:id"
+            path="/consultation/:id"
             element={
               <RequireModule module="consultations">
                 <ConsultationWorkspacePage />
@@ -157,7 +157,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="billing"
+            path="/billing"
             element={
               <RequireModule module="billing">
                 <BillingPage />
@@ -165,7 +165,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="users"
+            path="/users"
             element={
               <RequireModule module="users">
                 <UsersPage />
@@ -173,7 +173,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="users/new"
+            path="/users/new"
             element={
               <RequireModule module="users">
                 <UsersNewPage />
@@ -181,7 +181,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="roles"
+            path="/roles"
             element={
               <RequireModule module="roles">
                 <RolesPage />
@@ -189,7 +189,7 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="settings"
+            path="/settings"
             element={
               <RequireModule module="settings">
                 <SettingsPage />

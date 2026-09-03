@@ -1,66 +1,17 @@
-import * as React from "react";
 import { NavLink } from "react-router-dom";
-import {
-  Activity,
-  Building2,
-  CalendarClock,
-  ChevronLeft,
-  ClipboardList,
-  HeartPulse,
-  LayoutDashboard,
-  ReceiptIndianRupee,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Stethoscope,
-  UserCog,
-  UserPlus,
-  Users,
-  X,
-} from "lucide-react";
+import { ChevronLeft, HeartPulse, X } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { APP_NAME, APP_SUBTITLE, MODULES } from "@/constants";
-import { useAppDispatch, useCurrentUser, usePermission } from "@/hooks";
+import { APP_NAME, APP_SUBTITLE } from "@/constants";
+import { useAppDispatch } from "@/hooks";
 import { setMobileNav, toggleSidebar } from "@/features/ui/uiSlice";
-import { Tooltip } from "@/components/ui/overlays";
-import { Avatar, Badge } from "@/components/ui/primitives";
-import type { ModuleKey } from "@/types";
-import { useEntitlements } from "@/hooks/useEntitlements";
-
-const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  LayoutDashboard,
-  Users,
-  Stethoscope,
-  ClipboardList,
-  CalendarClock,
-  ReceiptIndianRupee,
-  Building2,
-  Sparkles,
-  UserCog,
-  ShieldCheck,
-  Settings,
-  UserPlus,
-};
-
-const GROUP_ORDER: { label: string; hint: string }[] = [
-  { label: "Insights", hint: "Live hospital picture" },
-  { label: "Clinical", hint: "Care delivery" },
-  { label: "Operations", hint: "Scheduling & revenue" },
-  { label: "Access", hint: "RBAC & facility" },
-];
+import { useRootSelector } from "@/hooks";
+import { getModuleInfoByLabel } from "@/utils/modulesMap";
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const dispatch = useAppDispatch();
-  const user = useCurrentUser();
-  const { can } = usePermission();
-  const modules = MODULES.filter((m) => can(m.key, "view"));
-  // With:
-  const { modules: entitlementModules } = useEntitlements();
+  const entitlements = useRootSelector((s) => s.entitlement);
 
-  const visibleModules = entitlementModules
-    .filter((m: any) => m.isActive)
-    .sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-  const counts: Partial<Record<ModuleKey, number>> = {};
+  const allowedModules = entitlements?.modules || [];
 
   return (
     <aside
@@ -71,7 +22,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         collapsed ? "w-[78px]" : "w-[262px]",
       )}
     >
-      {/* logo / brand — fixed while the nav list scrolls */}
+      {/* Logo */}
       <div
         className={cn(
           "relative flex h-16 shrink-0 items-center gap-2.5 border-b border-white/8 px-4",
@@ -101,142 +52,61 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         </button>
       </div>
 
-      {/* scrolling navigation */}
+      {/* Navigation */}
       <nav className="nav-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
-        {GROUP_ORDER.map((group) => {
-          const items = modules.filter((m) => m.group === group.label);
-          if (!items.length) return null;
-          return (
-            <div key={group.label} className="mb-4 last:mb-0">
-              {!collapsed && (
-                <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
-                  {group.label}
-                </p>
-              )}
-              <ul className="space-y-0.5">
-                {items.map((m) => {
-                  const Icon = ICONS[m.icon] ?? LayoutDashboard;
-                  const link = (
-                    <NavLink
-                      to={m.path}
-                      className={({ isActive }) =>
-                        cn(
-                          "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
-                          isActive
-                            ? "bg-brand-500/16 text-white ring-1 ring-inset ring-brand-400/35"
-                            : "text-white/62 hover:bg-white/7 hover:text-white",
-                          collapsed && "justify-center px-0",
-                        )
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          <span
-                            className={cn(
-                              "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300 transition-all",
-                              isActive ? "opacity-100" : "opacity-0",
-                            )}
-                          />
-                          <Icon
-                            className={cn(
-                              "size-4.5 shrink-0 transition-transform duration-200",
-                              !isActive && "group-hover:scale-110",
-                            )}
-                          />
-                          {!collapsed && (
-                            <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                              <span className="truncate">{m.label}</span>
-                              {!!counts[m.key] && (
-                                <span className="num rounded bg-white/10 px-1.5 text-[10px] font-semibold text-white/80">
-                                  {counts[m.key]}
-                                </span>
-                              )}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </NavLink>
-                  );
-                  return (
-                    <li key={m.key}>
-                      {collapsed ? (
-                        <Tooltip content={m.label} side="right">
-                          <div>{link}</div>
-                        </Tooltip>
-                      ) : (
-                        link
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          );
-        })}
-        {!collapsed && (
-          <div className="mt-2 rounded-xl border border-white/8 bg-white/4 p-3">
-            <p className="flex items-center gap-1.5 text-[11px] font-semibold text-white/80">
-              <Activity className="size-3.5 text-brand-300" /> Session scope
-            </p>
-            <p className="mt-1.5 text-[11.5px] leading-relaxed text-white/45">
-              {modules.length} of {MODULES.length} modules unlocked for{" "}
-              <span className="text-white/70">{user?.role}</span>.
-            </p>
-            <svg viewBox="0 0 220 34" className="mt-2 h-6 w-full" aria-hidden>
-              <path
-                className="ekg-line"
-                d="M0 17h34l6-11 7 22 6-11h28l5-8 6 16 5-8h40l6-11 7 22 6-11h32"
-                fill="none"
-                stroke="rgb(113 216 202)"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
-        )}
+        <ul className="space-y-0.5">
+          {allowedModules.map((module) => {
+            // Get icon and label from moduleMap using module name
+            const moduleInfo = getModuleInfoByLabel(module.name);
+            const Icon = moduleInfo?.icon || HeartPulse;
+            const label = moduleInfo?.label || module.name;
+            const path = module.route;
+
+            return (
+              <li key={module.id}>
+                <NavLink
+                  to={path}
+                  className={({ isActive }) =>
+                    cn(
+                      "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
+                      isActive
+                        ? "bg-brand-500/16 text-white ring-1 ring-inset ring-brand-400/35"
+                        : "text-white/62 hover:bg-white/7 hover:text-white",
+                      collapsed && "justify-center px-0",
+                    )
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span
+                        className={cn(
+                          "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300 transition-all",
+                          isActive ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <Icon
+                        className={cn(
+                          "size-4.5 shrink-0 transition-transform duration-200",
+                          !isActive && "group-hover:scale-110",
+                        )}
+                      />
+                      {!collapsed && <span className="truncate">{label}</span>}
+                    </>
+                  )}
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
       </nav>
 
-      {/* footer — pinned */}
+      {/* Footer */}
       <div
         className={cn(
           "shrink-0 border-t border-white/8 p-2.5",
           collapsed && "flex flex-col items-center gap-2",
         )}
       >
-        {user && (
-          <div
-            className={cn(
-              "flex items-center gap-2.5 rounded-lg bg-white/6 p-2",
-              collapsed && "justify-center",
-            )}
-          >
-            <Avatar
-              name={`${user.firstName} ${user.lastName}`}
-              color={user.color}
-              size="sm"
-            />
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[12.5px] font-semibold text-white">
-                  {user.firstName} {user.lastName}
-                </p>
-                <p className="truncate text-[10.5px] text-white/45">
-                  {user.title ?? user.role}
-                </p>
-              </div>
-            )}
-            {!collapsed && (
-              <Badge
-                tone="ink"
-                size="xs"
-                className="uppercase tracking-wide text-brand-100"
-              >
-                {user.status}
-              </Badge>
-            )}
-          </div>
-        )}
         <button
           onClick={() => dispatch(toggleSidebar())}
           className={cn(

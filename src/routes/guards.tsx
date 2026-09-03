@@ -1,14 +1,13 @@
 import * as React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
-import { useAuthStatus } from "@/hooks";
-import {  selectUser } from "@/features/auth/authSlice";
+import { useAuthStatus, usePermission } from "@/hooks";
+import { canAccess, selectUser } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
 import { MODULE_LABEL } from "@/constants";
 import type { ModuleKey, Permission } from "@/types";
 import { canAccessModule } from "@/utils/permissions";
-import { usePermission } from "@/hooks/usePermission";
 
 export function Splash({
   label = "Restoring your secure session",
@@ -51,7 +50,7 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
   const user = useRootSelector(selectUser);
   if (status === "restoring" || status === "idle")
     return <Splash label="Checking authentication" />;
-  if (user) return <Navigate to="/app/dashboard" />;
+  if (user) return <Navigate to="/dashboard" />;
   return <>{children}</>;
 }
 
@@ -65,7 +64,7 @@ export function RequireModule({
   action?: Permission;
   children: React.ReactNode;
 }) {
-  const { entitlements } = usePermission();
+  const  entitlements  = usePermission();
 
   if (!canAccessModule(entitlements, module, action)) {
     return <ForbiddenState module={MODULE_LABEL[module]} />;

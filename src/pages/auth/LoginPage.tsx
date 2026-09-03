@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
 import { cn } from "@/utils/cn";
+import { toast } from "@/features/ui/uiSlice";
 
 const DEMO = [
   {

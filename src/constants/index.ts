@@ -24,7 +24,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "patients",
     label: "Patients",
-    path: "/app/patients",
+    path: "/patients",
     icon: "Users",
     group: "Clinical",
     description: "Registry, profiles & history",
@@ -32,7 +32,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "doctors",
     label: "Doctors",
-    path: "/app/doctors",
+    path: "/doctors",
     icon: "Stethoscope",
     group: "Clinical",
     description: "Clinicians, fees & availability",
@@ -40,7 +40,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "consultations",
     label: "Consultations",
-    path: "/app/consultations",
+    path: "/consultation",
     icon: "ClipboardList",
     group: "Clinical",
     description: "Clinical workspace & prescriptions",
@@ -48,7 +48,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "appointments",
     label: "Appointments",
-    path: "/app/appointments",
+    path: "/appointments",
     icon: "CalendarClock",
     group: "Operations",
     description: "Scheduling engine & slot builder",
@@ -56,7 +56,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "billing",
     label: "Billing",
-    path: "/app/billing",
+    path: "/billing",
     icon: "ReceiptIndianRupee",
     group: "Operations",
     description: "Invoices, payments & charges",
@@ -64,7 +64,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "departments",
     label: "Departments",
-    path: "/app/departments",
+    path: "departments",
     icon: "Building2",
     group: "Operations",
     description: "Hospital departments",
@@ -72,7 +72,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "specializations",
     label: "Specializations",
-    path: "/app/specializations",
+    path: "/specializations",
     icon: "Sparkles",
     group: "Operations",
     description: "Clinical specializations",
@@ -80,7 +80,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "users",
     label: "Users",
-    path: "/app/users",
+    path: "/users",
     icon: "UserCog",
     group: "Access",
     description: "Portal users & access",
@@ -88,7 +88,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "roles",
     label: "Roles & Permissions",
-    path: "/app/roles",
+    path: "/roles",
     icon: "ShieldCheck",
     group: "Access",
     description: "RBAC matrix per module",
@@ -96,7 +96,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "settings",
     label: "Hospital Settings",
-    path: "/app/settings",
+    path: "/settings",
     icon: "Settings",
     group: "Access",
     description: "Facility & invoice settings",

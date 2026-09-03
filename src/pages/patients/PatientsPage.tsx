@@ -395,7 +395,7 @@ export function PatientsPage() {
   });
 
   useEffect(() => {
-    if (status === "idle") dispatch(patientsApi.thunks.fetchAll() as any);
+    // if (status === "idle") dispatch(patientsApi.thunks.fetchAll() as any);
   }, [status, dispatch]);
 
   const visits = useMemo(() => {
@@ -1088,7 +1088,7 @@ export function PatientDetailPage() {
                     <Button
                       size="xs"
                       variant="outline"
-                      onClick={() => navigate(`/app/consultations/${c.id}`)}
+                      onClick={() => navigate(`/consultations/${c.id}`)}
                     >
                       Open record
                     </Button>

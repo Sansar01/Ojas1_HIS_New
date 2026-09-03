@@ -35,7 +35,7 @@ export const API_ENDPOINTS = {
   users: "/api/hospital/users",
 
   //modules
-  entitlement_modules: "/api/hospital/roles/entitlement/modules",
+  entitlement_modules: "/api/hospital/roles/entitlements/modules",
 
   // Roles
   roles: "/api/hospital/roles",

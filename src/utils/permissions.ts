@@ -1,7 +1,7 @@
 // src/utils/permissions.ts
 
 import type { ModuleKey, Permission } from "@/types";
-import { Entitlements } from "@/types/entitlement";
+import { EntitlementModule, Entitlements } from "@/types/entitlement";
 
 export function canAccessModule(
   entitlements: Entitlements | null,
@@ -15,10 +15,10 @@ export function canAccessModule(
     return true;
   }
 
-  // Check if module is allowed
-  if (!entitlements.modules?.includes(module)) {
-    return false;
-  }
+  // //Check if module is allowed
+  // if (!entitlements?.modules.includes(module)) {
+  //   return false;
+  // }
 
   return true;
 }

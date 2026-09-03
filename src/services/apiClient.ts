@@ -87,6 +87,25 @@ export const authApi = {
     return res;
   },
 
+  async logout(): Promise<ApiResponse<boolean>> {
+    try {
+      const res = await request<boolean>({
+        url: API_ENDPOINTS.auth.logout, // Make sure this endpoint exists in api.ts
+        method: "POST",
+      });
+
+      return res;
+    } catch (error: any) {
+      // Even if the API fails, we still want to logout locally
+      console.warn("Logout API failed, proceeding with local logout");
+      return {
+        success: true,
+        data: true,
+        message: "Logged out locally",
+      };
+    }
+  },
+
   async me(): Promise<ApiResponse<Session | null>> {
     if (!token) return { success: true, data: null, message: "No session" };
     try {

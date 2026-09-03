@@ -20,7 +20,7 @@ export const fetchEntitlements = createAsyncThunk(
   async (_, { dispatch, rejectWithValue }) => {
     try {
       const res = await entitlementApi.getModules();
-      return res.data;
+      return res.data ?? res;
     } catch (error: any) {
       dispatch(toast.error("Password reset failed", error?.message));
       return rejectWithValue(error.message);

@@ -26,7 +26,7 @@ export function DepartmentsPage() {
   const [filters, setFilters] = useState({ status: "all" });
 
   useEffect(() => {
-    if (status === "idle") dispatch(departmentsApi.thunks.fetchAll() as any);
+    // if (status === "idle") dispatch(departmentsApi.thunks.fetchAll() as any);
   }, [status, dispatch]);
 
   const table = useTable<Department>(departments as Department[], {
@@ -229,7 +229,7 @@ export function SpecializationsPage() {
   const [filters, setFilters] = useState({ department: "all", status: "all" });
 
   useEffect(() => {
-    if (status === "idle") dispatch(specializationsApi.thunks.fetchAll() as any);
+    // if (status === "idle") dispatch(specializationsApi.thunks.fetchAll() as any);
   }, [status, dispatch]);
 
   const table = useTable<Specialization>(specializations as Specialization[], {
