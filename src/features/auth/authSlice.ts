@@ -4,7 +4,7 @@ import {
   type PayloadAction,
 } from "@reduxjs/toolkit";
 import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
-import { toast } from "@/features/ui/uiSlice";
+import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import {
   clearEntitlements,
@@ -159,6 +159,8 @@ export const resetPassword = createAsyncThunk(
 export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
   async (_, { dispatch }) => {
+    dispatch(showLoader("Signing out..."));
+
     try {
       // Call logout API
       await authApi.logout();
@@ -183,6 +185,8 @@ export const logoutUser = createAsyncThunk(
         toast.warning(error?.message || "Logged out (server error ignored)"),
       );
       return true;
+    } finally {
+      dispatch(hideLoader());
     }
   },
 );

@@ -13,7 +13,8 @@ export const TOKEN_KEY = "authUserToken";
 
 let token: string | null = (() => {
   try {
-    return JSON.parse(localStorage.getItem(TOKEN_KEY) || "null")?.token ?? null;
+    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
+    return stored?.accessToken ?? stored?.token ?? null;
   } catch {
     return null;
   }

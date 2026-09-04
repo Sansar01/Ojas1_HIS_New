@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/overlays";
 import { Avatar } from "@/components/ui/primitives";
 import { relativeTime } from "@/utils";
-import { logout, logoutUser } from "@/features/auth/authSlice";
+import { logoutUser } from "@/features/auth/authSlice";
 import { usePermission } from "@/hooks";
 
 function useClock() {
@@ -254,9 +254,9 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
             <LifeBuoy className="size-4" /> Sync portal data
           </MenuItem>
           <MenuItem
-            onSelect={() => {
-              dispatch(logoutUser());
-              navigate("/accounts/login");
+            onSelect={async () => {
+              await dispatch(logoutUser()).unwrap();
+              window.location.assign("/accounts/login");
             }}
             className={cn(menuItemClass("danger"), "border-t border-ink-100")}
           >
