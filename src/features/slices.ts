@@ -8,7 +8,11 @@ import type { HospitalInfo } from "@/types";
  * One modular slice per domain feature (Redux Toolkit).
  * ------------------------------------------------------------------------ */
 
-export const usersApi = createCrudSlice<import("@/types").User>({ name: "users", resource: "users" });
+export const usersApi = createCrudSlice<import("@/types").User>({
+  name: "users",
+  resource: "users",
+  listParams: null,
+});
 export const rolesApi = createCrudSlice<import("@/types").Role>({ name: "roles", resource: "roles" });
 export const patientsApi = createCrudSlice<import("@/types").Patient>({ name: "patients", resource: "patients" });
 export const doctorsApi = createCrudSlice<import("@/types").Doctor>({ name: "doctors", resource: "doctors" });

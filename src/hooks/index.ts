@@ -66,6 +66,7 @@ export function useLoader() {
 
 export function usePermission() {
   const user = useCurrentUser();
+  // console.log("user", user);
   const can = useCallback(
     (module: ModuleKey, action: Permission = "view") =>
       canAccess(user, module, action),
@@ -78,7 +79,7 @@ export function usePermission() {
     canCreate: (m: ModuleKey) => can(m, "create"),
     canEdit: (m: ModuleKey) => can(m, "edit"),
     canDelete: (m: ModuleKey) => can(m, "delete"),
-    isSuperAdmin: user?.role === "SUPER_ADMIN",
+    isSuperAdmin:user?.userType === "SUPER_ADMIN",
   };
 }
 
