@@ -82,7 +82,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
           aria-label="Breadcrumb"
           className="flex items-center gap-1 text-[11.5px] font-medium text-ink-400"
         >
-          {trail.map((crumb, i) => (
+          {/* {trail.map((crumb, i) => (
             <span key={crumb.to} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="size-3 opacity-60" />}
               {i === trail.length - 1 ? (
@@ -96,7 +96,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
                 </Link>
               )}
             </span>
-          ))}
+          ))} */}
         </nav>
         <h1 className="mt-0.5 truncate font-display text-[19px] font-semibold leading-tight text-ink-900">
           {pageTitle}

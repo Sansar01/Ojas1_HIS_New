@@ -3,7 +3,7 @@ import { RequireAuth, RequireModule, PublicOnly } from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import {
-  ForgotPasswordPage,
+  ChangePasswordPage,
   ResetPasswordPage,
 } from "@/pages/auth/RecoveryPages";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -46,7 +46,7 @@ export function AppRoutes() {
           path="/accounts/forgot-password"
           element={
             <PublicOnly>
-              <ForgotPasswordPage />
+              <ChangePasswordPage />
             </PublicOnly>
           }
         />

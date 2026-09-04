@@ -36,11 +36,17 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useRootSelector(selectUser);
   const location = useLocation();
 
-  if (status === "restoring" || status === "idle") return <Splash />;
-  if (!session)
-    return (
-      <Navigate to="/accounts/login" state={{ from: location.pathname }} />
-    );
+  // While restoring session from localStorage
+  if (status === "restoring" || status === "idle") {
+    return <Splash />;
+  }
+
+  // No valid session found → redirect to login
+  if (!session) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+
+  // User is authenticated → render protected content
   return <>{children}</>;
 }
 
@@ -64,7 +70,7 @@ export function RequireModule({
   action?: Permission;
   children: React.ReactNode;
 }) {
-  const  entitlements  = usePermission();
+  const entitlements = usePermission();
 
   if (!canAccessModule(entitlements, module, action)) {
     return <ForbiddenState module={MODULE_LABEL[module]} />;

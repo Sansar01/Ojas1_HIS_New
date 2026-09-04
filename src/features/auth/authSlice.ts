@@ -8,7 +8,6 @@ import { toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import {
   clearEntitlements,
-  fetchEntitlements,
 } from "../entitlement/entitlementSlice";
 
 import { Entitlements } from "@/types/entitlement";
@@ -38,10 +37,38 @@ const initialState: AuthState = {
   reset: { email: null, token: null },
 };
 
-export const restoreSession = createAsyncThunk("auth/restore", async () => {
-  const res = await authApi.me();
-  return res.data;
-});
+// Restore session from localStorage on app load
+export const restoreSession = createAsyncThunk(
+  "auth/restoreSession",
+  async (_, { rejectWithValue }) => {
+    try {
+      const stored = localStorage.getItem(TOKEN_KEY);
+      if (!stored) return null;
+
+      const parsed = JSON.parse(stored);
+
+      if (!parsed?.accessToken || !parsed?.user) {
+        localStorage.removeItem(TOKEN_KEY);
+        return null;
+      }
+
+      // Set token in memory
+      setToken(parsed.accessToken);
+
+      // Return the stored session directly (no API call)
+      return {
+        accessToken: parsed.accessToken,
+        user: parsed.user,
+        role: parsed.role || { name: parsed.user.userType },
+        expiresAt: parsed.expiresAt,
+        entitlements: parsed.entitlements || null,
+      };
+    } catch (error: any) {
+      localStorage.removeItem(TOKEN_KEY);
+      return rejectWithValue(error?.message);
+    }
+  },
+);
 
 export const login = createAsyncThunk(
   "auth/login",
@@ -57,7 +84,7 @@ export const login = createAsyncThunk(
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
-            token: res.data.accessToken,
+            accessToken: res.data.accessToken,
             user: res.data.user,
             expiresAt: res.data.expiresAt,
           }),
@@ -71,9 +98,6 @@ export const login = createAsyncThunk(
             `Signed in as ${res.data.user.userType}`,
           ),
         );
-
-        // Fetch entitlements after successful login
-        dispatch(fetchEntitlements());
 
         return res.data;
       }
@@ -90,11 +114,11 @@ export const login = createAsyncThunk(
   },
 );
 
-export const forgotPassword = createAsyncThunk(
-  "auth/forgot",
+export const changePassword = createAsyncThunk(
+  "auth/changePassword",
   async (email: string, { dispatch, rejectWithValue }) => {
     try {
-      const res = await authApi.forgotPassword(email);
+      const res = await authApi.changePassword(email);
       dispatch(
         toast.success(
           "Reset link sent",
@@ -216,7 +240,7 @@ const authSlice = createSlice({
         state.status = "unauthenticated";
         state.error = (action.payload as string) ?? "Unable to sign in.";
       })
-      .addCase(forgotPassword.fulfilled, (state, action) => {
+      .addCase(changePassword.fulfilled, (state, action) => {
         // action.payload is ApiResponse<any>
         const payload = action.payload as any;
         const token = payload?.data?.token ?? payload?.token ?? null;

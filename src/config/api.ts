@@ -27,7 +27,7 @@ export const API_ENDPOINTS = {
     login: "/api/hospital/auth/login",
     logout: "/api/hospital/auth/logout",
     me: "/api/hospital/auth/me",
-    forgotPassword: "/api/hospital/auth/forgot-password",
+    changePassword: "/api/hospital/auth/change-password",
     resetPassword: "/api/hospital/auth/reset-password",
   },
 

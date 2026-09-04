@@ -260,12 +260,23 @@ export function useDocumentTitle(title: string) {
 }
 
 /** Auto-collapse the sidebar on medium screens, expand on wide. */
+// export function useSidebarSync(setCollapsed: (v: boolean) => void) {
+//   const location = useLocation();
+//   useEffect(() => {
+//     const apply = () => setCollapsed(window.innerWidth < 1280);
+//     apply();
+//     window.addEventListener("resize", apply);
+//     return () => window.removeEventListener("resize", apply);
+//   }, [setCollapsed, location.pathname]);
+// }
 export function useSidebarSync(setCollapsed: (v: boolean) => void) {
-  const location = useLocation();
   useEffect(() => {
-    const apply = () => setCollapsed(window.innerWidth < 1280);
-    apply();
-    window.addEventListener("resize", apply);
-    return () => window.removeEventListener("resize", apply);
-  }, [setCollapsed, location.pathname]);
+    const apply = () => {
+      if (window.innerWidth < 1280) {
+        setCollapsed(true);
+      }
+    };
+    apply(); // only on mount
+    // Remove resize listener if you don't want it to auto-collapse on resize
+  }, []);
 }

@@ -118,9 +118,9 @@ export const authApi = {
     }
   },
 
-  async forgotPassword(email: string) {
+  async changePassword(email: string) {
     return request({
-      url: API_ENDPOINTS.auth.forgotPassword,
+      url: API_ENDPOINTS.auth.changePassword,
       method: "POST",
       body: { email },
     });
