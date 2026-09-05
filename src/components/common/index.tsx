@@ -9,6 +9,7 @@ import { usePermission, useAppDispatch } from "@/hooks";
 import { FORM_INVALID } from "@/features/ui/uiSlice";
 import { formRegistry } from "@/hooks/useForm";
 import type { ModuleKey } from "@/types";
+export { Emptyish } from "./Emptyish";
 
 /* ------------------------------- page header ------------------------------- */
 
@@ -60,11 +61,11 @@ export function PageIntro({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {actions}
-           {module && onCreate && canCreate(module) && ( 
+          {module && onCreate && canCreate(module) && (
             <Button icon={<PlusIcon />} onClick={onCreate}>
               {createLabel}
             </Button>
-           )}
+          )}
         </div>
       </div>
     </div>

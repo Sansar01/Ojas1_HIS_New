@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Eye,
   EyeOff,
-  KeyRound,
   Lock,
   Mail,
   ShieldCheck,
@@ -17,8 +16,6 @@ import { login } from "@/features/auth/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
-import { Banner } from "@/components/ui/feedback";
-import { cn } from "@/utils/cn";
 import { toast } from "@/features/ui/uiSlice";
 
 
@@ -26,11 +23,9 @@ import { toast } from "@/features/ui/uiSlice";
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const location = useLocation();
   const status = useAuthStatus();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
-  const authError = useLocationStateError(location);
 
   const form = useForm({
     initialValues: { email: "admin@meridian.care", password: "admin123" },
@@ -44,9 +39,12 @@ export function LoginPage() {
     const result: any = await dispatch(login(values));
     if (login.fulfilled.match(result)) {
       form.reset();
-      navigate((location.state as any)?.from ?? "/dashboard", {
-        replace: true,
-      });
+      navigate("/dashboard", { replace: true });
+    } else {
+      const message =
+        (result.payload as string) ||
+        "Unable to sign in. Please check your credentials and try again.";
+      dispatch(toast.error("Sign-in failed", message));
     }
   });
 
@@ -92,12 +90,6 @@ export function LoginPage() {
           Use your hospital directory credentials. Sessions expire after 8 hours
           of inactivity.
         </p>
-
-        {authError && (
-          <Banner tone="danger" className="mt-5" title="Sign-in failed">
-            {authError}
-          </Banner>
-        )}
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
           <Input
@@ -229,7 +221,3 @@ function HeartIcon() {
   );
 }
 
-function useLocationStateError(location: ReturnType<typeof useLocation>) {
-  const state = location.state as { error?: string } | null;
-  return state?.error ?? null;
-}

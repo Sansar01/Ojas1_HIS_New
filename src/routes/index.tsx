@@ -7,8 +7,7 @@ import {
   ResetPasswordPage,
 } from "@/pages/auth/RecoveryPages";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { PatientsPage, PatientDetailPage } from "@/pages/patients/PatientsPage";
-import { PatientsNewPage } from "@/pages/patients/PatientsNewPage";
+import { PatientsPage } from "@/pages/patients/PatientsPage";
 import { DoctorsPage, DoctorDetailPage } from "@/pages/doctors/DoctorsPage";
 import { AppointmentsPage } from "@/pages/appointments/AppointmentsPage";
 import {
@@ -24,6 +23,8 @@ import {
   SettingsPage,
   NotFoundPage,
 } from "@/pages/admin/AdminPages";
+import { PatientsFormPage } from "@/pages/patients/patientFormPage";
+import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
 
 /**
  * Public routes → auth screens.
@@ -85,15 +86,23 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="patients/new"
+            path="patients/register"
             element={
               <RequireModule module="patients">
-                <PatientsNewPage />
+                <PatientsFormPage />
               </RequireModule>
             }
           />
           <Route
-            path="patients/:id"
+            path="patients/:id/edit"
+            element={
+              <RequireModule module="patients">
+                <PatientsFormPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="patients/:id/detail"
             element={
               <RequireModule module="patients">
                 <PatientDetailPage />
