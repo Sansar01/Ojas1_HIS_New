@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useLocation } from "react-router-dom";
 import type { AppDispatch, RootState } from "@/store/types";
-import { canAccess, selectUser } from "@/features/auth/authSlice";
+import { selectUser } from "@/features/auth/authSlice";
 import {
   hideLoader,
   pushToast,
@@ -11,6 +11,8 @@ import {
   type ToastVariant,
 } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission } from "@/types";
+import { canAccessModule, hasFeature } from "@/utils/permissions";
+import type { Entitlements } from "@/types/entitlement";
 
 /* ------------------------------ redux plumbing ----------------------------- */
 
@@ -66,20 +68,43 @@ export function useLoader() {
 
 export function usePermission() {
   const user = useCurrentUser();
-  // console.log("user", user);
+  const sessionEntitlements = useRootSelector(
+    (state) => state.auth.session?.entitlements ?? null,
+  ) as Entitlements | null;
+  const dynamicModules = useRootSelector((state) => state.entitlement.modules);
+  const loading = useRootSelector((state) => state.entitlement.loading);
+  const ready = useRootSelector((state) => state.entitlement.ready);
+  const userType =
+    user?.userType ??
+    (user as any)?.role?.slug ??
+    (user as any)?.role?.name ??
+    null;
+  const entitlements: Entitlements | null = dynamicModules.length
+    ? { userType, modules: dynamicModules }
+    : sessionEntitlements ?? (userType ? { userType, modules: [] } : null);
+
   const can = useCallback(
     (module: ModuleKey, action: Permission = "view") =>
-      canAccess(user, module, action),
-    [user],
+      canAccessModule(entitlements, module, action),
+    [entitlements],
   );
+
   return {
     user,
     can,
+    entitlements,
+    loading,
+    ready,
+    hasFeature: (moduleCode: string, featureCode: string) =>
+      hasFeature(entitlements, moduleCode, featureCode),
     canView: (m: ModuleKey) => can(m, "view"),
     canCreate: (m: ModuleKey) => can(m, "create"),
     canEdit: (m: ModuleKey) => can(m, "edit"),
     canDelete: (m: ModuleKey) => can(m, "delete"),
-    isSuperAdmin:user?.userType === "SUPER_ADMIN",
+    isSuperAdmin: userType
+      ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
+      : false,
+    userType,
   };
 }
 

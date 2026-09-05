@@ -755,8 +755,9 @@ function UserFormDialog({
     });
   };
 
-  const togglePermission = (module: ModuleKey, permission: Permission) => {
-    const current = form.values.permissions[module] ?? [];
+  const togglePermission = (module: string, permission: Permission) => {
+    const key = module as ModuleKey;
+    const current = form.values.permissions[key] ?? [];
     const next = current.includes(permission)
       ? current.filter((p) => p !== permission)
       : [...current, permission];
@@ -769,7 +770,7 @@ function UserFormDialog({
     }
     form.setValue("permissions", {
       ...form.values.permissions,
-      [module]: next,
+      [key]: next,
     });
   };
 

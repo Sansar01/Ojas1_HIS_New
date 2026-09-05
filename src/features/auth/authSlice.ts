@@ -38,8 +38,9 @@ const initialState: AuthState = {
   reset: { email: null, token: null },
 };
 
-export const restoreSession = createAsyncThunk("auth/restore", async () => {
+export const restoreSession = createAsyncThunk("auth/restore", async (_, { dispatch }) => {
   const res = await authApi.me();
+  if (res.data) dispatch(fetchEntitlements());
   return res.data;
 });
 

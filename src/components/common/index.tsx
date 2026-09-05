@@ -53,7 +53,7 @@ export function PageIntro({
             <Button icon={<PlusIcon />} onClick={onCreate}>
               {createLabel}
             </Button>
-          )}
+           )}
         </div>
       </div>
     </div>
