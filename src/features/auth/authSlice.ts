@@ -7,7 +7,6 @@ import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
-
 import { Entitlements } from "@/types/entitlement";
 
 /* ---------------------------------------------------------------------------
