@@ -14,12 +14,12 @@ function Root() {
 
   useEffect(() => {
     store.dispatch(restoreSession() as any);
-    store.dispatch(fetchHospital() as any);
   }, []);
 
   useEffect(() => {
     if (authStatus === "authenticated") {
       store.dispatch(fetchEntitlements() as any);
+      store.dispatch(fetchHospital() as any);
     }
   }, [authStatus]);
 
