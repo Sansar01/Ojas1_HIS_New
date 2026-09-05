@@ -4,11 +4,10 @@ import {
   type PayloadAction,
 } from "@reduxjs/toolkit";
 import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
-import { toast } from "@/features/ui/uiSlice";
+import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import {
   clearEntitlements,
-  fetchEntitlements,
 } from "../entitlement/entitlementSlice";
 
 import { Entitlements } from "@/types/entitlement";
@@ -58,7 +57,7 @@ export const login = createAsyncThunk(
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
-            token: res.data.accessToken,
+            accessToken: res.data.accessToken,
             user: res.data.user,
             expiresAt: res.data.expiresAt,
           }),
@@ -72,9 +71,6 @@ export const login = createAsyncThunk(
             `Signed in as ${res.data.user.userType}`,
           ),
         );
-
-        // Fetch entitlements after successful login
-        dispatch(fetchEntitlements());
 
         return res.data;
       }
@@ -91,11 +87,11 @@ export const login = createAsyncThunk(
   },
 );
 
-export const forgotPassword = createAsyncThunk(
-  "auth/forgot",
+export const changePassword = createAsyncThunk(
+  "auth/changePassword",
   async (email: string, { dispatch, rejectWithValue }) => {
     try {
-      const res = await authApi.forgotPassword(email);
+      const res = await authApi.changePassword(email);
       dispatch(
         toast.success(
           "Reset link sent",
@@ -136,6 +132,8 @@ export const resetPassword = createAsyncThunk(
 export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
   async (_, { dispatch }) => {
+    dispatch(showLoader("Signing out..."));
+
     try {
       // Call logout API
       await authApi.logout();
@@ -160,6 +158,8 @@ export const logoutUser = createAsyncThunk(
         toast.warning(error?.message || "Logged out (server error ignored)"),
       );
       return true;
+    } finally {
+      dispatch(hideLoader());
     }
   },
 );
@@ -217,7 +217,7 @@ const authSlice = createSlice({
         state.status = "unauthenticated";
         state.error = (action.payload as string) ?? "Unable to sign in.";
       })
-      .addCase(forgotPassword.fulfilled, (state, action) => {
+      .addCase(changePassword.fulfilled, (state, action) => {
         // action.payload is ApiResponse<any>
         const payload = action.payload as any;
         const token = payload?.data?.token ?? payload?.token ?? null;

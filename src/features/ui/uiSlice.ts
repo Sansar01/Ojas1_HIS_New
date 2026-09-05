@@ -135,9 +135,9 @@ export const toast = {
   success: (title: string, description?: string) =>
     pushToast({ title, description, variant: "success" }),
   error: (title: string, description?: string) =>
-    pushToast({ title, description, variant: "error", duration: 6000 }),
+    pushToast({ title, description, variant: "error", duration: 3000 }),
   warning: (title: string, description?: string) =>
-    pushToast({ title, description, variant: "warning", duration: 5200 }),
+    pushToast({ title, description, variant: "warning", duration: 3000 }),
   info: (title: string, description?: string) =>
     pushToast({ title, description, variant: "info" }),
   /** generic entry point — also used by the shared useToast() hook */

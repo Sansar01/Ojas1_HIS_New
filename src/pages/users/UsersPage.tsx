@@ -276,17 +276,17 @@ export function UsersPage() {
             </>
           }
           actions={
-            canCreate("users") ? (
-              <Button
-                size="sm"
-                icon={<UserPlus />}
-                onClick={() => setEditing(emptyUser())}
-              >
-                New user
-              </Button>
-            ) : (
-              <Badge tone="neutral">Read-only access</Badge>
-            )
+            // canCreate("users") ? (
+            <Button
+              size="sm"
+              icon={<UserPlus />}
+              onClick={() => setEditing(emptyUser())}
+            >
+              New user
+            </Button>
+            // ) : (
+            //   <Badge tone="neutral">Read-only access</Badge>
+            // )
           }
         />
 

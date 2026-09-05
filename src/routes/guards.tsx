@@ -36,11 +36,23 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const session = useRootSelector(selectUser);
   const location = useLocation();
 
-  if (status === "restoring" || status === "idle") return <Splash />;
-  if (!session)
+  // While restoring session from localStorage
+  if ((status === "restoring" || status === "idle") && !session) {
+    return <Splash />;
+  }
+
+  // No valid session found → redirect to login
+  if (!session) {
     return (
-      <Navigate to="/accounts/login" state={{ from: location.pathname }} />
+      <Navigate
+        to="/accounts/login"
+        state={{ from: location.pathname }}
+        replace
+      />
     );
+  }
+
+  // User is authenticated → render protected content
   return <>{children}</>;
 }
 
@@ -48,8 +60,11 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 export function PublicOnly({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const user = useRootSelector(selectUser);
-  if (status === "restoring" || status === "idle")
+
+  if ((status === "idle" || status === "restoring") && !user) {
     return <Splash label="Checking authentication" />;
+  }
+
   if (user) return <Navigate to="/dashboard" />;
   return <>{children}</>;
 }
