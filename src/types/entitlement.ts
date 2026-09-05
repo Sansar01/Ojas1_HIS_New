@@ -1,15 +1,11 @@
 // src/types/entitlement.ts
 
-import type { ModuleKey } from ".";
-
-/**
- * Feature inside a module (optional - only if API returns it)
- */
 export interface EntitlementFeature {
-  id: string;
+  id: number | string;
   name: string;
   code: string;
-  action: "view" | "create" | "edit" | "delete";
+  description?: string | null;
+  action?: "view" | "create" | "edit" | "delete";
   isActive?: boolean;
 }
 
@@ -17,21 +13,21 @@ export interface EntitlementFeature {
  * Module structure coming from the API
  */
 export interface EntitlementModule {
-  id: string;
+  id: number | string;
   name: string;
   code: string;
   route: string;
   icon?: string;
   isActive?: boolean;
-  parentId?: string | null;
+  parentId?: number | string | null;
   sortOrder?: number;
-  features?: EntitlementFeature[]; // Uncomment only if API returns this
+  features?: EntitlementFeature[];
 }
 
 /**
  * Main Entitlements object returned after login
  */
 export interface Entitlements {
-  userType: string;
-  modules: EntitlementModule[]; // Now using full module objects instead of ModuleKey[]
+  userType?: string;
+  modules: EntitlementModule[];
 }

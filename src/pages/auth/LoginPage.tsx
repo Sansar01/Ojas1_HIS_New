@@ -21,38 +21,7 @@ import { Banner } from "@/components/ui/feedback";
 import { cn } from "@/utils/cn";
 import { toast } from "@/features/ui/uiSlice";
 
-const DEMO = [
-  {
-    role: "SUPER_ADMIN",
-    email: "admin@meridian.care",
-    password: "admin123",
-    note: "Full portal control",
-  },
-  {
-    role: "DOCTOR",
-    email: "doctor@meridian.care",
-    password: "doctor123",
-    note: "Consultations & patients",
-  },
-  {
-    role: "RECEPTIONIST",
-    email: "frontdesk@meridian.care",
-    password: "desk123",
-    note: "Booking & registration",
-  },
-  {
-    role: "BILLING_STAFF",
-    email: "billing@meridian.care",
-    password: "bill123",
-    note: "Invoices & payments",
-  },
-  {
-    role: "SUPER_ADMIN",
-    email: "ops@meridian.care",
-    password: "admin123",
-    note: "Operations, no RBAC edits",
-  },
-];
+
 
 export function LoginPage() {
   const dispatch = useAppDispatch();
@@ -81,9 +50,9 @@ export function LoginPage() {
     }
   });
 
-  const fillDemo = (account: (typeof DEMO)[number]) => {
-    form.setMany({ email: account.email, password: account.password });
-  };
+  // const fillDemo = (account: (typeof DEMO)[number]) => {
+  //   form.setMany({ email: account.email, password: account.password });
+  // };
 
   return (
     <AuthLayout
@@ -137,7 +106,7 @@ export function LoginPage() {
             autoComplete="username"
             label="Email address"
             required
-            placeholder="name@meridian.care"
+            placeholder=""
             leadingIcon={<Mail />}
             value={form.values.email}
             onChange={(e) => form.setValue("email", e.target.value)}
@@ -151,7 +120,7 @@ export function LoginPage() {
               autoComplete="current-password"
               label="Password"
               required
-              placeholder="••••••••"
+              placeholder=""
               leadingIcon={<Lock />}
               value={form.values.password}
               onChange={(e) => form.setValue("password", e.target.value)}
@@ -197,7 +166,7 @@ export function LoginPage() {
         </form>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card">
+      {/* <div className="mt-5 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card">
         <p className="flex items-center gap-2 border-b border-ink-100 bg-ink-25/70 px-4 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.12em] text-ink-500">
           <KeyRound className="size-3.5 text-brand-600" /> Demo accounts — click
           to autofill
@@ -235,7 +204,7 @@ export function LoginPage() {
             </li>
           ))}
         </ul>
-      </div>
+      </div> */}
 
       <p className="mt-6 text-center text-[11.5px] leading-relaxed text-ink-400">
         Protected facility environment · Access attempts are logged.{" "}

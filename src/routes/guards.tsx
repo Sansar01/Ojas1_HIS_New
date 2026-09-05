@@ -79,7 +79,19 @@ export function RequireModule({
   action?: Permission;
   children: React.ReactNode;
 }) {
-  const entitlements = usePermission();
+  const { entitlements, loading, ready } = usePermission();
+  const user = useRootSelector(selectUser) as any;
+  const isSuperAdmin = [user?.userType, user?.role?.slug, user?.role?.name]
+    .filter(Boolean)
+    .some(
+      (value) =>
+        String(value).toUpperCase().replace(/[^A-Z0-9]/g, "") ===
+        "SUPERADMIN",
+    );
+
+  if (!isSuperAdmin && (!ready || loading)) {
+    return <Splash label="Loading permissions" />;
+  }
 
   if (!canAccessModule(entitlements, module, action)) {
     return <ForbiddenState module={MODULE_LABEL[module]} />;

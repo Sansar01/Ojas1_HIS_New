@@ -13,13 +13,25 @@ import {
 import { MODULES, PERMISSIONS } from "@/constants";
 import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { rolesApi, saveHospital, fetchHospital } from "@/features/slices";
+import {
+  rolesApi,
+  saveHospital,
+  fetchHospital,
+  updateRolePermissions,
+  fetchRolePermissions,
+  type RolePermissionAssignment,
+  fetchRoleMasterCatalog,
+  createHospitalRole,
+  type RoleMasterCatalogItem,
+} from "@/features/slices";
+import { fetchEntitlements } from "@/features/entitlement/entitlementSlice";
 import { resetDb } from "@/data/db";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, ModuleKey, Permission, Role } from "@/types";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui/primitives";
 import {
   Input,
+  Select,
   MultiSelect,
   PermissionMatrix,
   Switch,
@@ -41,18 +53,36 @@ export function RolesPage() {
   const dispatch = useAppDispatch();
   const { items: roles, status } = useRootSelector((s) => s.roles);
   const users = useRootSelector((s) => s.users.items);
+  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+  const entitlementsReady = useRootSelector((s) => s.entitlement.ready);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Role> | null>(null);
+  const [assignedPermissions, setAssignedPermissions] = useState<RolePermissionAssignment[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
   const { ask, confirmNode } = useConfirmDialog();
 
   useEffect(() => {
     if (status === "idle") dispatch(rolesApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+    if (!entitlementsReady) dispatch(fetchEntitlements() as any);
+  }, [status, entitlementsReady, dispatch]);
 
   const selected = roles.find(
     (r: any) => r.id === (selectedId ?? roles[0]?.id),
   ) as Role | undefined;
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setAssignedPermissions([]);
+      return;
+    }
+    setPermissionsLoading(true);
+    dispatch(fetchRolePermissions(String(selected.id)) as any)
+      .unwrap()
+      .then((data: RolePermissionAssignment[]) => setAssignedPermissions(data))
+      .catch(() => setAssignedPermissions([]))
+      .finally(() => setPermissionsLoading(false));
+  }, [dispatch, selected?.id]);
   const usersByRole = useMemo(() => {
     const map = new Map<string, number>();
     users.forEach((u: any) => map.set(u.roleId, (map.get(u.roleId) ?? 0) + 1));
@@ -191,13 +221,16 @@ export function RolesPage() {
             />
             <div className="space-y-4 p-4">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {MODULES.map((m) => {
-                  const granted = (selected.permissions as any)?.[m.key] as
-                    | Permission[]
-                    | undefined;
+                {entitlementModules.map((m) => {
+                  const granted = assignedPermissions
+                    .filter((assignment) => assignment.moduleId === Number(m.id))
+                    .map((assignment) =>
+                      featureAction(assignment.moduleFeature?.feature?.code ?? ""),
+                    )
+                    .filter(Boolean) as Permission[];
                   return (
                     <div
-                      key={m.key}
+                      key={m.id}
                       className={cn(
                         "rounded-xl border p-2.5 transition-colors",
                         granted?.length
@@ -212,10 +245,10 @@ export function RolesPage() {
                             granted?.length ? "text-brand-800" : "text-ink-400",
                           )}
                         >
-                          {m.label}
+                          {m.name}
                         </p>
                         <span className="num text-[10.5px] font-bold text-ink-400">
-                          {granted?.length ?? 0}/4
+                          {permissionsLoading ? "..." : `${granted.length}/4`}
                         </span>
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1">
@@ -238,7 +271,18 @@ export function RolesPage() {
                 })}
               </div>
 
-              {canEdit("roles") && <RoleMatrixEditor role={selected} />}
+              {canEdit("roles") && (
+                <RoleMatrixEditor
+                  role={selected}
+                  assignedPermissions={assignedPermissions}
+                  loading={permissionsLoading}
+                  onSaved={() => {
+                    dispatch(fetchRolePermissions(String(selected.id)) as any)
+                      .unwrap()
+                      .then((data: RolePermissionAssignment[]) => setAssignedPermissions(data));
+                  }}
+                />
+              )}
             </div>
           </Panel>
         )}
@@ -252,21 +296,37 @@ export function RolesPage() {
   );
 }
 
-function RoleMatrixEditor({ role }: { role: Role }) {
+function RoleMatrixEditor({
+  role,
+  assignedPermissions,
+  loading,
+  onSaved,
+}: {
+  role: Role;
+  assignedPermissions: RolePermissionAssignment[];
+  loading: boolean;
+  onSaved: () => void;
+}) {
   const dispatch = useAppDispatch();
-  const [modules, setModules] = useState<ModuleKey[]>(
-    () => Object.keys(role.permissions ?? {}) as ModuleKey[],
-  );
+  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+  const [modules, setModules] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<
-    Partial<Record<ModuleKey, Permission[]>>
-  >(() => ({ ...(role.permissions ?? {}) }) as any);
+    Partial<Record<string, Permission[]>>
+  >({});
 
   useEffect(() => {
-    setModules(Object.keys(role.permissions ?? {}) as ModuleKey[]);
-    setPermissions({ ...(role.permissions ?? {}) } as any);
-  }, [role.id, role.permissions]);
+    const nextModules = Array.from(
+      new Set(
+        assignedPermissions.map(
+          (assignment) => assignment.moduleFeature?.module?.code,
+        ).filter(Boolean) as string[],
+      ),
+    );
+    setModules(nextModules);
+    setPermissions(mapAssignedPermissions(assignedPermissions));
+  }, [role.id, assignedPermissions]);
 
-  const toggle = (module: ModuleKey, permission: Permission) => {
+  const toggle = (module: string, permission: Permission) => {
     const current = new Set(permissions[module] ?? []);
     current.has(permission)
       ? current.delete(permission)
@@ -276,17 +336,32 @@ function RoleMatrixEditor({ role }: { role: Role }) {
   };
 
   const save = async () => {
-    const payload: Partial<Record<ModuleKey, Permission[]>> = {};
-    modules.forEach(
-      (m) => (payload[m] = permissions[m]?.length ? permissions[m] : ["view"]),
-    );
+    const moduleFeatures = modules.flatMap((moduleKey) => {
+      const apiModule = entitlementModules.find(
+        (module) =>
+          module.code === moduleKey,
+      );
+
+      if (!apiModule) return [];
+
+      return (permissions[moduleKey] ?? []).flatMap((action) => {
+        const feature = apiModule.features?.find((item) =>
+          featureMatchesAction(item.code, item.name, action),
+        );
+        return feature
+          ? [{ moduleId: Number(apiModule.id), featureId: Number(feature.id) }]
+          : [];
+      });
+    });
+
     await dispatch(
-      rolesApi.thunks.updateOne({
-        id: role.id,
-        data: { permissions: payload },
+      updateRolePermissions({
+        roleId: role.id,
+        moduleFeatures,
         successMessage: `${role.name} permissions updated`,
-      } as any),
-    );
+      }),
+    ).unwrap();
+    onSaved();
   };
 
   return (
@@ -294,19 +369,23 @@ function RoleMatrixEditor({ role }: { role: Role }) {
       <MultiSelect
         label="Modules for this role"
         values={modules as string[]}
-        options={MODULES.map((m) => ({
-          value: m.key,
-          label: m.label,
-          description: m.description,
+        options={entitlementModules.map((module) => ({
+          value: module.code,
+          label: module.name,
+          description: module.features?.map((feature) => feature.name).join(", "),
         }))}
-        onChange={(vals) => setModules(vals as ModuleKey[])}
+        onChange={(vals) => setModules(vals as string[])}
         hint="Only checked modules appear in the sidebar for users of this role"
       />
-      <PermissionMatrix
+        {loading ? (
+          <p className="rounded-lg border border-ink-100 bg-white px-3 py-6 text-center text-sm text-ink-500">
+            Loading assigned permissions...
+          </p>
+        ) : <PermissionMatrix
         modules={modules}
         permissions={permissions}
         onToggle={toggle}
-      />
+        />}
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11.5px] text-ink-400">
           Users inheriting this role: all accounts assigned to {role.name}.
@@ -319,6 +398,43 @@ function RoleMatrixEditor({ role }: { role: Role }) {
   );
 }
 
+function mapAssignedPermissions(assignments: RolePermissionAssignment[]) {
+  const result: Partial<Record<string, Permission[]>> = {};
+  assignments.forEach((assignment) => {
+    const moduleCode = assignment.moduleFeature?.module?.code;
+    const action = featureAction(assignment.moduleFeature?.feature?.code ?? "");
+    if (!moduleCode || !action) return;
+    result[moduleCode] = [...(result[moduleCode] ?? []), action];
+  });
+  return result;
+}
+
+function featureAction(code: string): Permission | undefined {
+  const normalized = code.toUpperCase();
+  if (normalized.includes("VIEW")) return "view";
+  if (normalized.includes("CREATE")) return "create";
+  if (normalized.includes("EDIT") || normalized.includes("UPDATE") || normalized.includes("DEACTIVATE")) return "edit";
+  if (normalized.includes("DELETE")) return "delete";
+  return undefined;
+}
+
+function featureMatchesAction(
+  code: string,
+  name: string,
+  action: Permission,
+) {
+  const normalizedCode = code.toUpperCase();
+  const normalizedName = name.toUpperCase();
+  const actionName = action.toUpperCase();
+
+  return (
+    normalizedCode === actionName ||
+    normalizedCode.startsWith(`${actionName}_`) ||
+    normalizedCode.endsWith(`_${actionName}`) ||
+    normalizedName.startsWith(actionName)
+  );
+}
+
 function RoleForm({
   initial,
   onClose,
@@ -327,8 +443,23 @@ function RoleForm({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
+  const [roleMode, setRoleMode] = useState<"master" | "custom">("master");
+  const [masterRoles, setMasterRoles] = useState<RoleMasterCatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(!initial.id);
+  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+
+  useEffect(() => {
+    if (initial.id) return;
+    dispatch(fetchRoleMasterCatalog() as any)
+      .unwrap()
+      .then((items: RoleMasterCatalogItem[]) => setMasterRoles(items))
+      .finally(() => setCatalogLoading(false));
+  }, [dispatch, initial.id]);
+
   const form = useForm({
     initialValues: {
+      roleNameId: "",
+      roleCode: "",
       name: initial.name ?? "",
       slug: initial.slug ?? "",
       description: initial.description ?? "",
@@ -338,7 +469,12 @@ function RoleForm({
       modules: Object.keys(initial.permissions ?? {}) as ModuleKey[],
     },
     schema: {
-      name: [{ required: "Role name is required", min: 3 }],
+      roleNameId: roleMode === "master"
+        ? [{ required: "Select a master role" }]
+        : [],
+      name: roleMode === "custom"
+        ? [{ required: "Role name is required", min: 3 }]
+        : [],
       slug: [
         { required: "Slug is required", pattern: /^[a-z][a-z0-9_]{2,24}$/ },
       ],
@@ -346,15 +482,16 @@ function RoleForm({
     },
   });
 
-  const toggle = (module: ModuleKey, permission: Permission) => {
-    const current = new Set(form.values.permissions[module] ?? []);
+  const toggle = (module: string, permission: Permission) => {
+    const key = module as ModuleKey;
+    const current = new Set(form.values.permissions[key] ?? []);
     current.has(permission)
       ? current.delete(permission)
       : current.add(permission);
     if (current.size && !current.has("view")) current.add("view");
     form.setValue("permissions", {
       ...form.values.permissions,
-      [module]: Array.from(current),
+      [key]: Array.from(current),
     });
   };
 
@@ -381,13 +518,46 @@ function RoleForm({
           successMessage: "Role updated",
         } as any),
       );
-    else
-      await dispatch(
-        rolesApi.thunks.createOne({
-          data: { ...data, createdAt: new Date().toISOString() },
-          successMessage: "Role created",
-        } as any),
-      );
+    else {
+      const created: any = await dispatch(
+        createHospitalRole({
+          ...(roleMode === "master"
+            ? { roleNameId: Number(values.roleNameId) }
+            : {
+                roleName: values.name.trim(),
+                roleCode:
+                  values.roleCode.trim() ||
+                  values.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
+              }),
+          description: values.description.trim(),
+        }),
+      ).unwrap();
+
+      const createdRoleId = String(created?.id ?? created?.data?.id ?? "");
+      if (createdRoleId && entitlementModules.length) {
+        const moduleFeatures = Object.entries(values.permissions).flatMap(
+          ([moduleCode, actions]) => {
+            const module = entitlementModules.find((item) => item.code === moduleCode);
+            if (!module) return [];
+            return (actions ?? []).flatMap((action) => {
+              const feature = module.features?.find((item) =>
+                featureMatchesAction(item.code, item.name, action),
+              );
+              return feature
+                ? [{ moduleId: Number(module.id), featureId: Number(feature.id) }]
+                : [];
+            });
+          },
+        );
+        await dispatch(
+          updateRolePermissions({
+            roleId: createdRoleId,
+            moduleFeatures,
+            successMessage: "Role permissions saved",
+          }),
+        ).unwrap();
+      }
+    }
     onClose();
   });
 
@@ -404,15 +574,57 @@ function RoleForm({
     >
       <FormSection title="Identity">
         <FormRow>
-          <Input
-            name="name"
-            label="Role name"
-            required
-            placeholder="Ward Supervisor"
-            value={form.values.name}
-            onChange={(e) => form.setValue("name", e.target.value)}
-            error={form.errors.name}
-          />
+          {!initial.id && (
+            <Select
+              name="roleMode"
+              label="Role source"
+              value={roleMode}
+              onChange={(value) => {
+                setRoleMode(value as "master" | "custom");
+                form.setMany({ roleNameId: "", name: "", roleCode: "" });
+              }}
+              options={[
+                { value: "master", label: "Existing master role" },
+                { value: "custom", label: "Create custom role" },
+              ]}
+            />
+          )}
+          {!initial.id && roleMode === "master" ? (
+            <Select
+              name="roleNameId"
+              label="Master role"
+              required
+              value={form.values.roleNameId}
+              disabled={catalogLoading}
+              onChange={(value) => {
+                const selected = masterRoles.find((item) => String(item.id) === value);
+                form.setMany({ roleNameId: value, name: selected?.name ?? "", slug: selected?.code.toLowerCase() ?? "" });
+              }}
+              options={masterRoles
+                .filter((item) => item.isActivatedInHospital)
+                .map((item) => ({ value: String(item.id), label: item.name }))}
+              error={form.errors.roleNameId}
+            />
+          ) : (
+            <Input
+              name="name"
+              label="Role name"
+              required
+              placeholder="Night Shift Nurse"
+              value={form.values.name}
+              onChange={(e) => form.setValue("name", e.target.value)}
+              error={form.errors.name}
+            />
+          )}
+          {!initial.id && roleMode === "custom" && (
+            <Input
+              name="roleCode"
+              label="Role code"
+              placeholder="NIGHT_NURSE"
+              value={form.values.roleCode}
+              onChange={(e) => form.setValue("roleCode", e.target.value.toUpperCase())}
+            />
+          )}
           <Input
             name="slug"
             label="Slug"
