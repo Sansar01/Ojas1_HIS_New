@@ -85,8 +85,9 @@ export function RequireModule({
     .filter(Boolean)
     .some(
       (value) =>
-        String(value).toUpperCase().replace(/[^A-Z0-9]/g, "") ===
-        "SUPERADMIN",
+        String(value)
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "") === "SUPERADMIN",
     );
 
   if (!isSuperAdmin && (!ready || loading)) {
