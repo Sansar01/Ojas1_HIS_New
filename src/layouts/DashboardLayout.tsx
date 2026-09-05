@@ -61,7 +61,7 @@ export function DashboardLayout() {
         <Header onOpenSearch={() => setSearchOpen(true)} />
         <main
           id="main"
-          className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
+          className="min-h-0 flex-1 overflow-y-auto scroll-smooth px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
         >
           <div className="mx-auto w-full max-w-[1600px]">
             {/* inline (non-modal) create/edit forms are mounted here */}

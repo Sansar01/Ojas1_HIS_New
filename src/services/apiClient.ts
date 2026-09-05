@@ -166,7 +166,7 @@ export const resourceApi = {
 
   create: (resource: keyof typeof API_ENDPOINTS, body: any) =>
     request<any>({
-      url: (API_ENDPOINTS as any)[resource] || `/${resource}`,
+      url: (API_ENDPOINTS as any)[resource] || `${resource}`,
       method: "POST",
       body,
     }),

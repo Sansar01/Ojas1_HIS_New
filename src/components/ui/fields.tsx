@@ -6,7 +6,13 @@ import * as SwitchPrimitive from "@radix-ui/react-switch";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import * as LabelPrimitive from "@radix-ui/react-label";
 import {
-  CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Search, X,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { PERMISSIONS, WEEKDAYS_SHORT } from "@/constants";
@@ -23,6 +29,7 @@ export function Field({
   error,
   children,
   className,
+  placeholder,
   action,
 }: {
   label?: React.ReactNode;
@@ -32,6 +39,7 @@ export function Field({
   error?: string;
   children: React.ReactNode;
   className?: string;
+  placeholder?: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -39,7 +47,10 @@ export function Field({
       {(label || action) && (
         <div className="flex items-baseline justify-between gap-2">
           {label && (
-            <LabelPrimitive.Root htmlFor={htmlFor} className="text-[12.5px] font-medium text-ink-600">
+            <LabelPrimitive.Root
+              htmlFor={htmlFor}
+              className="text-[12.5px] font-medium text-ink-600"
+            >
               {label}
               {required && <span className="ml-0.5 text-coral-500">*</span>}
             </LabelPrimitive.Root>
@@ -65,7 +76,12 @@ const controlBase =
   "focus:outline-none focus:ring-4 focus:ring-brand-500/20 focus:border-brand-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400";
 
 export const fieldClasses = (invalid?: boolean) =>
-  cn(controlBase, invalid ? "border-coral-500/70 bg-coral-50/40 focus:ring-coral-500/15" : "border-ink-200 hover:border-ink-300");
+  cn(
+    controlBase,
+    invalid
+      ? "border-coral-500/70 bg-coral-50/40 focus:ring-coral-500/15"
+      : "border-ink-200 hover:border-ink-300",
+  );
 
 /* ---------------------------------- Input ---------------------------------- */
 
@@ -80,46 +96,108 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   name: string;
 }
 
-export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, hint, required, leadingIcon, trailingIcon, prefix, className, id, name, type = "text", ...rest },
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  function Input(
+    {
+      label,
+      error,
+      hint,
+      required,
+      leadingIcon,
+      trailingIcon,
+      prefix,
+      className,
+      placeholder,
+      id,
+      name,
+      type = "text",
+      ...rest
+    },
+    ref,
+  ) {
+    const inputId = id ?? `f_${name}`;
+    return (
+      <Field
+        label={label}
+        htmlFor={inputId}
+        error={error}
+        hint={hint}
+        required={required}
+      >
+        <div className="relative">
+          {leadingIcon && (
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400 [&>svg]:size-4">
+              {leadingIcon}
+            </span>
+          )}
+          {prefix && (
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] font-medium text-ink-400">
+              {prefix}
+            </span>
+          )}
+          <input
+            ref={ref}
+            id={inputId}
+            name={name}
+            type={type}
+            placeholder={placeholder}
+            aria-invalid={!!error}
+            className={cn(
+              fieldClasses(!!error),
+              "h-10 px-3",
+              leadingIcon && "pl-9",
+              prefix && "pl-7",
+              trailingIcon && "pr-9",
+              className,
+            )}
+            {...rest}
+          />
+          {trailingIcon && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 [&>svg]:size-4">
+              {trailingIcon}
+            </span>
+          )}
+        </div>
+      </Field>
+    );
+  },
+);
+
+/* --------------------------------- Textarea -------------------------------- */
+
+export const Textarea = React.forwardRef<
+  HTMLTextAreaElement,
+  React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+    label?: React.ReactNode;
+    error?: string;
+    hint?: React.ReactNode;
+    required?: boolean;
+    name: string;
+  }
+>(function Textarea(
+  { label, error, hint, required, className, id, name, rows = 3, ...rest },
   ref,
 ) {
   const inputId = id ?? `f_${name}`;
   return (
-    <Field label={label} htmlFor={inputId} error={error} hint={hint} required={required}>
-      <div className="relative">
-        {leadingIcon && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400 [&>svg]:size-4">{leadingIcon}</span>}
-        {prefix && <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] font-medium text-ink-400">{prefix}</span>}
-        <input
-          ref={ref}
-          id={inputId}
-          name={name}
-          type={type}
-          aria-invalid={!!error}
-          className={cn(fieldClasses(!!error), "h-10 px-3", leadingIcon && "pl-9", prefix && "pl-7", trailingIcon && "pr-9", className)}
-          {...rest}
-        />
-        {trailingIcon && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 [&>svg]:size-4">{trailingIcon}</span>}
-      </div>
-    </Field>
-  );
-});
-
-/* --------------------------------- Textarea -------------------------------- */
-
-export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
-  label?: React.ReactNode; error?: string; hint?: React.ReactNode; required?: boolean; name: string;
-}>(function Textarea({ label, error, hint, required, className, id, name, rows = 3, ...rest }, ref) {
-  const inputId = id ?? `f_${name}`;
-  return (
-    <Field label={label} htmlFor={inputId} error={error} hint={hint} required={required}>
+    <Field
+      label={label}
+      htmlFor={inputId}
+      error={error}
+      hint={hint}
+      required={required}
+    >
       <textarea
         ref={ref}
         id={inputId}
         name={name}
         rows={rows}
         aria-invalid={!!error}
-        className={cn(fieldClasses(!!error), "resize-y px-3 py-2 leading-relaxed", className)}
+        className={cn(
+          fieldClasses(!!error),
+          "resize-y px-3 py-2 leading-relaxed",
+          className,
+        )}
         {...rest}
       />
     </Field>
@@ -127,17 +205,49 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 });
 
 export const NumberInput = ({
-  label, value, onValueChange, min = 0, max = 999999, step = 1, suffix, error, hint, required, className,
+  label,
+  value,
+  onValueChange,
+  min = 0,
+  max = 999999,
+  step = 1,
+  suffix,
+  error,
+  hint,
+  required,
+  className,
 }: {
-  label?: React.ReactNode; value: number; onValueChange: (v: number) => void; min?: number; max?: number;
-  step?: number; suffix?: string; error?: string; hint?: React.ReactNode; required?: boolean; className?: string;
+  label?: React.ReactNode;
+  value: number;
+  onValueChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  suffix?: string;
+  error?: string;
+  hint?: React.ReactNode;
+  required?: boolean;
+  className?: string;
 }) => (
-  <Field label={label} required={required} error={error} hint={hint} className={className}>
-    <div className={cn("flex h-10 items-center rounded-lg border bg-white", error ? "border-coral-500/70" : "border-ink-200")}>
+  <Field
+    label={label}
+    required={required}
+    error={error}
+    hint={hint}
+    className={className}
+  >
+    <div
+      className={cn(
+        "flex h-10 items-center rounded-lg border bg-white",
+        error ? "border-coral-500/70" : "border-ink-200",
+      )}
+    >
       <button
         type="button"
         aria-label="decrease"
-        onClick={() => onValueChange(Math.max(min, (Number(value) || 0) - step))}
+        onClick={() =>
+          onValueChange(Math.max(min, (Number(value) || 0) - step))
+        }
         className="grid size-9 place-items-center rounded-l-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
       >
         <ChevronLeft className="size-4" />
@@ -150,11 +260,17 @@ export const NumberInput = ({
         onChange={(e) => onValueChange(Number(e.target.value))}
         className="num h-full w-full min-w-0 border-none bg-transparent text-center text-sm font-medium text-ink-900 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
       />
-      {suffix && <span className="pr-1 text-[11px] font-medium uppercase text-ink-400">{suffix}</span>}
+      {suffix && (
+        <span className="pr-1 text-[11px] font-medium uppercase text-ink-400">
+          {suffix}
+        </span>
+      )}
       <button
         type="button"
         aria-label="increase"
-        onClick={() => onValueChange(Math.min(max, (Number(value) || 0) + step))}
+        onClick={() =>
+          onValueChange(Math.min(max, (Number(value) || 0) + step))
+        }
         className="grid size-9 place-items-center rounded-r-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
       >
         <ChevronRight className="size-4" />
@@ -174,15 +290,48 @@ export interface Option {
 }
 
 export function Select({
-  label, value, onChange, options, placeholder = "Select…", error, hint, required, name, className, disabled, size = "md", clearable,
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  error,
+  hint,
+  required,
+  name,
+  className,
+  disabled,
+  size = "md",
+  clearable,
 }: {
-  label?: React.ReactNode; value: string; onChange: (v: string) => void; options: Option[]; placeholder?: string;
-  error?: string; hint?: React.ReactNode; required?: boolean; name?: string; className?: string; disabled?: boolean;
-  size?: "sm" | "md"; clearable?: boolean;
+  label?: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  options: Option[];
+  placeholder?: string;
+  error?: string;
+  hint?: React.ReactNode;
+  required?: boolean;
+  name?: string;
+  className?: string;
+  disabled?: boolean;
+  size?: "sm" | "md";
+  clearable?: boolean;
 }) {
   return (
-    <Field label={label} required={required} error={error} hint={hint} className={className}>
-      <SelectPrimitive.Root value={value ?? ""} onValueChange={onChange} disabled={disabled} name={name}>
+    <Field
+      label={label}
+      required={required}
+      error={error}
+      hint={hint}
+      className={className}
+    >
+      <SelectPrimitive.Root
+        value={value ?? ""}
+        onValueChange={onChange}
+        disabled={disabled}
+        name={name}
+      >
         <SelectPrimitive.Trigger
           className={cn(
             fieldClasses(!!error),
@@ -192,7 +341,10 @@ export function Select({
         >
           <SelectPrimitive.Value
             placeholder={placeholder}
-            className={cn("truncate", value ? "font-medium text-ink-800" : "text-ink-400")}
+            className={cn(
+              "truncate",
+              value ? "font-medium text-ink-800" : "text-ink-400",
+            )}
           />
           <span className="flex items-center gap-1">
             {clearable && value && (
@@ -220,7 +372,11 @@ export function Select({
             className="z-[70] max-h-[19rem] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-ink-100 bg-white shadow-pop animate-fade-in"
           >
             <SelectPrimitive.Viewport className="p-1.5">
-              {options.length === 0 && <div className="px-3 py-6 text-center text-[13px] text-ink-400">No options available</div>}
+              {options.length === 0 && (
+                <div className="px-3 py-6 text-center text-[13px] text-ink-400">
+                  No options available
+                </div>
+              )}
               {options.map((opt) => (
                 <SelectPrimitive.Item
                   key={opt.value}
@@ -236,9 +392,15 @@ export function Select({
                   </SelectPrimitive.ItemIndicator>
                   <span className="min-w-0 flex-1">
                     <SelectPrimitive.ItemText>
-                      <span className="block truncate font-medium">{opt.label}</span>
+                      <span className="block truncate font-medium">
+                        {opt.label}
+                      </span>
                     </SelectPrimitive.ItemText>
-                    {opt.description && <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">{opt.description}</span>}
+                    {opt.description && (
+                      <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">
+                        {opt.description}
+                      </span>
+                    )}
                   </span>
                 </SelectPrimitive.Item>
               ))}
@@ -253,10 +415,27 @@ export function Select({
 /* ------------------------------- Multi select ------------------------------- */
 
 export function MultiSelect<T extends string = string>({
-  label, values, onChange, options, error, hint, required, placeholder = "Select items…", className, columns = 1,
+  label,
+  values,
+  onChange,
+  options,
+  error,
+  hint,
+  required,
+  placeholder = "Select items…",
+  className,
+  columns = 1,
 }: {
-  label?: React.ReactNode; values: T[]; onChange: (v: T[]) => void; options: Option[]; error?: string; hint?: React.ReactNode;
-  required?: boolean; placeholder?: string; className?: string; columns?: 1 | 2 | 3;
+  label?: React.ReactNode;
+  values: T[];
+  onChange: (v: T[]) => void;
+  options: Option[];
+  error?: string;
+  hint?: React.ReactNode;
+  required?: boolean;
+  placeholder?: string;
+  className?: string;
+  columns?: 1 | 2 | 3;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -264,7 +443,8 @@ export function MultiSelect<T extends string = string>({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node))
+        setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
@@ -275,7 +455,10 @@ export function MultiSelect<T extends string = string>({
     };
   }, [open]);
 
-  const toggle = (v: T) => onChange(values.includes(v) ? values.filter((x) => x !== v) : [...values, v]);
+  const toggle = (v: T) =>
+    onChange(
+      values.includes(v) ? values.filter((x) => x !== v) : [...values, v],
+    );
 
   return (
     <Field
@@ -286,7 +469,11 @@ export function MultiSelect<T extends string = string>({
       className={className}
       action={
         values.length > 0 && (
-          <button type="button" onClick={() => onChange([])} className="text-[11.5px] font-medium text-brand-600 hover:underline">
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-[11.5px] font-medium text-brand-600 hover:underline"
+          >
             Clear all
           </button>
         )
@@ -296,22 +483,41 @@ export function MultiSelect<T extends string = string>({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={cn(fieldClasses(!!error), "flex min-h-10 items-center justify-between gap-2 px-3 py-1.5 text-left")}
+          className={cn(
+            fieldClasses(!!error),
+            "flex min-h-10 items-center justify-between gap-2 px-3 py-1.5 text-left",
+          )}
         >
           <span className="flex flex-wrap gap-1">
-            {values.length === 0 && <span className="text-ink-400">{placeholder}</span>}
+            {values.length === 0 && (
+              <span className="text-ink-400">{placeholder}</span>
+            )}
             {values.map((v) => (
-              <span key={v} className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[11.5px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100">
+              <span
+                key={v}
+                className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-1.5 py-0.5 text-[11.5px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
+              >
                 {options.find((o) => o.value === v)?.label ?? v}
                 <X className="size-3 opacity-60" />
               </span>
             ))}
           </span>
-          <ChevronDown className={cn("size-4 shrink-0 text-ink-400 transition-transform", open && "rotate-180")} />
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-ink-400 transition-transform",
+              open && "rotate-180",
+            )}
+          />
         </button>
         {open && (
           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-64 overflow-auto rounded-xl border border-ink-100 bg-white p-1.5 shadow-pop animate-fade-in">
-            <div className={cn("grid gap-0.5", columns === 2 && "grid-cols-2", columns === 3 && "grid-cols-3")}>
+            <div
+              className={cn(
+                "grid gap-0.5",
+                columns === 2 && "grid-cols-2",
+                columns === 3 && "grid-cols-3",
+              )}
+            >
               {options.map((opt) => {
                 const checked = values.includes(opt.value as T);
                 return (
@@ -321,13 +527,17 @@ export function MultiSelect<T extends string = string>({
                     onClick={() => toggle(opt.value as T)}
                     className={cn(
                       "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
-                      checked ? "bg-brand-25 text-brand-800" : "text-ink-600 hover:bg-ink-50",
+                      checked
+                        ? "bg-brand-25 text-brand-800"
+                        : "text-ink-600 hover:bg-ink-50",
                     )}
                   >
                     <span
                       className={cn(
                         "grid size-4.5 shrink-0 place-items-center rounded border transition-all",
-                        checked ? "border-brand-600 bg-brand-600 text-white" : "border-ink-300 bg-white",
+                        checked
+                          ? "border-brand-600 bg-brand-600 text-white"
+                          : "border-ink-300 bg-white",
                       )}
                     >
                       {checked && <Check className="size-3" strokeWidth={3} />}
@@ -347,10 +557,21 @@ export function MultiSelect<T extends string = string>({
 /* --------------------------------- Checkbox --------------------------------- */
 
 export function Checkbox({
-  checked, onCheckedChange, label, description, disabled, className, id,
+  checked,
+  onCheckedChange,
+  label,
+  description,
+  disabled,
+  className,
+  id,
 }: {
-  checked: boolean; onCheckedChange: (v: boolean) => void; label?: React.ReactNode; description?: React.ReactNode;
-  disabled?: boolean; className?: string; id?: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  label?: React.ReactNode;
+  description?: React.ReactNode;
+  disabled?: boolean;
+  className?: string;
+  id?: string;
 }) {
   return (
     <label
@@ -369,7 +590,9 @@ export function Checkbox({
         className={cn(
           "mt-0.5 grid size-[17px] shrink-0 place-items-center rounded-[5px] border transition-all duration-150",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
-          checked ? "border-brand-600 bg-brand-600 text-white" : "border-ink-300 bg-white hover:border-brand-400",
+          checked
+            ? "border-brand-600 bg-brand-600 text-white"
+            : "border-ink-300 bg-white hover:border-brand-400",
         )}
       >
         <CheckboxPrimitive.Indicator>
@@ -378,8 +601,16 @@ export function Checkbox({
       </CheckboxPrimitive.Root>
       {(label || description) && (
         <span className="min-w-0 leading-tight">
-          {label && <span className="block text-[13px] font-medium text-ink-700">{label}</span>}
-          {description && <span className="mt-0.5 block text-[11.5px] text-ink-400">{description}</span>}
+          {label && (
+            <span className="block text-[13px] font-medium text-ink-700">
+              {label}
+            </span>
+          )}
+          {description && (
+            <span className="mt-0.5 block text-[11.5px] text-ink-400">
+              {description}
+            </span>
+          )}
         </span>
       )}
     </label>
@@ -389,17 +620,40 @@ export function Checkbox({
 /* ---------------------------------- Switch ---------------------------------- */
 
 export function Switch({
-  checked, onCheckedChange, label, description, disabled, className,
+  checked,
+  onCheckedChange,
+  label,
+  description,
+  disabled,
+  className,
 }: {
-  checked: boolean; onCheckedChange: (v: boolean) => void; label?: React.ReactNode; description?: React.ReactNode;
-  disabled?: boolean; className?: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  label?: React.ReactNode;
+  description?: React.ReactNode;
+  disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <label className={cn("flex items-center justify-between gap-4", disabled && "opacity-60", className)}>
+    <label
+      className={cn(
+        "flex items-center justify-between gap-4",
+        disabled && "opacity-60",
+        className,
+      )}
+    >
       {(label || description) && (
         <span className="min-w-0">
-          {label && <span className="block text-[13px] font-medium text-ink-700">{label}</span>}
-          {description && <span className="mt-0.5 block text-[11.5px] text-ink-400">{description}</span>}
+          {label && (
+            <span className="block text-[13px] font-medium text-ink-700">
+              {label}
+            </span>
+          )}
+          {description && (
+            <span className="mt-0.5 block text-[11.5px] text-ink-400">
+              {description}
+            </span>
+          )}
         </span>
       )}
       <SwitchPrimitive.Root
@@ -421,14 +675,36 @@ export function Switch({
 /* -------------------------------- Radio group -------------------------------- */
 
 export function RadioGroup({
-  label, value, onChange, options, error, required, className, orientation = "horizontal",
+  label,
+  value,
+  onChange,
+  options,
+  error,
+  required,
+  className,
+  orientation = "horizontal",
 }: {
-  label?: React.ReactNode; value: string; onChange: (v: string) => void; options: Option[]; error?: string;
-  required?: boolean; className?: string; orientation?: "horizontal" | "vertical";
+  label?: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  options: Option[];
+  error?: string;
+  required?: boolean;
+  className?: string;
+  orientation?: "horizontal" | "vertical";
 }) {
   return (
-    <Field label={label} required={required} error={error} className={className}>
-      <RadioGroupPrimitive.Root value={value} onValueChange={onChange} className={cn("flex gap-2", orientation === "vertical" && "flex-col")}>
+    <Field
+      label={label}
+      required={required}
+      error={error}
+      className={className}
+    >
+      <RadioGroupPrimitive.Root
+        value={value}
+        onValueChange={onChange}
+        className={cn("flex gap-2", orientation === "vertical" && "flex-col")}
+      >
         {options.map((opt) => (
           <RadioGroupPrimitive.Item
             key={opt.value}
@@ -454,9 +730,17 @@ export function RadioGroup({
 /* ------------------------------- Search input ------------------------------- */
 
 export function SearchInput({
-  value, onChange, placeholder = "Search records…", className, autoFocus,
+  value,
+  onChange,
+  placeholder = "Search records…",
+  className,
+  autoFocus,
 }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; className?: string; autoFocus?: boolean;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+  autoFocus?: boolean;
 }) {
   return (
     <div className={cn("relative", className)}>
@@ -485,12 +769,25 @@ export function SearchInput({
 /* ------------------------------ Segmented control ---------------------------- */
 
 export function Segmented<T extends string>({
-  value, onChange, options, className, size = "md",
+  value,
+  onChange,
+  options,
+  className,
+  size = "md",
 }: {
-  value: T; onChange: (v: T) => void; options: { value: T; label: React.ReactNode }[]; className?: string; size?: "sm" | "md";
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: React.ReactNode }[];
+  className?: string;
+  size?: "sm" | "md";
 }) {
   return (
-    <div className={cn("inline-flex rounded-lg border border-ink-200 bg-ink-50 p-0.5", className)}>
+    <div
+      className={cn(
+        "inline-flex rounded-lg border border-ink-200 bg-ink-50 p-0.5",
+        className,
+      )}
+    >
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -498,8 +795,12 @@ export function Segmented<T extends string>({
           onClick={() => onChange(opt.value)}
           className={cn(
             "rounded-[7px] font-medium transition-all duration-150",
-            size === "sm" ? "px-2.5 py-1 text-[12px]" : "px-3.5 py-1.5 text-[13px]",
-            value === opt.value ? "bg-white text-ink-900 shadow-sm ring-1 ring-ink-200" : "text-ink-500 hover:text-ink-800",
+            size === "sm"
+              ? "px-2.5 py-1 text-[12px]"
+              : "px-3.5 py-1.5 text-[13px]",
+            value === opt.value
+              ? "bg-white text-ink-900 shadow-sm ring-1 ring-ink-200"
+              : "text-ink-500 hover:text-ink-800",
           )}
         >
           {opt.label}
@@ -512,21 +813,47 @@ export function Segmented<T extends string>({
 /* -------------------------------- Date picker -------------------------------- */
 
 export function DatePicker({
-  label, value, onChange, error, hint, required, min, max, disabled, className, placeholder = "Pick a date", clearable = true, name,
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  required,
+  min,
+  max,
+  disabled,
+  className,
+  placeholder = "Pick a date",
+  clearable = true,
+  name,
 }: {
-  label?: React.ReactNode; value: string; onChange: (v: string) => void; error?: string; hint?: React.ReactNode;
-  required?: boolean; min?: string; max?: string; disabled?: boolean; className?: string; placeholder?: string; clearable?: boolean;
+  label?: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  hint?: React.ReactNode;
+  required?: boolean;
+  min?: string;
+  max?: string;
+  disabled?: boolean;
+  className?: string;
+  placeholder?: string;
+  clearable?: boolean;
   name?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const cursor = value ? new Date(value) : new Date();
-  const [view, setView] = useState<{ y: number; m: number }>({ y: cursor.getFullYear(), m: cursor.getMonth() });
+  const [view, setView] = useState<{ y: number; m: number }>({
+    y: cursor.getFullYear(),
+    m: cursor.getMonth(),
+  });
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node))
+        setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
@@ -540,7 +867,10 @@ export function DatePicker({
   const first = new Date(view.y, view.m, 1);
   const startPad = first.getDay();
   const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
-  const monthLabel = first.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const monthLabel = first.toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
   const todayKey = new Date().toISOString().slice(0, 10);
 
   const shift = (delta: number) => {
@@ -549,7 +879,14 @@ export function DatePicker({
   };
 
   return (
-    <Field label={label} htmlFor={name} required={required} error={error} hint={hint} className={className}>
+    <Field
+      label={label}
+      htmlFor={name}
+      required={required}
+      error={error}
+      hint={hint}
+      className={className}
+    >
       <div ref={wrapRef} className="relative">
         <button
           type="button"
@@ -560,11 +897,26 @@ export function DatePicker({
             setOpen((o) => !o);
             setView({ y: cursor.getFullYear(), m: cursor.getMonth() });
           }}
-          className={cn(fieldClasses(!!error), "flex h-10 items-center justify-between gap-2 px-3 text-left")}
+          className={cn(
+            fieldClasses(!!error),
+            "flex h-10 items-center justify-between gap-2 px-3 text-left",
+          )}
         >
-          <span className={cn("flex items-center gap-2 text-[13px]", !value && "text-ink-400")}>
+          <span
+            className={cn(
+              "flex items-center gap-2 text-[13px]",
+              !value && "text-ink-400",
+            )}
+          >
             <CalendarDays className="size-4 text-ink-400" />
-            {value ? formatDate(value, { weekday: "short", day: "2-digit", month: "short", year: "numeric" }) : placeholder}
+            {value
+              ? formatDate(value, {
+                  weekday: "short",
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })
+              : placeholder}
           </span>
           {clearable && value ? (
             <span
@@ -580,24 +932,42 @@ export function DatePicker({
               <X className="size-3.5" />
             </span>
           ) : (
-            <ChevronDown className={cn("size-4 text-ink-400 transition-transform", open && "rotate-180")} />
+            <ChevronDown
+              className={cn(
+                "size-4 text-ink-400 transition-transform",
+                open && "rotate-180",
+              )}
+            />
           )}
         </button>
 
         {open && (
           <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-[284px] rounded-xl border border-ink-100 bg-white p-3 shadow-pop animate-fade-in">
             <div className="mb-2 flex items-center justify-between">
-              <button type="button" onClick={() => shift(-1)} className="grid size-7 place-items-center rounded-lg text-ink-500 hover:bg-ink-50 hover:text-brand-600">
+              <button
+                type="button"
+                onClick={() => shift(-1)}
+                className="grid size-7 place-items-center rounded-lg text-ink-500 hover:bg-ink-50 hover:text-brand-600"
+              >
                 <ChevronLeft className="size-4" />
               </button>
-              <span className="font-display text-[13.5px] font-semibold text-ink-900">{monthLabel}</span>
-              <button type="button" onClick={() => shift(1)} className="grid size-7 place-items-center rounded-lg text-ink-500 hover:bg-ink-50 hover:text-brand-600">
+              <span className="font-display text-[13.5px] font-semibold text-ink-900">
+                {monthLabel}
+              </span>
+              <button
+                type="button"
+                onClick={() => shift(1)}
+                className="grid size-7 place-items-center rounded-lg text-ink-500 hover:bg-ink-50 hover:text-brand-600"
+              >
                 <ChevronRight className="size-4" />
               </button>
             </div>
             <div className="grid grid-cols-7 gap-0.5 text-center">
               {WEEKDAYS_SHORT.map((d) => (
-                <span key={d} className="py-1 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
+                <span
+                  key={d}
+                  className="py-1 text-[10.5px] font-semibold uppercase tracking-wide text-ink-400"
+                >
                   {d[0]}
                 </span>
               ))}
@@ -605,7 +975,9 @@ export function DatePicker({
                 <span key={`pad${i}`} />
               ))}
               {range(daysInMonth).map((i) => {
-                const iso = new Date(Date.UTC(view.y, view.m, i + 1)).toISOString().slice(0, 10);
+                const iso = new Date(Date.UTC(view.y, view.m, i + 1))
+                  .toISOString()
+                  .slice(0, 10);
                 const disabledDay = (min && iso < min) || (max && iso > max);
                 const active = iso === value;
                 return (
@@ -624,7 +996,9 @@ export function DatePicker({
                         : disabledDay
                           ? "cursor-not-allowed text-ink-200"
                           : "text-ink-700 hover:bg-brand-50",
-                      !active && iso === todayKey && "ring-1 ring-inset ring-brand-400",
+                      !active &&
+                        iso === todayKey &&
+                        "ring-1 ring-inset ring-brand-400",
                     )}
                   >
                     {i + 1}
@@ -633,10 +1007,21 @@ export function DatePicker({
               })}
             </div>
             <div className="mt-2 flex items-center justify-between border-t border-ink-100 pt-2">
-              <button type="button" onClick={() => { onChange(todayKey); setOpen(false); }} className="text-[12px] font-semibold text-brand-600 hover:underline">
+              <button
+                type="button"
+                onClick={() => {
+                  onChange(todayKey);
+                  setOpen(false);
+                }}
+                className="text-[12px] font-semibold text-brand-600 hover:underline"
+              >
                 Today
               </button>
-              <button type="button" onClick={() => setOpen(false)} className="text-[12px] font-medium text-ink-500 hover:text-ink-800">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="text-[12px] font-medium text-ink-500 hover:text-ink-800"
+              >
                 Done
               </button>
             </div>
@@ -650,7 +1035,10 @@ export function DatePicker({
 /* --------------------- Module × permission matrix (RBAC) ------------------- */
 
 export function PermissionMatrix({
-  modules, permissions, onToggle, readOnly,
+  modules,
+  permissions,
+  onToggle,
+  readOnly,
 }: {
   modules: ModuleKey[];
   permissions: Partial<Record<ModuleKey, Permission[]>>;
@@ -662,9 +1050,14 @@ export function PermissionMatrix({
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr className="bg-ink-50/80 text-left">
-            <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">Module</th>
+            <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+              Module
+            </th>
             {PERMISSIONS.map((p) => (
-              <th key={p} className="w-[74px] px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500">
+              <th
+                key={p}
+                className="w-[74px] px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-500"
+              >
                 {p}
               </th>
             ))}
@@ -673,14 +1066,22 @@ export function PermissionMatrix({
         <tbody>
           {modules.length === 0 && (
             <tr>
-              <td colSpan={5} className="px-3 py-6 text-center text-[12.5px] text-ink-400">
+              <td
+                colSpan={5}
+                className="px-3 py-6 text-center text-[12.5px] text-ink-400"
+              >
                 Assign at least one module to configure permissions.
               </td>
             </tr>
           )}
           {modules.map((m) => (
-            <tr key={m} className="border-t border-ink-100 hover:bg-brand-25/40">
-              <td className="px-3 py-2 font-medium capitalize text-ink-700">{m.replace(/([A-Z])/g, " $1").toLowerCase()}</td>
+            <tr
+              key={m}
+              className="border-t border-ink-100 hover:bg-brand-25/40"
+            >
+              <td className="px-3 py-2 font-medium capitalize text-ink-700">
+                {m.replace(/([A-Z])/g, " $1").toLowerCase()}
+              </td>
               {PERMISSIONS.map((p) => {
                 const checked = (permissions[m] ?? []).includes(p);
                 return (
@@ -691,7 +1092,9 @@ export function PermissionMatrix({
                       onClick={() => onToggle(m, p)}
                       className={cn(
                         "mx-auto grid size-6 place-items-center rounded-md border transition-all",
-                        checked ? "border-brand-600 bg-brand-600 text-white" : "border-ink-200 bg-white text-transparent hover:border-brand-300",
+                        checked
+                          ? "border-brand-600 bg-brand-600 text-white"
+                          : "border-ink-200 bg-white text-transparent hover:border-brand-300",
                         readOnly && "cursor-not-allowed opacity-60",
                       )}
                       aria-label={`${m} ${p}`}

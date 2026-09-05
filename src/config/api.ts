@@ -41,13 +41,14 @@ export const API_ENDPOINTS = {
   roles: "/api/hospital/roles",
 
   // Patients
-  patients: "/patients",
+  patients: "/api/opd/patients",
+  
 
   // Doctors
   doctors: "/api/opd/doctors/create",
 
   // Departments
-  departments: "/api/hospital/departments",
+  departments: "/api/hospital/masters/departments",
 
   // Specializations
   specializations: "/specializations",

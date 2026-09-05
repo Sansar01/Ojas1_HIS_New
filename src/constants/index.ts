@@ -173,6 +173,14 @@ export const BLOOD_GROUPS = [
   "Unknown",
 ];
 export const MARITAL_STATUS = ["Single", "Married", "Divorced", "Widowed"];
+export const guardianRelations: Record<string, string> = {
+  Father: "FATHER",
+  Mother: "MOTHER",
+  Spouse: "SPOUSE",
+  Son: "SON",
+  Daughter: "DAUGHTER",
+  Other: "OTHER",
+};
 export const PAYMENT_METHODS = [
   "Cash",
   "Card",

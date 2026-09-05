@@ -18,6 +18,7 @@ export function PageIntro({
   module,
   actions,
   onCreate,
+  showButton = false,
   createLabel = "Add record",
   meta,
   back,
@@ -28,6 +29,7 @@ export function PageIntro({
   actions?: React.ReactNode;
   onCreate?: () => void;
   createLabel?: string;
+  showButton?: boolean;
   meta?: React.ReactNode;
   back?: boolean;
   cancelLabel?: string;
@@ -61,9 +63,12 @@ export function PageIntro({
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           {/* {module && onCreate && canCreate(module) && ( */}
+          {showButton && (
             <Button icon={<PlusIcon />} onClick={onCreate}>
               {createLabel}
             </Button>
+          )}
+
           {/* )} */}
         </div>
       </div>

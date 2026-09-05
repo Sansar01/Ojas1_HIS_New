@@ -24,6 +24,7 @@ import {
   SettingsPage,
   NotFoundPage,
 } from "@/pages/admin/AdminPages";
+import { PatientsRegisterPage } from "@/pages/users/patientRegister";
 
 /**
  * Public routes → auth screens.
@@ -85,10 +86,10 @@ export function AppRoutes() {
             }
           />
           <Route
-            path="patients/new"
+            path="patients/register"
             element={
               <RequireModule module="patients">
-                <PatientsNewPage />
+                <PatientsRegisterPage />
               </RequireModule>
             }
           />
