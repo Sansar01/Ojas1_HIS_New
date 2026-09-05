@@ -62,14 +62,11 @@ export function PageIntro({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {actions}
-          {/* {module && onCreate && canCreate(module) && ( */}
-          {showButton && (
+           {module && onCreate && canCreate(module) && ( 
             <Button icon={<PlusIcon />} onClick={onCreate}>
               {createLabel}
             </Button>
-          )}
-
-          {/* )} */}
+           )}
         </div>
       </div>
     </div>

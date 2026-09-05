@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { PERMISSIONS, WEEKDAYS_SHORT } from "@/constants";
-import type { ModuleKey, Permission } from "@/types";
+import type { Permission } from "@/types";
 import { formatDate, range } from "@/utils";
 
 /* ------------------------------- Form field -------------------------------- */
@@ -1040,9 +1040,9 @@ export function PermissionMatrix({
   onToggle,
   readOnly,
 }: {
-  modules: ModuleKey[];
-  permissions: Partial<Record<ModuleKey, Permission[]>>;
-  onToggle: (module: ModuleKey, permission: Permission) => void;
+  modules: string[];
+  permissions: Partial<Record<string, Permission[]>>;
+  onToggle: (module: string, permission: Permission) => void;
   readOnly?: boolean;
 }) {
   return (

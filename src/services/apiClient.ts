@@ -150,7 +150,7 @@ export const entitlementApi = {
 /* ------------------------------- CRUD API -------------------------------- */
 
 // Use API_ENDPOINTS for all resource URLs instead of duplicating paths
-export const resourceApi = {
+export const  resourceApi = {
   list: (resource: keyof typeof API_ENDPOINTS, params?: ListQuery) =>
     request<Paginated<any>>({
       url: (API_ENDPOINTS as any)[resource] || `/${resource}`,

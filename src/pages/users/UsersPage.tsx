@@ -24,6 +24,8 @@ import { useRootSelector as _rootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { patientsApi, usersApi } from "@/features/slices";
 import { syncUser } from "@/features/auth/authSlice";
+import { request } from "@/services/apiClient";
+import { API_ENDPOINTS } from "@/config/api";
 import { formatDateTime, fullName, relativeTime } from "@/utils";
 import { cn } from "@/utils/cn";
 import type { ModuleKey, Permission, Status, User } from "@/types";
@@ -79,11 +81,48 @@ const emptyUser = (): Partial<User> => ({
   },
 });
 
+const normalizeUser = (record: any): User => {
+  const primaryRole =
+    record.roles?.find((assignment: any) => assignment.isPrimary) ??
+    record.roles?.[0];
+  const roleName =
+    primaryRole?.hospitalRole?.roleName?.name ??
+    primaryRole?.hospitalRole?.name ??
+    record.role ??
+    "Staff";
+
+  return {
+    ...record,
+    firstName: record.firstName ?? "",
+    lastName: record.lastName ?? "",
+    email: record.email ?? "",
+    mobile: record.mobile ?? "",
+    roleId: String(primaryRole?.hospitalRoleId ?? record.roleId ?? ""),
+    role: roleName,
+    status: String(record.status ?? "INACTIVE").toLowerCase() as Status,
+    gender: record.gender ?? record.staffProfile?.gender ?? "Other",
+    dateOfBirth: record.dateOfBirth ?? "",
+    modules: record.modules ?? [],
+    permissions: record.permissions ?? {},
+    lastLogin: record.lastLoginAt ?? record.lastLogin ?? null,
+    createdAt: record.createdAt ?? new Date().toISOString(),
+    color: record.color ?? AVATAR_COLORS[0],
+    userType: record.userType ?? "REGULAR_USER",
+    title:
+      record.title ??
+      record.staffProfile?.designation ??
+      record.staffProfile?.title ??
+      roleName,
+  };
+};
+
 export function UsersPage() {
   const dispatch = useAppDispatch();
   const me = useCurrentUser();
   const { canCreate, canEdit, canDelete } = usePermission();
-  const { items: users, status } = useRootSelector((s) => s.users);
+  const [users, setUsers] = useState<User[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [refreshKey, setRefreshKey] = useState(0);
   const roles = useRootSelector((s) => s.roles.items);
   const [filters, setFilters] = useState({ role: "all", status: "all" });
   const [editing, setEditing] = useState<Partial<User> | null>(null);
@@ -106,8 +145,31 @@ export function UsersPage() {
   });
 
   useEffect(() => {
-    // if (status === "idle") dispatch(usersApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+    let active = true;
+
+    request<any[]>({
+      url: API_ENDPOINTS.users,
+      method: "GET",
+    })
+      .then((response) => {
+        if (!active) return;
+        const rawResponse: any = response;
+        const records = Array.isArray(rawResponse)
+          ? rawResponse
+          : Array.isArray(rawResponse.data)
+            ? rawResponse.data
+            : rawResponse.data?.rows ?? [];
+        setUsers(records.map(normalizeUser));
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (active) setStatus("error");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [refreshKey]);
 
   const toggleStatus = (user: User) => {
     const next: Status = user.status === "active" ? "inactive" : "active";
@@ -156,7 +218,11 @@ export function UsersPage() {
             variant="outline"
             size="md"
             icon={<Users2 />}
-            onClick={() => dispatch(usersApi.thunks.fetchAll() as any)}
+            loading={status === "loading"}
+            onClick={() => {
+              setStatus("loading");
+              setRefreshKey((value) => value + 1);
+            }}
           >
             Refresh
           </Button>
@@ -689,8 +755,9 @@ function UserFormDialog({
     });
   };
 
-  const togglePermission = (module: ModuleKey, permission: Permission) => {
-    const current = form.values.permissions[module] ?? [];
+  const togglePermission = (module: string, permission: Permission) => {
+    const key = module as ModuleKey;
+    const current = form.values.permissions[key] ?? [];
     const next = current.includes(permission)
       ? current.filter((p) => p !== permission)
       : [...current, permission];
@@ -703,7 +770,7 @@ function UserFormDialog({
     }
     form.setValue("permissions", {
       ...form.values.permissions,
-      [module]: next,
+      [key]: next,
     });
   };
 

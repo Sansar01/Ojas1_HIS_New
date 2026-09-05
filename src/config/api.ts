@@ -39,6 +39,9 @@ export const API_ENDPOINTS = {
 
   // Roles
   roles: "/api/hospital/roles",
+  roleMasterCatalog: "/api/hospital/roles/master-catalog",
+  rolePermissions: (roleId: string | number) =>
+    `/api/hospital/roles/${roleId}/permissions`,
 
   // Patients
   patients: "/api/opd/patients",

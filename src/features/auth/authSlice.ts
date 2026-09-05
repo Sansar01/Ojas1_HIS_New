@@ -37,38 +37,11 @@ const initialState: AuthState = {
   reset: { email: null, token: null },
 };
 
-// Restore session from localStorage on app load
-export const restoreSession = createAsyncThunk(
-  "auth/restoreSession",
-  async (_, { rejectWithValue }) => {
-    try {
-      const stored = localStorage.getItem(TOKEN_KEY);
-      if (!stored) return null;
-
-      const parsed = JSON.parse(stored);
-
-      if (!parsed?.accessToken || !parsed?.user) {
-        localStorage.removeItem(TOKEN_KEY);
-        return null;
-      }
-
-      // Set token in memory
-      setToken(parsed.accessToken);
-
-      // Return the stored session directly (no API call)
-      return {
-        accessToken: parsed.accessToken,
-        user: parsed.user,
-        role: parsed.role || { name: parsed.user.userType },
-        expiresAt: parsed.expiresAt,
-        entitlements: parsed.entitlements || null,
-      };
-    } catch (error: any) {
-      localStorage.removeItem(TOKEN_KEY);
-      return rejectWithValue(error?.message);
-    }
-  },
-);
+export const restoreSession = createAsyncThunk("auth/restore", async (_, { dispatch }) => {
+  const res = await authApi.me();
+  if (res.data) dispatch(fetchEntitlements());
+  return res.data;
+});
 
 export const login = createAsyncThunk(
   "auth/login",
