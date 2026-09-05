@@ -61,7 +61,7 @@ export function createCrudSlice<T extends { id: string }>(
           resource,
           config.listParams === null
             ? undefined
-            : config.listParams ?? { pageSize: 1000 },
+            : config.listParams,
         );
         done();
         const responseData = Array.isArray(res) ? res : res.data;
@@ -71,6 +71,23 @@ export function createCrudSlice<T extends { id: string }>(
       } catch (error: any) {
         done();
         dispatch(toast.error(`Could not load ${name}`, error?.message));
+        throw error;
+      }
+    },
+  );
+
+  const getOne = createAsyncThunk(
+    `${name}/getOne`,
+    async (id: string, { dispatch }) => {
+      const done = guard(dispatch, `Loading ${name} record`);
+      try {
+        const res = await resourceApi.get(resource, id);
+        done();
+        const responseData: any = (res as any)?.data ?? res;
+        return (responseData?.data ?? responseData?.item ?? responseData) as T;
+      } catch (error: any) {
+        done();
+        dispatch(toast.error(`Could not load ${name} record`, error?.message));
         throw error;
       }
     },
@@ -209,12 +226,20 @@ export function createCrudSlice<T extends { id: string }>(
           s.status = "error";
           s.error = (action.error.message as string) ?? "Request failed";
         })
+        .addCase(getOne.fulfilled, (s, action) => {
+          const index = s.items.findIndex(
+            (i: any) => i.id === (action.payload as any).id,
+          );
+          if (index > -1)
+            s.items[index] = { ...s.items[index], ...(action.payload as any) };
+          else s.items.unshift(action.payload as any);
+        })
         .addCase(createOne.fulfilled, (s, action) => {
           s.items.unshift(action.payload as any);
         })
         .addCase(updateOne.fulfilled, (s, action) => {
           const index = s.items.findIndex(
-            (i: any) => i.id === (action.payload as any).id,
+            (i: any) => i.id === (action.payload as any)?.id,
           );
           if (index > -1)
             s.items[index] = { ...s.items[index], ...(action.payload as any) };
@@ -238,7 +263,7 @@ export function createCrudSlice<T extends { id: string }>(
     resource,
     reducer: slice.reducer,
     actions: slice.actions,
-    thunks: { fetchAll, createOne, updateOne, removeOne, toggleActive },
+    thunks: { fetchAll, getOne, createOne, updateOne, removeOne, toggleActive },
   };
 }
 

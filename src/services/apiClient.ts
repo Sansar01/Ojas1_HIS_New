@@ -174,7 +174,7 @@ export const  resourceApi = {
   update: (resource: keyof typeof API_ENDPOINTS, id: string, body: any) =>
     request<any>({
       url: `${(API_ENDPOINTS as any)[resource] || `/${resource}`}/${id}`,
-      method: "PUT",
+      method: "PATCH",
       body,
     }),
 

@@ -1,9 +1,15 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { departmentsApi, patientsApi } from "@/features/slices";
-import { FormRow, FormSection, PageIntro } from "@/components/common";
+import {
+  Emptyish,
+  FormRow,
+  FormSection,
+  PageIntro,
+  SectionPanel,
+} from "@/components/common";
 import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
 import {
@@ -12,50 +18,117 @@ import {
   MARITAL_STATUS,
   guardianRelations,
 } from "@/constants";
+import type { Patient } from "@/types";
 
-export function PatientsRegisterPage() {
-  const dispatch = useAppDispatch();
+export function PatientsFormPage() {
+  const { id } = useParams();
   const navigate = useNavigate();
-  const departments = useRootSelector((state) => state.departments.items);
+  const dispatch = useAppDispatch();
+  const fetchKey = `${id ?? "register"}`;
+  const fetchedRef = useState(() => new Set<string>())[0];
+  const patient = useRootSelector((state) =>
+    (state.patients?.items ?? []).find(
+      (item) => item && String(item.id) === id,
+    ),
+  ) as Patient | undefined;
+  const [loadingPatient, setLoadingPatient] = useState(Boolean(id));
 
   useEffect(() => {
+    if (!id) {
+      setLoadingPatient(false);
+      return;
+    }
+
+    if (fetchedRef.has(fetchKey)) return;
+    fetchedRef.add(fetchKey);
+
+    dispatch(patientsApi.thunks.getOne(id) as any)
+      .unwrap()
+      .catch(() => undefined)
+      .finally(() => setLoadingPatient(false));
+  }, [dispatch, fetchKey, fetchedRef, id]);
+
+  if (loadingPatient) {
+    return null;
+  }
+
+  if (id && !patient) {
+    return (
+      <SectionPanel title="Patient not found">
+        <Emptyish onBack={() => navigate("/patients")} />
+      </SectionPanel>
+    );
+  }
+
+  return <PatientsFormContent patient={patient} />;
+}
+
+function PatientsFormContent({ patient }: { patient?: Patient }) {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const isEdit = Boolean(patient?.id);
+  const departments = useRootSelector((state) => state.departments.items);
+  const departmentsFetchedRef = useState(() => ({ current: false }))[0];
+
+  useEffect(() => {
+    if (departmentsFetchedRef.current) return;
+    departmentsFetchedRef.current = true;
     dispatch(departmentsApi.thunks.fetchAll() as any);
-  }, [dispatch]);
+  }, [departmentsFetchedRef, dispatch]);
+
+  const displayBloodGroup = (bloodGroup?: string) => {
+    const normalized = String(bloodGroup ?? "O+").toUpperCase();
+    return normalized.replace("_POSITIVE", "+").replace("_NEGATIVE", "-");
+  };
 
   const form = useForm({
     initialValues: {
-      firstName: "",
-      lastName: "",
-      gender: "Male",
-      dateOfBirth: "",
-      age: 0,
-      ageUnit: "years",
-      bloodGroup: "O+",
-      maritalStatus: "Single",
-      mobile: "",
-      alternateMobile: "",
-      email: "",
-      address: "",
-      city: "",
-      district: "",
-      state: "",
-      pincode: "",
-      aadhaarNumber: "",
-      abhaId: "",
-      guardianName: "",
-      guardianRelation: "",
-      guardianMobile: "",
-      insuranceProvider: "",
-      insurancePolicyNo: "",
-      insuranceValidTill: "",
-      allergies: "",
-      chronicDiseases: "",
-      companyName: "",
-      empId: "",
-      coverage: "",
-      consultingDoctor: "",
-      country: "",
-      department: "",
+      firstName: patient?.firstName ?? "",
+      lastName: patient?.lastName ?? "",
+      gender: patient?.gender
+        ? patient.gender.charAt(0) + patient.gender.slice(1).toLowerCase()
+        : "Male",
+      dateOfBirth: patient?.dateOfBirth?.slice(0, 10) ?? "",
+      age: (patient as any)?.age ?? 0,
+      ageUnit: (patient as any)?.ageUnit ?? "years",
+      bloodGroup: displayBloodGroup(patient?.bloodGroup),
+      maritalStatus: patient?.maritalStatus
+        ? patient.maritalStatus.charAt(0) +
+          patient.maritalStatus.slice(1).toLowerCase()
+        : "Single",
+      mobile: patient?.mobile ?? "",
+      alternateMobile:
+        (patient as any)?.alternateMobile ?? patient?.altMobile ?? "",
+      email: patient?.email ?? "",
+      address: patient?.address ?? "",
+      city: patient?.city ?? "",
+      district: (patient as any)?.district ?? "",
+      state: (patient as any)?.state ?? "",
+      pincode: (patient as any)?.pincode ?? "",
+      aadhaarNumber: (patient as any)?.aadhaarNumber ?? "",
+      abhaId: (patient as any)?.abhaId ?? "",
+      guardianName: (patient as any)?.guardianName ?? "",
+      guardianRelation: (patient as any)?.guardianRelation
+        ? String((patient as any).guardianRelation).charAt(0) +
+          String((patient as any).guardianRelation)
+            .slice(1)
+            .toLowerCase()
+        : "",
+      guardianMobile: (patient as any)?.guardianMobile ?? "",
+      insuranceProvider: (patient as any)?.insuranceProvider ?? "",
+      insurancePolicyNo: (patient as any)?.insurancePolicyNo ?? "",
+      insuranceValidTill:
+        (patient as any)?.insuranceValidTill?.slice(0, 10) ?? "",
+      allergies: patient?.allergies ?? "",
+      chronicDiseases:
+        (patient as any)?.chronicDiseases ?? patient?.chronicConditions ?? "",
+      companyName: (patient as any)?.companyName ?? "",
+      empId: (patient as any)?.empId ?? "",
+      coverage: (patient as any)?.coverage ?? "",
+      consultingDoctor: (patient as any)?.consultingDoctor ?? "",
+      country: (patient as any)?.country ?? "",
+      department:
+        (patient as any)?.department ?? (patient as any)?.departmentId ?? "",
     },
     schema: {
       firstName: [{ required: "First name is required", min: 2 }],
@@ -84,7 +157,9 @@ export function PatientsRegisterPage() {
 
     const payload = {
       ...Object.fromEntries(
-        Object.entries(values).filter(([, value]) => value !== ""),
+        Object.entries(values).filter(
+          ([key, value]) => value !== "" && !(isEdit && key === "mobile"),
+        ),
       ),
       gender: values.gender.toUpperCase(),
       bloodGroup: values.bloodGroup
@@ -92,7 +167,7 @@ export function PatientsRegisterPage() {
         .replace("-", "_NEGATIVE")
         .toUpperCase(),
       maritalStatus: values.maritalStatus.toUpperCase(),
-      mobile: values.mobile,
+      ...(!isEdit && { mobile: values.mobile }),
       ...(values.alternateMobile && {
         alternateMobile: values.alternateMobile,
       }),
@@ -107,20 +182,34 @@ export function PatientsRegisterPage() {
         insuranceValidTill: toISOString(values.insuranceValidTill),
       }),
     };
-    await dispatch(
-      patientsApi.thunks.createOne({
-        data: payload,
-        successMessage: "Patient registered successfully",
-      } as any),
-    ).unwrap();
+    if (isEdit) {
+      await dispatch(
+        patientsApi.thunks.updateOne({
+          id: String(patient!.id),
+          data: payload,
+          successMessage: "Patient updated successfully",
+        } as any),
+      ).unwrap();
+    } else {
+      await dispatch(
+        patientsApi.thunks.createOne({
+          data: payload,
+          successMessage: "Patient registered successfully",
+        } as any),
+      ).unwrap();
+    }
     navigate("/patients");
   });
 
   return (
     <div className="max-w-5xl mx-auto pb-10">
       <PageIntro
-        title="Register New Patient"
-        description="Create a new patient record. All fields marked with * are required."
+        title={isEdit ? "Edit Patient" : "Register New Patient"}
+        description={
+          isEdit
+            ? "Update the patient record. All fields marked with * are required."
+            : "Create a new patient record. All fields marked with * are required."
+        }
         back
       />
 
@@ -447,7 +536,7 @@ export function PatientsRegisterPage() {
               Cancel
             </Button>
             <Button type="submit" loading={form.submitting}>
-              Register Patient
+              {isEdit ? "Update Patient" : "Register Patient"}
             </Button>
           </div>
         </form>
