@@ -9,9 +9,8 @@
  */
 
 // Get the API base URL from Vite environment variables
-// Vite exposes env variables prefixed with VITE_ on import.meta.env
 export const API_BASE_URL: string =
-  (import.meta.env as any).VITE_API_BASE_URL || "http://localhost:8000/api";
+  (import.meta.env as any).VITE_API_BASE_URL || "https://cloud-his-backend.onrender.com";
 
 // Application environment
 export const APP_ENV: string =
@@ -34,7 +33,7 @@ export const API_ENDPOINTS = {
   // Users
   users: "/api/hospital/users",
 
-  //modules
+  // Modules
   entitlement_modules: "/api/hospital/roles/entitlements/modules",
 
   // Roles
@@ -46,8 +45,15 @@ export const API_ENDPOINTS = {
   // Patients
   patients: "/patients",
 
-  // Doctors
-  doctors: "/api/opd/doctors/create",
+  // Doctors / OPD Module
+  doctors: "/api/opd/doctors",
+  createDoctor: "/api/opd/doctors/create",
+  doctorDetail: (doctorId: string | number) =>
+    `/api/opd/doctors/${doctorId}`,
+  doctorAvailability: (doctorId: string | number) =>
+    `/api/opd/doctors/${doctorId}/availability`,
+  doctorLeaves: (doctorId: string | number) =>
+    `/api/opd/doctors/${doctorId}/leaves`,
 
   // Departments
   departments: "/api/hospital/departments",
@@ -64,16 +70,20 @@ export const API_ENDPOINTS = {
   // Invoices / Billing
   invoices: "/invoices",
 
-  // Hospital Settings
-  //hospital: '/hospital',
-
   // Activities / Audit Log
   activities: "/activities",
 } as const;
 
-// Helper to build full API URLs
+// Helper to build fully-qualified API URLs cleanly
 export const buildApiUrl = (endpoint: string): string => {
-  return `${API_BASE_URL}${endpoint}`;
+  const base = API_BASE_URL.replace(/\/$/, ""); // Strip trailing slash if present
+  const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+
+  // If the base URL ends with "/api" and path starts with "/api/", trim duplicate segment
+  if (base.endsWith("/api") && path.startsWith("/api/")) {
+    return `${base}${path.substring(4)}`;
+  }
+  return `${base}${path}`;
 };
 
 export default {
