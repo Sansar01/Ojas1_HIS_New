@@ -7,7 +7,7 @@ import { bootstrapResources } from "@/store";
 import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
-import { LoaderOverlay, ToastHost } from "@/components/ui/feedback";
+import { LoaderOverlay } from "@/components/ui/feedback";
 import { createPortal } from "react-dom";
 
 export function DashboardLayout() {
@@ -16,7 +16,6 @@ export function DashboardLayout() {
   const mobileNavOpen = useRootSelector((s) => s.ui.mobileNavOpen);
   const loaderCount = useRootSelector((s) => s.ui.loader.count);
   const loaderLabel = useRootSelector((s) => s.ui.loader.label);
-  const toasts = useRootSelector((s) => s.ui.toasts);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
@@ -71,7 +70,6 @@ export function DashboardLayout() {
         </main>
       </div>
 
-      <ToastHost toasts={toasts} />
       <LoaderOverlay visible={loaderCount > 0} label={loaderLabel} />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>

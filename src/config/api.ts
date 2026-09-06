@@ -25,6 +25,7 @@ export const API_ENDPOINTS = {
   auth: {
     login: "/api/hospital/auth/login",
     logout: "/api/hospital/auth/logout",
+    refresh:"/api/hospital/auth/refresh",
     me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
     resetPassword: "/api/hospital/auth/reset-password",
@@ -43,7 +44,7 @@ export const API_ENDPOINTS = {
     `/api/hospital/roles/${roleId}/permissions`,
 
   // Patients
-  patients: "/patients",
+  patients: "/api/opd/patients",
 
   // Doctors / OPD Module
   doctors: "/api/opd/doctors",
@@ -56,7 +57,7 @@ export const API_ENDPOINTS = {
     `/api/opd/doctors/${doctorId}/leaves`,
 
   // Departments
-  departments: "/api/hospital/departments",
+  departments: "/api/hospital/masters/departments",
 
   // Specializations
   specializations: "/specializations",

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useLocation } from "react-router-dom";
 import type { AppDispatch, RootState } from "@/store/types";
 import { selectUser } from "@/features/auth/authSlice";
 import {
@@ -163,7 +162,7 @@ export function useTable<T extends Record<string, any>>(
   options: {
     searchFields?: (keyof T | ((row: T) => string))[];
     pageSize?: number;
-    filters?: Record<string, string>;
+    filters?: Record<string, string | string[]>;
     sortAccessors?: Record<string, (row: T) => string | number>;
   } = {},
 ) {
@@ -189,15 +188,20 @@ export function useTable<T extends Record<string, any>>(
       );
     }
     const activeFilters = Object.entries(options.filters ?? {}).filter(
-      ([, v]) => v && v !== "all",
+      ([, v]) =>
+        v && (Array.isArray(v) ? !v.includes("all") : v !== "all"),
     );
     if (activeFilters.length) {
       out = out.filter((row) =>
         activeFilters.every(([key, value]) => {
           const cell = (row as any)[key];
-          if (Array.isArray(cell)) return cell.includes(value);
-          return (
-            String(cell ?? "").toLowerCase() === String(value).toLowerCase()
+          const values = Array.isArray(value) ? value : [value];
+          if (Array.isArray(cell))
+            return values.some((filterValue) => cell.includes(filterValue));
+          return values.some(
+            (filterValue) =>
+              String(cell ?? "").toLowerCase() ===
+              String(filterValue).toLowerCase(),
           );
         }),
       );

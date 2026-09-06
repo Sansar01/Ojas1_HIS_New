@@ -1,7 +1,7 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { entitlementApi } from "@/services/apiClient";
 import type { EntitlementModule } from "@/types/entitlement";
-import { toast } from "../ui/uiSlice";
+import { hideLoader, showLoader, toast } from "../ui/uiSlice";
 
 interface EntitlementState {
   modules: EntitlementModule[];
@@ -20,6 +20,7 @@ const initialState: EntitlementState = {
 export const fetchEntitlements = createAsyncThunk(
   "entitlement/fetchModules",
   async (_, { dispatch, rejectWithValue }) => {
+    dispatch(showLoader("Loading modules"));
     try {
       const res = await entitlementApi.getModules();
       const response: any = res;
@@ -31,8 +32,10 @@ export const fetchEntitlements = createAsyncThunk(
           : data?.id && data?.features
             ? [data]
             : [];
+      dispatch(hideLoader());
       return modules as EntitlementModule[];
     } catch (error: any) {
+      dispatch(hideLoader());
       dispatch(toast.error("Could not load permissions", error?.message));
       return rejectWithValue(error?.message ?? "Unable to load permissions");
     }

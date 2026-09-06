@@ -7,7 +7,6 @@ import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
-
 import { Entitlements } from "@/types/entitlement";
 
 /* ---------------------------------------------------------------------------
@@ -76,7 +75,10 @@ export const login = createAsyncThunk(
     try {
       const res = await authApi.login(email, password);
 
-      if (res.data) {
+      if (
+        res.data?.accessToken &&
+        res.data?.user
+      ) {
         // Save token
         localStorage.setItem(
           TOKEN_KEY,
@@ -100,12 +102,14 @@ export const login = createAsyncThunk(
       }
 
       // If response is not successful
-      const errorMessage = res.message || "Login failed";
-      dispatch(toast.error("Sign in failed", errorMessage));
+      const errorMessage =
+        res.message || "The email or password is incorrect. Please try again.";
       return rejectWithValue(errorMessage);
     } catch (error: any) {
-      const errorMessage = error?.message || "Unable to sign in.";
-      dispatch(toast.error("Sign in failed", errorMessage));
+      const errorMessage =
+        error?.message === "Failed to fetch"
+          ? "Unable to reach the server. Please check your connection and try again."
+          : error?.message || "Unable to sign in. Please try again.";
       return rejectWithValue(errorMessage);
     }
   },

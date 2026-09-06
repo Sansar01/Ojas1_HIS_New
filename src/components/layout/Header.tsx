@@ -256,7 +256,10 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
           <MenuItem
             onSelect={async () => {
               await dispatch(logoutUser()).unwrap();
-              window.location.assign("/accounts/login");
+              window.setTimeout(
+                () => navigate("/accounts/login", { replace: true }),
+                3000,
+              );
             }}
             className={cn(menuItemClass("danger"), "border-t border-ink-100")}
           >
