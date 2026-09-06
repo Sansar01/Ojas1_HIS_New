@@ -26,7 +26,7 @@ export const API_ENDPOINTS = {
   auth: {
     login: "/api/hospital/auth/login",
     logout: "/api/hospital/auth/logout",
-    refresh:"/api/hospital/auth/refresh",
+    refresh: "/api/hospital/auth/refresh",
     me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
     resetPassword: "/api/hospital/auth/reset-password",
@@ -48,7 +48,12 @@ export const API_ENDPOINTS = {
   patients: "/api/opd/patients",
 
   // Doctors
-  doctors: "/api/opd/doctors/create",
+  // doctors: "/api/opd/doctors/create",
+  doctors: {
+    create: "/api/opd/doctors/create",
+    list: "/api/opd/doctors/list",
+    getSlotById: (Id: string | number) => `/api/opd/doctors/${Id}/availability`,
+  },
 
   // Departments
   departments: "/api/hospital/masters/departments",
@@ -58,6 +63,14 @@ export const API_ENDPOINTS = {
 
   // Appointments
   appointments: "/appointments",
+
+  appointment: {
+    list: "/appointment/list",
+    create: "/appointment/create",
+    slot: "/appointment/slot",
+    getById: (Id: string | number) => `/appointment/${Id}`,
+    // if exists
+  },
 
   // Consultations
   consultations: "/consultations",

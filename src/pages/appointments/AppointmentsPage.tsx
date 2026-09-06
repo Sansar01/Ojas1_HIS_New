@@ -550,7 +550,8 @@ export function AppointmentsPage() {
         description="Book, reschedule and progress visits. The slot builder reads each doctor's clinic hours, slot length, buffer time and daily patient cap."
         module="appointments"
         createLabel="Book appointment"
-        onCreate={() => setForm({ mode: "new" })}
+        // onCreate={() => setForm({ mode: "new" })}
+        onCreate={() => navigate("/appointments/register")}
         meta={
           <>
             <Badge tone="amber" dot>

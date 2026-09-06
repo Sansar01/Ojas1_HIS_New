@@ -150,7 +150,7 @@ export const entitlementApi = {
 /* ------------------------------- CRUD API -------------------------------- */
 
 // Use API_ENDPOINTS for all resource URLs instead of duplicating paths
-export const  resourceApi = {
+export const resourceApi = {
   list: (resource: keyof typeof API_ENDPOINTS, params?: ListQuery) =>
     request<Paginated<any>>({
       url: (API_ENDPOINTS as any)[resource] || `/${resource}`,
@@ -183,6 +183,41 @@ export const  resourceApi = {
       url: `${(API_ENDPOINTS as any)[resource] || `/${resource}`}/${id}`,
       method: "DELETE",
     }),
+};
+
+// ------------------------------------Appointment------------------------------
+
+export const appointmentApi = {
+  async list(params?: any) {
+    return request({
+      url: API_ENDPOINTS.appointment.list,
+      method: "GET",
+      params,
+    });
+  },
+
+  async create(data: any) {
+    return request({
+      url: API_ENDPOINTS.appointment.create,
+      method: "POST",
+      body: data,
+    });
+  },
+
+  // async update(id: string, data: any) {
+  //   return request({
+  //     url: API_ENDPOINTS.appointment.update,
+  //     method: "PUT",
+  //     body: data,
+  //   });
+  // },
+
+  // async remove(id: string) {
+  //   return request({
+  //     url: API_ENDPOINTS.appointment.delete,
+  //     method: "DELETE",
+  //   });
+  // },
 };
 
 /* ------------------------------- Helpers --------------------------------- */

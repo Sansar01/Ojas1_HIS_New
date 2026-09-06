@@ -25,6 +25,7 @@ import {
 } from "@/pages/admin/AdminPages";
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
+import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
  * Public routes → auth screens.
@@ -146,6 +147,22 @@ export function AppRoutes() {
             element={
               <RequireModule module="appointments">
                 <AppointmentsPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="/appointments/register"
+            element={
+              <RequireModule module="appointments">
+                <AppointmentFormPage />
+              </RequireModule>
+            }
+          />
+          <Route
+            path="/appointments:id/edit"
+            element={
+              <RequireModule module="appointments">
+                <AppointmentFormPage />
               </RequireModule>
             }
           />
