@@ -3,7 +3,7 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
+import { authApi, setToken, setTokenExpiry, TOKEN_KEY } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
@@ -17,11 +17,11 @@ interface AuthState {
   session: Session | null;
   entitlements: Entitlements | null;
   status:
-    | "idle"
-    | "restoring"
-    | "authenticating"
-    | "authenticated"
-    | "unauthenticated";
+  | "idle"
+  | "restoring"
+  | "authenticating"
+  | "authenticated"
+  | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -50,6 +50,7 @@ export const restoreSession = createAsyncThunk(
 
       // Set token in memory
       setToken(parsed.accessToken);
+      setTokenExpiry(parsed.expiresAt);
 
       // Return the stored session directly (no API call)
       return {
@@ -86,6 +87,7 @@ export const login = createAsyncThunk(
           }),
         );
         setToken(res.data.accessToken);
+        setTokenExpiry(res.data.expiresAt);
 
         // Success toast
         dispatch(
@@ -182,6 +184,7 @@ export const refreshSession = createAsyncThunk(
           }),
         );
         setToken(res.data.accessToken);
+        setTokenExpiry(res.data.expiresAt);
         return res.data;
       }
 

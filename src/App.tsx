@@ -3,7 +3,7 @@ import { useSelector } from "react-redux";
 import { Provider } from "react-redux";
 import { store } from "@/store";
 import { logout, restoreSession, refreshSession } from "@/features/auth/authSlice";
-import { registerRefreshHandler } from "@/services/apiClient";
+import { registerRefreshHandler, startSessionWatchdog } from "@/services/apiClient";
 import { fetchEntitlements } from "@/features/entitlement/entitlementSlice";
 import { AppRoutes } from "@/routes";
 import { TooltipProvider } from "@/components/ui/overlays";
@@ -30,6 +30,9 @@ function Root() {
         return false;
       }
     });
+
+    // Proactively refresh the token before it expires; watch every 60s
+    startSessionWatchdog(60_000);
   }, []);
 
   useEffect(() => {

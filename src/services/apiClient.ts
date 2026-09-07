@@ -11,6 +11,9 @@ import { EntitlementModule } from "@/types/entitlement";
 
 export const TOKEN_KEY = "authUserToken";
 
+/** Refresh proactively when the token is within this window of expiring */
+const EXPIRY_MARGIN_MS = 30_000;
+
 let token: string | null = (() => {
   try {
     const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
@@ -20,27 +23,47 @@ let token: string | null = (() => {
   }
 })();
 
+/** When the current accessToken expires (epoch ms). Restored from localStorage. */
+let expiresAtMs: number | null = (() => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
+    return parseExpiry(stored?.expiresAt);
+  } catch {
+    return null;
+  }
+})();
+
+/** Accepts epoch seconds, epoch ms, or an ISO date string; returns epoch ms */
+function parseExpiry(value: any): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number") return value > 1e12 ? value : value * 1000;
+  if (/^\d+$/.test(String(value))) {
+    const n = Number(value);
+    return n > 1e12 ? n : n * 1000;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 export const setToken = (t: string | null) => {
   token = t;
 };
 export const getToken = () => token;
 
-/**
- * [FALLBACK — kept for easy undo] Old behavior: on any 401, wipe the session
- * and hard-redirect to login. Re-enable this inside request() if you ever want
- * to go back to "no refresh" behavior.
- */
-// function handleUnauthorized() {
-//   localStorage.removeItem(TOKEN_KEY);
-//   token = null;
-//
-//   // Avoid a redirect loop if we are already on an auth page
-//   const publicPaths = ["/accounts/login", "/accounts/forgot", "/accounts/reset"];
-//   if (publicPaths.some((p) => window.location.pathname.startsWith(p))) return;
-//
-//   // Hard redirect guarantees the router re-initializes in a logged-out state
-//   window.location.replace(`/accounts/login?expired=1`);
-// }
+/** Keep the in-memory expiry in sync whenever login/refresh/store gives us one */
+export function setTokenExpiry(value: any) {
+  expiresAtMs = parseExpiry(value);
+}
+
+/** Token exists AND its expiry has passed */
+export function isTokenExpired() {
+  return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs;
+}
+
+/** Token exists AND will expire within the margin window */
+export function isTokenExpiringSoon() {
+  return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs - EXPIRY_MARGIN_MS;
+}
 
 /* --------------------- Token refresh coordination ------------------------ */
 
@@ -70,6 +93,22 @@ async function refreshOnce(): Promise<boolean> {
 }
 
 /**
+ * Proactive watchdog: while the tab is open, refresh the token shortly before
+ * it expires so active users never hit a 401 at all. If the refresh fails and
+ * the token is already dead, navigate to the login screen.
+ */
+export function startSessionWatchdog(intervalMs = 60_000) {
+  setInterval(async () => {
+    if (!token) return;
+    if (!isTokenExpiringSoon()) return;
+    const ok = await refreshOnce();
+    if (!ok && isTokenExpired()) {
+      forceLoginRedirect();
+    }
+  }, intervalMs);
+}
+
+/**
  * Called when refresh ultimately fails (thunk returned false):
  * clears the session and navigates to the login page.
  */
@@ -95,6 +134,10 @@ export interface RequestConfig {
   silent?: boolean;
   /** Skip the automatic 401 → refresh → retry flow (used by login/refresh itself) */
   skipRefresh?: boolean;
+  /** Do not attach the Authorization header (cookie-based refresh call) */
+  skipAuth?: boolean;
+  /** Include cookies (needed when the session lives in an httpOnly cookie) */
+  withCredentials?: boolean;
   meta?: { successMessage?: string; errorMessage?: string };
 }
 
@@ -114,16 +157,31 @@ export async function request<T = any>(
     Accept: "application/json",
   };
 
-  if (token) {
+  if (token && !config.skipAuth) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
   try {
-    let response = await fetch(url, {
+    const fetchInit = (): RequestInit => ({
       method: config.method,
       headers,
       body: config.body ? JSON.stringify(config.body) : undefined,
+      credentials: config.withCredentials ? "include" : "same-origin",
     });
+
+    // -------- Proactive check: token expired or about to expire? --------
+    // Refresh BEFORE sending so the request goes out with a valid token.
+    if (token && !config.skipRefresh && isTokenExpiringSoon()) {
+      const ok = await refreshOnce();
+      if (!ok && isTokenExpired()) {
+        // Refresh failed and the token is dead → login screen
+        forceLoginRedirect();
+        throw new Error("Session expired. Please sign in again.");
+      }
+      if (ok && token) headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    let response = await fetch(url, fetchInit());
 
     // ---------------- 401 → try refresh once, then retry ----------------
     if (response.status === 401) {
@@ -131,11 +189,7 @@ export async function request<T = any>(
       if (refreshed && token) {
         // Retry the original request with the new access token
         headers["Authorization"] = `Bearer ${token}`;
-        response = await fetch(url, {
-          method: config.method,
-          headers,
-          body: config.body ? JSON.stringify(config.body) : undefined,
-        });
+        response = await fetch(url, fetchInit());
       }
 
       // Refresh failed (or retry still 401) → session is dead → login
@@ -173,6 +227,7 @@ export const authApi = {
       method: "POST",
       body: { email, password },
       skipRefresh: true, // a failed login (401) must NOT trigger a refresh
+      withCredentials: true, // REQUIRED: lets the browser store the httpOnly refreshToken cookie the server sets
     });
 
     return res;
@@ -183,6 +238,7 @@ export const authApi = {
       const res = await request<boolean>({
         url: API_ENDPOINTS.auth.logout, // Make sure this endpoint exists in api.ts
         method: "POST",
+        withCredentials: true, // server clears the refreshToken cookie here
       });
 
       return res;
@@ -198,10 +254,15 @@ export const authApi = {
   },
 
   async refresh(): Promise<ApiResponse<Session>> {
+    // The backend identifies the session via the httpOnly refreshToken cookie
+    // — so this call must NOT send the Authorization header, and MUST send
+    // credentials so the browser attaches the cookie.
     return request<Session>({
       url: API_ENDPOINTS.auth.refresh,
       method: "POST",
       skipRefresh: true, // never recurse: refresh failure is final
+      skipAuth: true, // no Bearer header — cookie-based auth
+      withCredentials: true, // send the refreshToken cookie
     });
   },
 
