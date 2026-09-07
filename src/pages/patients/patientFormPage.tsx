@@ -134,20 +134,65 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       firstName: [{ required: "First name is required", min: 2 }],
       lastName: [{ required: "Last name is required", min: 2 }],
       gender: [{ required: "Select a gender" }],
-      mobile: [{ required: "Mobile number is required" }],
+      mobile: [
+        { required: "Mobile number is required" },
+        {
+          pattern: /^[6-9]\d{9}$/,
+          message: "Enter a valid 10-digit mobile number",
+        },
+      ],
+      alternateMobile: [
+        {
+          pattern: /^[6-9]\d{9}$/,
+          message: "Enter a valid 10-digit mobile number",
+        },
+      ],
       pincode: [
+        { required: "Pincode is required" },
         {
           pattern: /^[1-9][0-9]{5}$/,
           message: "Enter a valid 6-digit Indian pincode",
         },
       ],
       aadhaarNumber: [
+        { required: "Aadhaar number is required" },
         {
           pattern: /^[0-9]{12}$/,
           message: "Enter a valid 12-digit Aadhaar number",
         },
       ],
-      email: [{ email: true }],
+      abhaId: [
+        {
+          pattern: /^[0-9]{14}$/,
+          message: "Enter a valid 14-digit ABHA ID",
+        },
+      ],
+      email: [
+        {
+          pattern: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
+          message: "Enter a valid email address",
+        },
+      ],
+      guardianMobile: [
+        {
+          pattern: /^[6-9]\d{9}$/,
+          message: "Enter a valid 10-digit mobile number",
+        },
+      ],
+      insurancePolicyNo: [
+        { required: "Policy number is required" },
+        {
+          pattern: /^[A-Za-z0-9]{6,}$/,
+          message:
+            "Policy number must be at least 6 characters (letters & numbers only)",
+        },
+      ],
+      empId: [
+        {
+          pattern: /^[A-Za-z0-9]{3,}$/,
+          message: "Employee ID must be at least 3 alphanumeric characters",
+        },
+      ],
     },
   });
 
@@ -182,6 +227,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
         insuranceValidTill: toISOString(values.insuranceValidTill),
       }),
     };
+
     if (isEdit) {
       await dispatch(
         patientsApi.thunks.updateOne({
@@ -201,6 +247,14 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     navigate("/patients");
   });
 
+  // // Real-time validation for numeric fields
+  // const handleNumericChange = (field: string, value: string) => {
+  //   // Only allow numbers
+  //   const numericValue = value.replace(/[^0-9]/g, "");
+  //   form.setValue(field as any, numericValue);
+  //   form.validateFields([field]);
+  // };
+
   return (
     <div className="max-w-5xl mx-auto pb-10">
       <PageIntro
@@ -215,7 +269,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
       <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
         <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Step 1: Personal Information */}
+          {/* Personal Information */}
           <FormSection title="Personal Information">
             <FormRow className="lg:grid-cols-4">
               <Input
@@ -292,7 +346,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
             </FormRow>
           </FormSection>
 
-          {/* Step 2: Contact Information */}
+          {/* Contact Information */}
           <FormSection title="Contact Information">
             <FormRow className="lg:grid-cols-3">
               <Input
@@ -312,13 +366,17 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 onChange={(e) =>
                   form.setValue("alternateMobile", e.target.value)
                 }
+                error={form.errors.alternateMobile}
               />
               <Input
                 name="email"
                 label="Email Address"
                 placeholder="Enter email address"
                 value={form.values.email}
-                onChange={(e) => form.setValue("email", e.target.value)}
+                onChange={(e) => {
+                  form.setValue("email", e.target.value);
+                  form.validateFields(["email"]); // ← Add this line
+                }}
                 error={form.errors.email}
               />
             </FormRow>
@@ -358,34 +416,49 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
               <Input
                 name="pincode"
                 label="Pincode"
-                placeholder="Enter pincode"
+                type="tel"
+                inputMode="numeric"
+                placeholder="Enter 6-digit pincode"
                 value={form.values.pincode}
-                onChange={(e) => form.setValue("pincode", e.target.value)}
+                onChange={(e) =>
+                  form.handleNumericChange("pincode", e.target.value)
+                }
+                error={form.errors.pincode}
               />
             </FormRow>
           </FormSection>
 
-          {/* Step 3: Identity Documents */}
+          {/* Identity Documents */}
           <FormSection title="Identity Documents">
             <FormRow className="lg:grid-cols-2">
               <Input
                 name="aadhaarNumber"
                 label="Aadhaar Number"
-                placeholder="Enter Aadhaar number"
+                type="tel"
+                inputMode="numeric"
+                placeholder="Enter 12-digit Aadhaar number"
                 value={form.values.aadhaarNumber}
-                onChange={(e) => form.setValue("aadhaarNumber", e.target.value)}
+                onChange={(e) =>
+                  form.handleNumericChange("aadhaarNumber", e.target.value)
+                }
+                error={form.errors.aadhaarNumber}
               />
               <Input
                 name="abhaId"
                 label="ABHA ID"
-                placeholder="Enter ABHA ID"
+                type="tel"
+                inputMode="numeric"
+                placeholder="Enter 14-digit ABHA ID"
                 value={form.values.abhaId}
-                onChange={(e) => form.setValue("abhaId", e.target.value)}
+                onChange={(e) =>
+                  form.handleNumericChange("abhaId", e.target.value)
+                }
+                error={form.errors.abhaId}
               />
             </FormRow>
           </FormSection>
 
-          {/* Step 4: Guardian / NOK */}
+          {/* Guardian / NOK */}
           <FormSection title="Guardian / Next of Kin">
             <FormRow className="lg:grid-cols-3">
               <Input
@@ -409,16 +482,19 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
               <Input
                 name="guardianMobile"
                 label="Guardian Mobile"
+                type="tel"
+                inputMode="numeric"
                 placeholder="Enter guardian mobile"
                 value={form.values.guardianMobile}
                 onChange={(e) =>
                   form.setValue("guardianMobile", e.target.value)
                 }
+                error={form.errors.guardianMobile}
               />
             </FormRow>
           </FormSection>
 
-          {/* Step 5: Insurance */}
+          {/* Insurance */}
           <FormSection title="Insurance Details">
             <FormRow className="lg:grid-cols-3">
               <Input
@@ -438,6 +514,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 onChange={(e) =>
                   form.setValue("insurancePolicyNo", e.target.value)
                 }
+                error={form.errors.insurancePolicyNo}
               />
               <DatePicker
                 label="Valid Till"
@@ -448,7 +525,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
             </FormRow>
           </FormSection>
 
-          {/* Step 6: Medical & Employment */}
+          {/* Medical & Employment */}
           <FormSection title="Medical & Employment Details">
             <FormRow className="lg:grid-cols-2">
               <Textarea
@@ -485,6 +562,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Enter employee ID"
                 value={form.values.empId}
                 onChange={(e) => form.setValue("empId", e.target.value)}
+                error={form.errors.empId}
               />
               <Input
                 name="coverage"
