@@ -131,8 +131,43 @@ export const patientsApi = createCrudSlice<import("@/types").Patient>({ name: "p
 export const doctorsApi = createCrudSlice<import("@/types").Doctor>({ name: "doctors", resource: "doctors" });
 export const departmentsApi = createCrudSlice<import("@/types").Department>({ name: "departments", resource: "departments" });
 export const specializationsApi = createCrudSlice<import("@/types").Specialization>({ name: "specializations", resource: "specializations" });
-export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({ name: "appointments", resource: "appointments" });
+export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({ name: "appointments", resource: "appointment" });
 export const consultationsApi = createCrudSlice<import("@/types").Consultation>({ name: "consultations", resource: "consultations" });
+
+/* ------------------------- doctor slot availability ---------------------- */
+
+export interface DoctorSlotFetchPayload {
+  doctorId: string | number;
+  date?: string;
+}
+
+/**
+ * Runtime call: fetch a particular doctor's available slots by doctor id.
+ * Runs when the appointment form modal needs slots for a selected doctor —
+ * shows the global application loader until the slots are available.
+ */
+export const fetchDoctorSlots = createAsyncThunk(
+  "doctors/fetchSlots",
+  async (
+    payload: DoctorSlotFetchPayload,
+    { dispatch, rejectWithValue },
+  ) => {
+    dispatch(showLoader("Loading available slots"));
+    try {
+      const response: any = await request({
+        url: API_ENDPOINTS.doctors.getSlotById(payload.doctorId),
+        method: "GET",
+        params: payload.date ? { date: payload.date } : undefined,
+      });
+      dispatch(hideLoader());
+      return response?.data ?? response;
+    } catch (error: any) {
+      dispatch(hideLoader());
+      dispatch(toast.error("Could not load doctor slots", error?.message));
+      return rejectWithValue(error?.message ?? "Failed to load slots");
+    }
+  },
+);
 export const invoicesApi = createCrudSlice<import("@/types").Invoice>({ name: "invoices", resource: "invoices" });
 export const activitiesApi = createCrudSlice<import("@/types").ActivityLog>({ name: "activities", resource: "activities" });
 

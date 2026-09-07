@@ -25,13 +25,20 @@ import {
   useTable,
 } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { appointmentsApi } from "@/features/slices";
+import {
+  appointmentsApi,
+  departmentsApi,
+  doctorsApi,
+  patientsApi,
+  specializationsApi,
+} from "@/features/slices";
 import {
   formatDate,
   formatMoney,
   formatTime,
   fullName,
   generateSlots,
+  type SlotOption,
 } from "@/utils";
 import { cn } from "@/utils/cn";
 import type { Appointment, AppointmentStatus } from "@/types";
@@ -42,6 +49,7 @@ import {
   Panel,
   StatusBadge,
 } from "@/components/ui/primitives";
+import { Loader2 } from "lucide-react";
 import {
   Input,
   Segmented,
@@ -64,27 +72,42 @@ import {
   PageIntro,
   SectionPanel,
 } from "@/components/common";
-
+import { AppointmentFormModal } from "./AppointmentFormPage";
 export function SlotPicker({
   doctorId,
   date,
   appointments,
   value,
   onChange,
+  loading = false,
+  remoteSlots = null,
 }: {
   doctorId: string;
   date: string;
   appointments: Appointment[];
   value: string;
   onChange: (time: string) => void;
+  /** true while the doctor slot-by-id API is in flight */
+  loading?: boolean;
+  /** slots returned live from the doctor availability API (overrides generated ones) */
+  remoteSlots?: SlotOption[] | null;
 }) {
   const doctors = useRootSelector((s) => s.doctors.items);
   const doctor = doctors.find((d: any) => d.id === doctorId) as any;
-  const slots = useMemo(
+  const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
   );
+  const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
+
+  if (loading)
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500">
+        <Loader2 className="size-4 animate-spin text-brand-600" /> Checking
+        available slots…
+      </div>
+    );
 
   if (!doctor)
     return (
@@ -474,10 +497,16 @@ export function AppointmentsPage() {
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState("Patient request");
   const [detailId, setDetailId] = useState<string | null>(params.get("focus"));
+  const [bookOpen, setBookOpen] = useState(false);
 
   useEffect(() => {
-    // if (status === "idle") dispatch(appointmentsApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+    // fetch every list this page (and the booking modal) depends on
+    dispatch(appointmentsApi.thunks.fetchAll() as any);
+    dispatch(patientsApi.thunks.fetchAll() as any);
+    dispatch(doctorsApi.thunks.fetchAll() as any);
+    dispatch(departmentsApi.thunks.fetchAll() as any);
+    // dispatch(specializationsApi.thunks.fetchAll() as any);
+  }, [dispatch]);
 
   const patientMap = useMemo(
     () => new Map(patients.map((p: any) => [p.id, p])),
@@ -551,7 +580,7 @@ export function AppointmentsPage() {
         module="appointments"
         createLabel="Book appointment"
         // onCreate={() => setForm({ mode: "new" })}
-        onCreate={() => navigate("/appointments/register")}
+        onCreate={() => setBookOpen(true)}
         meta={
           <>
             <Badge tone="amber" dot>
@@ -1207,6 +1236,8 @@ export function AppointmentsPage() {
           </div>
         )}
       </Sheet>
+
+      <AppointmentFormModal open={bookOpen} onOpenChange={setBookOpen} />
     </>
   );
 }
@@ -1218,3 +1249,254 @@ const dayOffset = (date: string, delta: number) => {
   );
   return diff + delta;
 };
+
+interface AppointmentFormModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function AppointmentNewPage() {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+
+  const patients = useRootSelector((s) => s.patients.items);
+  const doctors = useRootSelector((s) => s.doctors.items);
+  const departments = useRootSelector((s) => s.departments.items);
+  const specializations = useRootSelector((s) => s.specializations.items);
+  const existingAppointments = useRootSelector((s) => s.appointments.items);
+
+  const form = useForm({
+    initialValues: {
+      patientId: patients.find((p: any) => p.status === "active")?.id || "",
+      doctorId: doctors.find((d: any) => d.status === "active")?.id || "",
+      date: addDays(new Date(), 1),
+      time: "",
+      type: "Consultation",
+      priority: "Routine",
+      fee: 0,
+      notes: "",
+      reason: "",
+    },
+    schema: {
+      patientId: [{ required: "Patient is required" }],
+      doctorId: [{ required: "Doctor is required" }],
+      date: [{ required: "Date is required" }],
+      time: [{ required: "Time slot is required" }],
+    },
+  });
+
+  const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+
+  const handleSubmit = form.handleSubmit(async (values) => {
+    const doctorData = doctors.find((d: any) => d.id === values.doctorId);
+
+    const payload = {
+      patientId: values.patientId,
+      doctorId: values.doctorId,
+      departmentId: doctorData?.departmentId || "",
+      specializationId: doctorData?.specializationId || "",
+      date: values.date,
+      time: values.time,
+      duration: doctorData?.slotDuration || 20,
+      type: values.type,
+      priority: values.priority,
+      fee: Number(values.fee),
+      notes: values.notes,
+      status: "Scheduled",
+    };
+
+    await dispatch(
+      appointmentsApi.thunks.createOne({
+        data: {
+          ...payload,
+          code: `APT-${9000 + Math.floor(Math.random() * 9999)}`,
+          createdAt: new Date().toISOString(),
+        },
+        successMessage: "Appointment booked successfully",
+      } as any),
+    );
+
+    navigate("/app/appointments");
+  });
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <PageIntro
+        title="Book New Appointment"
+        description="Fill in the patient, doctor, and slot details."
+        back
+      />
+
+      <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Patient & Clinician Section */}
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+                PATIENT &amp; CLINICIAN
+              </span>
+              <div className="h-px flex-1 bg-ink-100" />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Select
+                name="patientId"
+                label="Patient"
+                required
+                value={form.values.patientId}
+                onChange={(v) => form.setValue("patientId", v)}
+                error={form.errors.patientId}
+                placeholder="Search registered patients..."
+                options={patients
+                  .filter((p: any) => p.status === "active")
+                  .map((p: any) => ({
+                    value: p.id,
+                    label: fullName(p),
+                    description: p.mrn,
+                  }))}
+              />
+
+              <div>
+                <Select
+                  name="doctorId"
+                  label="Doctor"
+                  required
+                  value={form.values.doctorId}
+                  onChange={(v) => form.setValue("doctorId", v)}
+                  error={form.errors.doctorId}
+                  options={doctors.map((d: any) => ({
+                    value: d.id,
+                    label: `Dr. ${fullName(d)}`,
+                    description: specializations.find(
+                      (s: any) => s.id === d.specializationId,
+                    )?.name,
+                    disabled: d.status !== "active",
+                  }))}
+                />
+                {doctor && (
+                  <p className="mt-1 text-[12px] text-ink-500">
+                    {
+                      departments.find(
+                        (dep: any) => dep.id === doctor.departmentId,
+                      )?.name
+                    }{" "}
+                    · {doctor.slotDuration}m slots
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Date & Slot Section */}
+          <div>
+            <div className="mb-4 flex items-center gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+                DATE &amp; SLOT
+              </span>
+              <div className="h-px flex-1 bg-ink-100" />
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+              {/* Left Side */}
+              <div className="space-y-4">
+                <DatePicker
+                  label="Appointment date"
+                  required
+                  value={form.values.date}
+                  onChange={(v) => form.setValue("date", v)}
+                  error={form.errors.date}
+                  min={addDays(new Date(), 0)}
+                />
+
+                <Select
+                  name="type"
+                  label="Appointment type"
+                  value={form.values.type}
+                  onChange={(v) => form.setValue("type", v)}
+                  options={[
+                    { value: "Consultation", label: "Consultation" },
+                    { value: "Follow-up", label: "Follow-up" },
+                    { value: "Procedure", label: "Procedure" },
+                    { value: "Emergency", label: "Emergency" },
+                    { value: "Telemedicine", label: "Telemedicine" },
+                  ]}
+                />
+
+                <Select
+                  name="priority"
+                  label="Priority"
+                  value={form.values.priority}
+                  onChange={(v) => form.setValue("priority", v)}
+                  options={[
+                    { value: "Routine", label: "Routine" },
+                    { value: "Urgent", label: "Urgent" },
+                  ]}
+                />
+
+                <Input
+                  name="fee"
+                  label="Consultation Fee"
+                  type="number"
+                  prefix="₹"
+                  value={String(form.values.fee)}
+                  onChange={(e) => form.setValue("fee", Number(e.target.value))}
+                />
+              </div>
+
+              {/* Right Side - Slots */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[12.5px] font-medium text-ink-600">
+                    Available slots ·{" "}
+                    {formatDate(form.values.date, {
+                      weekday: "long",
+                      day: "2-digit",
+                      month: "short",
+                    })}
+                  </p>
+                  {doctor && (
+                    <Badge tone="mint" size="xs">
+                      {form.values.time ? "1 selected" : "Open slots"}
+                    </Badge>
+                  )}
+                </div>
+
+                <SlotPicker
+                  doctorId={form.values.doctorId}
+                  date={form.values.date}
+                  appointments={existingAppointments}
+                  value={form.values.time}
+                  onChange={(t) => form.setValue("time", t)}
+                />
+
+                {form.errors.time && (
+                  <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
+                    {form.errors.time}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <Textarea
+              name="notes"
+              label="Notes"
+              rows={3}
+              value={form.values.notes}
+              onChange={(e) => form.setValue("notes", e.target.value)}
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end pt-4 border-t border-ink-100">
+            <Button type="submit" loading={form.submitting}>
+              Book Appointment
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

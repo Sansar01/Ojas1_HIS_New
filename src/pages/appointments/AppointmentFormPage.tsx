@@ -1,43 +1,143 @@
-import { useNavigate } from "react-router-dom";
+// import { useNavigate } from "react-router-dom";
+// import { useAppDispatch, useRootSelector } from "@/hooks";
+// import { useForm } from "@/hooks/useForm";
+// import { useState, useEffect } from "react";
+// import { appointmentsApi, departmentsApi } from "@/features/slices";
+// import { PageIntro } from "@/components/common";
+// import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
+// import { Button, Badge } from "@/components/ui/primitives";
+// import { addDays } from "@/data/db";
+// import { fullName, formatDate } from "@/utils";
+// import { SlotPicker } from "./AppointmentsPage";
+
+import { useEffect, useState } from "react";
+import { DatePicker, Input, Textarea } from "@/components/ui/fields";
+import { Button } from "@/components/ui/primitives";
+import { appointmentsApi, fetchDoctorSlots } from "@/features/slices";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { useState, useEffect } from "react";
-import { appointmentsApi, departmentsApi } from "@/features/slices";
-import { PageIntro } from "@/components/common";
-import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
-import { Button, Badge } from "@/components/ui/primitives";
-import { addDays } from "@/data/db";
-import { fullName, formatDate } from "@/utils";
+import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
+import { Dialog } from "@/components/ui/overlays";
+import { Select } from "@/components/ui/fields";
+import { Badge } from "@/components/ui/primitives";
 import { SlotPicker } from "./AppointmentsPage";
 
-export function AppointmentFormPage() {
+/** "HH:mm" → minutes since midnight */
+const toMinutes = (t: string) => {
+  const [h, m] = String(t).split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+/**
+ * Build the slot grid from the doctor availability API response, e.g.:
+ * { doctorProfileId, slotDurationMins, bufferTimeMins,
+ *   schedule: [{ dayOfWeek, isActive, startTime, endTime,
+ *                breakStartTime, breakEndTime }] }
+ * Slots are generated for the weekday matching the selected date, with the
+ * break window marked unavailable and already-booked times marked booked.
+ */
+function normalizeSlots(
+  data: any,
+  date: string,
+  appointments: any[] = [],
+  doctorId?: string,
+): SlotOption[] | null {
+  const schedule = Array.isArray(data)
+    ? data
+    : (data?.schedule ?? data?.data?.schedule ?? null);
+  if (!Array.isArray(schedule)) return null;
+
+  const weekday = new Date(`${date}T00:00:00`).getDay();
+  const day = schedule.find(
+    (d: any) =>
+      Number(d.dayOfWeek ?? d.day) === weekday &&
+      (d.isActive ?? d.enabled ?? true),
+  );
+  if (!day || !day.startTime || !day.endTime) return [];
+
+  const duration = Number(data?.slotDurationMins ?? 20);
+  const buffer = Number(data?.bufferTimeMins ?? 0);
+  const step = Math.max(5, duration + buffer);
+  const start = toMinutes(day.startTime);
+  const end = toMinutes(day.endTime);
+  const breakStart = day.breakStartTime ? toMinutes(day.breakStartTime) : null;
+  const breakEnd = day.breakEndTime ? toMinutes(day.breakEndTime) : null;
+
+  const booked = new Set(
+    appointments
+      .filter(
+        (a: any) =>
+          a.doctorId === doctorId &&
+          a.date === date &&
+          !["Cancelled", "No Show"].includes(a.status),
+      )
+      .map((a: any) => toMinutes(a.time)),
+  );
+
+  const now = new Date();
+  const isToday = date === now.toISOString().slice(0, 10);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  const slots: SlotOption[] = [];
+  for (let m = start; m + duration <= end; m += step) {
+    const time = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    const inBreak =
+      breakStart != null && breakEnd != null && m >= breakStart && m < breakEnd;
+    const past = isToday && m < nowMin;
+    const isBooked = booked.has(m);
+    const state: SlotOption["state"] = isBooked
+      ? "booked"
+      : inBreak
+        ? "unavailable"
+        : past
+          ? "past"
+          : "available";
+    slots.push({
+      time,
+      minute: m,
+      state,
+      label: isBooked
+        ? "Booked"
+        : inBreak
+          ? "Break"
+          : past
+            ? "Elapsed"
+            : "Open",
+    });
+  }
+  return slots;
+}
+
+interface AppointmentFormModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function AppointmentFormModal({
+  open,
+  onOpenChange,
+}: AppointmentFormModalProps) {
   const dispatch = useAppDispatch();
-  const navigate = useNavigate();
 
   const patients = useRootSelector((s) => s.patients.items);
   const doctors = useRootSelector((s) => s.doctors.items);
   const departments = useRootSelector((s) => s.departments.items);
   const specializations = useRootSelector((s) => s.specializations.items);
   const existingAppointments = useRootSelector((s) => s.appointments.items);
-  const departmentsFetchedRef = useState(() => ({ current: false }))[0];
-
-  useEffect(() => {
-    if (departmentsFetchedRef.current) return;
-    departmentsFetchedRef.current = true;
-    dispatch(departmentsApi.thunks.fetchAll() as any);
-  }, [departmentsFetchedRef, dispatch]);
 
   const form = useForm({
     initialValues: {
-      patientId: "",
-      doctorId: "",
-      departmentId: "",
+      patientId:
+        patients.find((p: any) => p.status.toLowerCase() === "active")?.id ||
+        "",
+      doctorId: doctors.find((d: any) => d.isActive === true)?.id || "",
       date: addDays(new Date(), 1),
       time: "",
       type: "Consultation",
       priority: "Routine",
       fee: 0,
       notes: "",
+      reason: "",
     },
     schema: {
       patientId: [{ required: "Patient is required" }],
@@ -49,231 +149,271 @@ export function AppointmentFormPage() {
 
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
 
+  /* default to the first active doctor once the doctors list arrives */
+  useEffect(() => {
+    if (!form.values.doctorId) {
+      const first = doctors.find((d: any) => d.isActive === true);
+      if (first) form.setValue("doctorId", first.id, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctors]);
+
+  /* ------- runtime: doctor slot-by-id API whenever doctor/date changes ------ */
+  const [slotLoading, setSlotLoading] = useState(false);
+  const [remoteSlots, setRemoteSlots] = useState<SlotOption[] | null>(null);
+
+  useEffect(() => {
+    if (!form.values.doctorId) {
+      setRemoteSlots(null);
+      return;
+    }
+    let cancelled = false;
+    setSlotLoading(true);
+    setRemoteSlots(null);
+    dispatch(
+      fetchDoctorSlots({
+        doctorId: form.values.doctorId,
+        date: form.values.date,
+      }) as any,
+    )
+      .unwrap()
+      .then((data: any) => {
+        if (!cancelled)
+          setRemoteSlots(
+            normalizeSlots(
+              data,
+              form.values.date,
+              existingAppointments as any[],
+              form.values.doctorId,
+            ),
+          );
+      })
+      .catch(() => {
+        // fall back to schedule-generated slots on failure
+        if (!cancelled) setRemoteSlots(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSlotLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.values.doctorId, form.values.date]);
+
   const handleSubmit = form.handleSubmit(async (values) => {
     const doctorData = doctors.find((d: any) => d.id === values.doctorId);
-
-    const payload = {
-      patientId: values.patientId,
-      doctorId: values.doctorId,
-      departmentId: doctorData?.departmentId || "",
-      specializationId: doctorData?.specializationId || "",
-      date: values.date,
-      time: values.time,
-      duration: doctorData?.slotDuration || 20,
-      type: values.type,
-      priority: values.priority,
-      fee: Number(values.fee),
-      notes: values.notes,
-      status: "Scheduled",
-    };
 
     await dispatch(
       appointmentsApi.thunks.createOne({
         data: {
-          ...payload,
+          patientId: values.patientId,
+          doctorId: values.doctorId,
+          departmentId: doctorData?.departmentId || "",
+          specializationId: doctorData?.specializationId || "",
+          date: values.date,
+          time: values.time,
+          duration: doctorData?.slotDuration || 20,
+          type: values.type,
+          priority: values.priority,
+          fee: Number(values.fee),
+          notes: values.notes,
+          status: "Scheduled",
           code: `APT-${9000 + Math.floor(Math.random() * 9999)}`,
           createdAt: new Date().toISOString(),
         },
         successMessage: "Appointment booked successfully",
       } as any),
-    ).unwrap();
+    );
 
-    navigate("/appointments");
+    form.reset();
+    onOpenChange(false);
   });
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <PageIntro
-        title="Book New Appointment"
-        description="Fill in the patient, doctor, and slot details."
-        back
-      />
-
-      <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Patient & Clinician Section */}
-          <div>
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-                PATIENT &amp; CLINICIAN
-              </span>
-              <div className="h-px flex-1 bg-ink-100" />
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Select
-                name="patientId"
-                label="Patient"
-                required
-                value={form.values.patientId}
-                onChange={(v) => form.setValue("patientId", v)}
-                error={form.errors.patientId}
-                placeholder="Search registered patients..."
-                options={patients
-                  .filter((p: any) => p.status === "active")
-                  .map((p: any) => ({
-                    value: p.id,
-                    label: fullName(p),
-                    description: p.mrn,
-                  }))}
-              />
-
-              <div>
-                <Select
-                  name="doctorId"
-                  label="Doctor"
-                  required
-                  value={form.values.doctorId}
-                  onChange={(v) => form.setValue("doctorId", v)}
-                  error={form.errors.doctorId}
-                  options={doctors.map((d: any) => ({
-                    value: d.id,
-                    label: `Dr. ${fullName(d)}`,
-                    description: specializations.find(
-                      (s: any) => s.id === d.specializationId,
-                    )?.name,
-                    disabled: d.status !== "active",
-                  }))}
-                />
-                {doctor && (
-                  <p className="mt-1 text-[12px] text-ink-500">
-                    {
-                      departments.find(
-                        (dep: any) => dep.id === doctor.departmentId,
-                      )?.name
-                    }{" "}
-                    · {doctor.slotDuration}m slots
-                  </p>
-                )}
-              </div>
-              <div>
-                <Select
-                  name="department"
-                  label="Department"
-                  placeholder="Select department"
-                  value={form.values.departmentId}
-                  onChange={(value) => form.setValue("departmentId", value)}
-                  options={departments.map((department) => ({
-                    value: String(department.id),
-                    label: department.name,
-                  }))}
-                />
-              </div>
-            </div>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) form.reset();
+        onOpenChange(v);
+      }}
+      title="Book New Appointment"
+      description="Fill in the patient, doctor, and slot details."
+      size="xl"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="appointment-new-form"
+            loading={form.submitting}
+          >
+            Book Appointment
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="appointment-new-form"
+        onSubmit={handleSubmit}
+        className="space-y-8"
+      >
+        <div>
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+              PATIENT &amp; CLINICIAN
+            </span>
+            <div className="h-px flex-1 bg-ink-100" />
           </div>
 
-          {/* Date & Slot Section */}
-          <div>
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-                DATE &amp; SLOT
-              </span>
-              <div className="h-px flex-1 bg-ink-100" />
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-              {/* Left Side - Date & Type */}
-              <div className="space-y-4">
-                <DatePicker
-                  label="Appointment date"
-                  required
-                  value={form.values.date}
-                  onChange={(v) => form.setValue("date", v)}
-                  error={form.errors.date}
-                  min={addDays(new Date(), 0)}
-                />
-
-                <Select
-                  name="type"
-                  label="Appointment type"
-                  value={form.values.type}
-                  onChange={(v) => form.setValue("type", v)}
-                  options={[
-                    { value: "Consultation", label: "Consultation" },
-                    { value: "Follow-up", label: "Follow-up" },
-                    { value: "Procedure", label: "Procedure" },
-                    { value: "Emergency", label: "Emergency" },
-                    { value: "Telemedicine", label: "Telemedicine" },
-                  ]}
-                />
-              </div>
-
-              {/* Right Side - Slots */}
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[12.5px] font-medium text-ink-600">
-                    Available slots ·{" "}
-                    {formatDate(form.values.date, {
-                      weekday: "long",
-                      day: "2-digit",
-                      month: "short",
-                    })}
-                  </p>
-                  {doctor && (
-                    <Badge tone="mint" size="xs">
-                      {form.values.time ? "1 selected" : "Open slots"}
-                    </Badge>
-                  )}
-                </div>
-
-                <SlotPicker
-                  doctorId={form.values.doctorId}
-                  date={form.values.date}
-                  appointments={existingAppointments}
-                  value={form.values.time}
-                  onChange={(t) => form.setValue("time", t)}
-                />
-
-                {form.errors.time && (
-                  <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
-                    {form.errors.time}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Fields */}
           <div className="grid gap-4 lg:grid-cols-2">
             <Select
-              name="priority"
-              label="Priority"
-              value={form.values.priority}
-              onChange={(v) => form.setValue("priority", v)}
-              options={[
-                { value: "Routine", label: "Routine" },
-                { value: "Urgent", label: "Urgent" },
-              ]}
+              name="patientId"
+              label="Patient"
+              required
+              value={form.values.patientId}
+              onChange={(v) => form.setValue("patientId", v)}
+              error={form.errors.patientId}
+              placeholder="Search registered patients..."
+              options={patients
+                .filter((p: any) => p.status === "active")
+                .map((p: any) => ({
+                  value: p.id,
+                  label: fullName(p),
+                  description: p.mrn,
+                }))}
             />
 
-            <Input
-              name="fee"
-              label="Consultation Fee"
-              type="number"
-              prefix="₹"
-              value={String(form.values.fee)}
-              onChange={(e) => form.setValue("fee", Number(e.target.value))}
-            />
+            <div>
+              <Select
+                name="doctorId"
+                label="Doctor"
+                required
+                value={form.values.doctorId}
+                onChange={(v) => form.setValue("doctorId", v)}
+                error={form.errors.doctorId}
+                options={doctors.map((d: any) => ({
+                  value: d.id,
+                  label: `Dr. ${fullName(d)}`,
+                  description: specializations.find(
+                    (s: any) => s.id === d.specializationId,
+                  )?.name,
+                  disabled: d.isActive !== true,
+                }))}
+              />
+              {doctor && (
+                <p className="mt-1 text-[12px] text-ink-500">
+                  {
+                    departments.find(
+                      (dep: any) => dep.id === doctor.departmentId,
+                    )?.name
+                  }{" "}
+                  · {doctor.slotDuration}m slots
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+              DATE &amp; SLOT
+            </span>
+            <div className="h-px flex-1 bg-ink-100" />
           </div>
 
-          <div>
-            <Textarea
-              name="notes"
-              label="Notes"
-              rows={3}
-              value={form.values.notes}
-              onChange={(e) => form.setValue("notes", e.target.value)}
-            />
-          </div>
+          <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+            <div className="space-y-4">
+              <DatePicker
+                label="Appointment date"
+                required
+                value={form.values.date}
+                onChange={(v) => form.setValue("date", v)}
+                error={form.errors.date}
+                min={addDays(new Date(), 0)}
+              />
+              <Select
+                name="type"
+                label="Appointment type"
+                value={form.values.type}
+                onChange={(v) => form.setValue("type", v)}
+                options={[
+                  { value: "Consultation", label: "Consultation" },
+                  { value: "Follow-up", label: "Follow-up" },
+                  { value: "Procedure", label: "Procedure" },
+                  { value: "Emergency", label: "Emergency" },
+                  { value: "Telemedicine", label: "Telemedicine" },
+                ]}
+              />
+              <Select
+                name="priority"
+                label="Priority"
+                value={form.values.priority}
+                onChange={(v) => form.setValue("priority", v)}
+                options={[
+                  { value: "Routine", label: "Routine" },
+                  { value: "Urgent", label: "Urgent" },
+                ]}
+              />
+              <Input
+                name="fee"
+                label="Consultation Fee"
+                type="number"
+                prefix="₹"
+                value={String(form.values.fee)}
+                onChange={(e) => form.setValue("fee", Number(e.target.value))}
+              />
+            </div>
 
-          {/* Submit Button */}
-          <div className="flex justify-end pt-4 border-t border-ink-100">
-            <Button type="submit" loading={form.submitting}>
-              Book Appointment
-            </Button>
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-[12.5px] font-medium text-ink-600">
+                  Available slots ·{" "}
+                  {formatDate(form.values.date, {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "short",
+                  })}
+                </p>
+                {doctor && (
+                  <Badge tone="mint" size="xs">
+                    {form.values.time ? "1 selected" : "Open slots"}
+                  </Badge>
+                )}
+              </div>
+              <SlotPicker
+                doctorId={form.values.doctorId}
+                date={form.values.date}
+                appointments={existingAppointments}
+                value={form.values.time}
+                onChange={(t) => form.setValue("time", t)}
+                loading={slotLoading}
+                remoteSlots={remoteSlots}
+              />
+              {form.errors.time && (
+                <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
+                  {form.errors.time}
+                </p>
+              )}
+            </div>
           </div>
-        </form>
-      </div>
-    </div>
+        </div>
+
+        <Textarea
+          name="notes"
+          label="Notes"
+          rows={3}
+          value={form.values.notes}
+          onChange={(e) => form.setValue("notes", e.target.value)}
+        />
+      </form>
+    </Dialog>
   );
 }

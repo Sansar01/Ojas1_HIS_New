@@ -50,6 +50,41 @@ export const setToken = (t: string | null) => {
 };
 export const getToken = () => token;
 
+/* ------------------------- Refresh token storage ------------------------- */
+
+/**
+ * The refresh token normally lives in an httpOnly cookie, but some backends
+ * return it in the login/refresh response body instead (or the cookie does
+ * not survive cross-origin reloads). We persist it to localStorage so the
+ * refresh call can always send it explicitly.
+ */
+const REFRESH_KEY = "authRefreshToken";
+
+export function setRefreshToken(t: string | null | undefined) {
+  try {
+    if (t) localStorage.setItem(REFRESH_KEY, t);
+    else localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function getRefreshToken(): string | null {
+  try {
+    const direct = localStorage.getItem(REFRESH_KEY);
+    if (direct) return direct;
+    // fallback: stored inside the persisted auth session object
+    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
+    return stored?.refreshToken ?? stored?.user?.refreshToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRefreshToken() {
+  setRefreshToken(null);
+}
+
 /** Keep the in-memory expiry in sync whenever login/refresh/store gives us one */
 export function setTokenExpiry(value: any) {
   expiresAtMs = parseExpiry(value);
@@ -114,6 +149,7 @@ export function startSessionWatchdog(intervalMs = 60_000) {
  */
 function forceLoginRedirect() {
   localStorage.removeItem(TOKEN_KEY);
+  clearRefreshToken();
   token = null;
 
   const publicPaths = [
@@ -138,6 +174,8 @@ export interface RequestConfig {
   skipAuth?: boolean;
   /** Include cookies (needed when the session lives in an httpOnly cookie) */
   withCredentials?: boolean;
+  /** Extra headers (e.g. x-refresh-token on the refresh call) */
+  headers?: Record<string, string>;
   meta?: { successMessage?: string; errorMessage?: string };
 }
 
@@ -160,6 +198,7 @@ export async function request<T = any>(
   if (token && !config.skipAuth) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+  if (config.headers) Object.assign(headers, config.headers);
 
   try {
     const fetchInit = (): RequestInit => ({
@@ -254,15 +293,23 @@ export const authApi = {
   },
 
   async refresh(): Promise<ApiResponse<Session>> {
-    // The backend identifies the session via the httpOnly refreshToken cookie
-    // — so this call must NOT send the Authorization header, and MUST send
-    // credentials so the browser attaches the cookie.
+    // Primary: the backend identifies the session via the httpOnly refreshToken
+    // cookie. Fallback: if the cookie is missing (e.g. cleared on reload,
+    // cross-origin port mismatch) we send the persisted refresh token in both
+    // the body and the x-refresh-token header.
+    const refreshToken = getRefreshToken();
     return request<Session>({
       url: API_ENDPOINTS.auth.refresh,
       method: "POST",
       skipRefresh: true, // never recurse: refresh failure is final
-      skipAuth: true, // no Bearer header — cookie-based auth
-      withCredentials: true, // send the refreshToken cookie
+      skipAuth: true, // no Bearer header — this is the refresh call
+      withCredentials: true, // send the refreshToken cookie when present
+      ...(refreshToken
+        ? {
+            body: { refreshToken },
+            headers: { "x-refresh-token": refreshToken },
+          }
+        : {}),
     });
   },
 
@@ -309,37 +356,63 @@ export const entitlementApi = {
 /* ------------------------------- CRUD API -------------------------------- */
 
 // Use API_ENDPOINTS for all resource URLs instead of duplicating paths
+/**
+ * Some endpoints are grouped objects (e.g. doctors: { create, list },
+ * appointment: { list, create, getById }) — resolve the right one per verb.
+ */
+const resolveEndpoint = (
+  resource: keyof typeof API_ENDPOINTS,
+  verb: "list" | "create" | "get" | "update" | "remove",
+  id?: string | number,
+): string => {
+  const entry: any = (API_ENDPOINTS as any)[resource];
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object") {
+    if (verb === "list") return entry.list ?? `/${resource}`;
+    if (verb === "create") return entry.create ?? entry.list ?? `/${resource}`;
+    if (verb === "get") {
+      const ep = entry.getById ?? entry.list;
+      return typeof ep === "function" ? ep(id) : (ep ?? `/${resource}`);
+    }
+    if (verb === "update" || verb === "remove") {
+      const ep = entry.update ?? entry.getById ?? entry.list;
+      return typeof ep === "function" ? ep(id) : (ep ?? `/${resource}`);
+    }
+  }
+  return `/${resource}`;
+};
+
 export const resourceApi = {
   list: (resource: keyof typeof API_ENDPOINTS, params?: ListQuery) =>
     request<Paginated<any>>({
-      url: (API_ENDPOINTS as any)[resource] || `/${resource}`,
+      url: resolveEndpoint(resource, "list"),
       method: "GET",
       params,
     }),
 
   get: (resource: keyof typeof API_ENDPOINTS, id: string) =>
     request<any>({
-      url: `${(API_ENDPOINTS as any)[resource] || `/${resource}`}/${id}`,
+      url: resolveEndpoint(resource, "get", id),
       method: "GET",
     }),
 
   create: (resource: keyof typeof API_ENDPOINTS, body: any) =>
     request<any>({
-      url: (API_ENDPOINTS as any)[resource] || `/${resource}`,
+      url: resolveEndpoint(resource, "create"),
       method: "POST",
       body,
     }),
 
   update: (resource: keyof typeof API_ENDPOINTS, id: string, body: any) =>
     request<any>({
-      url: `${(API_ENDPOINTS as any)[resource] || `/${resource}`}/${id}`,
+      url: resolveEndpoint(resource, "update", id),
       method: "PATCH",
       body,
     }),
 
   remove: (resource: keyof typeof API_ENDPOINTS, id: string) =>
     request<any>({
-      url: `${(API_ENDPOINTS as any)[resource] || `/${resource}`}/${id}`,
+      url: resolveEndpoint(resource, "remove", id),
       method: "DELETE",
     }),
 };

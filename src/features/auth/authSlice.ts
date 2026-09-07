@@ -3,7 +3,14 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { authApi, setToken, setTokenExpiry, TOKEN_KEY } from "@/services/apiClient";
+import {
+  authApi,
+  clearRefreshToken,
+  setRefreshToken,
+  setToken,
+  setTokenExpiry,
+  TOKEN_KEY,
+} from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
@@ -77,15 +84,18 @@ export const login = createAsyncThunk(
       const res = await authApi.login(email, password);
 
       if (res.data?.accessToken && res.data?.user) {
-        // Save token
+        // Save token (persist refreshToken too so it survives page reloads
+        // and can be sent explicitly on /auth/refresh if the cookie is lost)
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             accessToken: res.data.accessToken,
             user: res.data.user,
             expiresAt: res.data.expiresAt,
+            refreshToken: (res.data as any).refreshToken ?? null,
           }),
         );
+        setRefreshToken((res.data as any).refreshToken);
         setToken(res.data.accessToken);
         setTokenExpiry(res.data.expiresAt);
 
@@ -175,14 +185,18 @@ export const refreshSession = createAsyncThunk(
         // Merge the new token into the stored session (keep user/role/etc.)
         const stored = localStorage.getItem(TOKEN_KEY);
         const parsed = stored ? JSON.parse(stored) : {};
+        const rotatedRefresh = (res.data as any).refreshToken ?? null;
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             ...parsed,
             accessToken: res.data.accessToken,
             expiresAt: res.data.expiresAt ?? parsed.expiresAt,
+            // keep the old refresh token unless the backend rotated it
+            refreshToken: rotatedRefresh ?? parsed.refreshToken ?? null,
           }),
         );
+        if (rotatedRefresh) setRefreshToken(rotatedRefresh);
         setToken(res.data.accessToken);
         setTokenExpiry(res.data.expiresAt);
         return res.data;
@@ -207,6 +221,7 @@ export const logoutUser = createAsyncThunk(
 
       // Clear local storage and token
       localStorage.removeItem(TOKEN_KEY);
+      clearRefreshToken();
       setToken(null);
 
       // Clear entitlements
@@ -218,6 +233,7 @@ export const logoutUser = createAsyncThunk(
     } catch (error: any) {
       // Even if API fails, we still logout locally
       localStorage.removeItem(TOKEN_KEY);
+      clearRefreshToken();
       setToken(null);
       dispatch(clearEntitlements());
 

@@ -9,7 +9,7 @@ import {
 import { DashboardPage } from "@/pages/DashboardPage";
 import { PatientsPage } from "@/pages/patients/PatientsPage";
 import { DoctorsPage, DoctorDetailPage } from "@/pages/doctors/DoctorsPage";
-import { AppointmentsPage } from "@/pages/appointments/AppointmentsPage";
+import { AppointmentNewPage, AppointmentsPage } from "@/pages/appointments/AppointmentsPage";
 import {
   ConsultationsPage,
   ConsultationWorkspacePage,
@@ -25,7 +25,7 @@ import {
 } from "@/pages/admin/AdminPages";
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
-import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
+// import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
  * Public routes → auth screens.
@@ -154,18 +154,18 @@ export function AppRoutes() {
             path="/appointments/register"
             element={
               <RequireModule module="appointments">
-                <AppointmentFormPage />
+                <AppointmentNewPage />
               </RequireModule>
             }
           />
-          <Route
+          {/* <Route
             path="/appointments:id/edit"
             element={
               <RequireModule module="appointments">
                 <AppointmentFormPage />
               </RequireModule>
             }
-          />
+          /> */}
           <Route
             path="/consultation"
             element={

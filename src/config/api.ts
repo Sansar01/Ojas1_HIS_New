@@ -59,17 +59,15 @@ export const API_ENDPOINTS = {
   departments: "/api/hospital/masters/departments",
 
   // Specializations
-  specializations: "/specializations",
+  // specializations: "/specializations",
 
-  // Appointments
-  appointments: "/appointments",
-
+  // Appointments (grouped — the appointments slice resolves list/create/getById from here)
   appointment: {
-    list: "/appointment/list",
-    create: "/appointment/create",
-    slot: "/appointment/slot",
-    getById: (Id: string | number) => `/appointment/${Id}`,
-    // if exists
+    list: "/api/opd/appointments",
+    create: "/api/opd/appointments/create",
+    slot: "/api/opd/appointments/slot",
+    getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
+    today: '/api/opd/appointments/today'
   },
 
   // Consultations
