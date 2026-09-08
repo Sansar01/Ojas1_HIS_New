@@ -131,8 +131,55 @@ export const patientsApi = createCrudSlice<import("@/types").Patient>({ name: "p
 export const doctorsApi = createCrudSlice<import("@/types").Doctor>({ name: "doctors", resource: "doctors" });
 export const departmentsApi = createCrudSlice<import("@/types").Department>({ name: "departments", resource: "departments" });
 export const specializationsApi = createCrudSlice<import("@/types").Specialization>({ name: "specializations", resource: "specializations" });
-export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({ name: "appointments", resource: "appointment" });
+export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({
+  name: "appointments",
+  resource: "appointment",
+  // map the appointment list API shape (nested patient/doctor, appointmentNo,
+  // appointmentDate, slotStartTime, BOOKED/… statuses) into the app shape
+  normalize: (raw: any) => ({
+    ...raw,
+    code: raw.appointmentNo ?? raw.code ?? "",
+    patientId: raw.patient?.id ?? raw.patientId ?? "",
+    doctorId: raw.doctor?.id ?? raw.doctorId ?? "",
+    date: raw.appointmentDate ?? raw.date ?? "",
+    time: raw.slotStartTime ?? raw.time ?? "",
+    endTime: raw.slotEndTime ?? null,
+    duration: raw.doctor?.slotDurationMins ?? raw.duration ?? 20,
+    type: raw.appointmentType ?? raw.type ?? "Consultation",
+    fee: raw.consultationFee ?? raw.fee ?? 0,
+    priority: raw.priority === 1 || raw.priority === "Urgent" ? "Urgent" : "Routine",
+    status: normalizeStatus(raw.status ?? raw.appointmentStatus),
+    rawStatus: raw.status ?? null,
+    token: raw.token ?? null,
+    checkedInAt: raw.checkedInAt ?? null,
+    bookedAt: raw.bookedAt ?? raw.createdAt ?? null,
+    cancelledAt: raw.cancelledAt ?? null,
+    cancelReason: raw.cancelReason ?? raw.cancelledReason ?? null,
+    reasonForVisit: raw.reasonForVisit ?? null,
+    referredByDoctorName: raw.referredByDoctorName ?? null,
+    referralNote: raw.referralNote ?? null,
+    departmentName: raw.departmentName ?? null,
+    createdAt: raw.bookedAt ?? raw.createdAt ?? null,
+    patient: raw.patient ?? null,
+    doctor: raw.doctor ?? null,
+  } as any),
+});
 export const consultationsApi = createCrudSlice<import("@/types").Consultation>({ name: "consultations", resource: "consultations" });
+
+/* ------------------------- appointment status mapping --------------------- */
+
+const STATUS_MAP: Record<string, string> = {
+  BOOKED: "Scheduled",
+  SCHEDULED: "Scheduled",
+  CONFIRMED: "Confirmed",
+  CHECKED_IN: "Checked In",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No Show",
+};
+const normalizeStatus = (s: any) =>
+  STATUS_MAP[String(s ?? "").toUpperCase()] ?? s ?? "Scheduled";
 
 /* ------------------------- doctor slot availability ---------------------- */
 

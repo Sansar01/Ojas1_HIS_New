@@ -64,7 +64,7 @@ export const API_ENDPOINTS = {
   // Appointments (grouped — the appointments slice resolves list/create/getById from here)
   appointment: {
     list: "/api/opd/appointments",
-    create: "/api/opd/appointments/create",
+    create: "/api/opd/appointments",
     slot: "/api/opd/appointments/slot",
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
     today: '/api/opd/appointments/today'

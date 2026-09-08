@@ -28,6 +28,8 @@ export interface CrudConfig<T> {
   /** wire global loader + toasts to API lifecycle (default true) */
   imperative?: boolean;
   initialValue?: T[];
+  /** map a raw API record into the app shape before it enters the store */
+  normalize?: (raw: any) => T;
 }
 
 export interface WritePayload<T> {
@@ -44,6 +46,7 @@ export function createCrudSlice<T extends { id: string }>(
   config: CrudConfig<T>,
 ) {
   const { name, resource, imperative = true } = config;
+  const map = (raw: any): T => (config.normalize ? config.normalize(raw) : raw);
 
   const guard = (dispatch: (a: any) => unknown, label: string) => {
     if (imperative) dispatch(showLoader(label));
@@ -65,9 +68,10 @@ export function createCrudSlice<T extends { id: string }>(
         );
         done();
         const responseData = Array.isArray(res) ? res : res.data;
-        return (Array.isArray(responseData)
+        const rows = Array.isArray(responseData)
           ? responseData
-          : responseData?.rows ?? []) as T[];
+          : responseData?.rows ?? [];
+        return rows.map(map);
       } catch (error: any) {
         done();
         dispatch(toast.error(`Could not load ${name}`, error?.message));
@@ -84,7 +88,7 @@ export function createCrudSlice<T extends { id: string }>(
         const res = await resourceApi.get(resource, id);
         done();
         const responseData: any = (res as any)?.data ?? res;
-        return (responseData?.data ?? responseData?.item ?? responseData) as T;
+        return map(responseData?.data ?? responseData?.item ?? responseData);
       } catch (error: any) {
         done();
         dispatch(toast.error(`Could not load ${name} record`, error?.message));
@@ -101,7 +105,7 @@ export function createCrudSlice<T extends { id: string }>(
         const res = await resourceApi.create(resource, payload.data);
         done();
         dispatch(toast.success(payload.successMessage ?? "Record created"));
-        return res.data as T;
+        return map(res.data ?? res);
       } catch (error: any) {
         done();
         dispatch(toast.error("Creation failed", error?.message));
@@ -122,7 +126,7 @@ export function createCrudSlice<T extends { id: string }>(
         );
         done();
         dispatch(toast.success(payload.successMessage ?? "Changes saved"));
-        return res.data as T;
+        return map(res.data ?? res);
       } catch (error: any) {
         done();
         dispatch(toast.error("Update failed", error?.message));

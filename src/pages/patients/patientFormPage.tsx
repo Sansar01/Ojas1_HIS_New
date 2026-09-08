@@ -121,7 +121,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
         (patient as any)?.insuranceValidTill?.slice(0, 10) ?? "",
       allergies: patient?.allergies ?? "",
       chronicDiseases:
-        (patient as any)?.chronicDiseases ?? patient?.chronicConditions ?? "",
+        (patient as any)?.chronicDiseases ?? patient?.chronicDiseases ?? "",
       companyName: (patient as any)?.companyName ?? "",
       empId: (patient as any)?.empId ?? "",
       coverage: (patient as any)?.coverage ?? "",

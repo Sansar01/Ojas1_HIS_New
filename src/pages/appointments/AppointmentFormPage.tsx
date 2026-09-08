@@ -1,15 +1,3 @@
-// import { useNavigate } from "react-router-dom";
-// import { useAppDispatch, useRootSelector } from "@/hooks";
-// import { useForm } from "@/hooks/useForm";
-// import { useState, useEffect } from "react";
-// import { appointmentsApi, departmentsApi } from "@/features/slices";
-// import { PageIntro } from "@/components/common";
-// import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
-// import { Button, Badge } from "@/components/ui/primitives";
-// import { addDays } from "@/data/db";
-// import { fullName, formatDate } from "@/utils";
-// import { SlotPicker } from "./AppointmentsPage";
-
 import { useEffect, useState } from "react";
 import { DatePicker, Input, Textarea } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
@@ -21,6 +9,7 @@ import { Dialog } from "@/components/ui/overlays";
 import { Select } from "@/components/ui/fields";
 import { Badge } from "@/components/ui/primitives";
 import { SlotPicker } from "./AppointmentsPage";
+import { APPOINTMENT_TYPES, VISIT_TYPES, PRIORITY_OPTIONS } from "@/constants";
 
 /** "HH:mm" → minutes since midnight */
 const toMinutes = (t: string) => {
@@ -127,15 +116,17 @@ export function AppointmentFormModal({
 
   const form = useForm({
     initialValues: {
-      patientId:
-        patients.find((p: any) => p.status.toLowerCase() === "active")?.id ||
-        "",
-      doctorId: doctors.find((d: any) => d.isActive === true)?.id || "",
+      patientId: "",
+      doctorId: "",
       date: addDays(new Date(), 1),
       time: "",
-      type: "Consultation",
-      priority: "Routine",
+      type: "CONSULTATION",
+      visitType: "NEW",
+      priority: "0",
       fee: 0,
+      reasonForVisit: "",
+      referredByDoctorName: "",
+      referralNote: "",
       notes: "",
       reason: "",
     },
@@ -150,13 +141,13 @@ export function AppointmentFormModal({
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
 
   /* default to the first active doctor once the doctors list arrives */
-  useEffect(() => {
-    if (!form.values.doctorId) {
-      const first = doctors.find((d: any) => d.isActive === true);
-      if (first) form.setValue("doctorId", first.id, false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doctors]);
+  // useEffect(() => {
+  //   if (!form.values.doctorId) {
+  //     const first = doctors.find((d: any) => d.isActive === true);
+  //     if (first) form.setValue("doctorId", first.id, false);
+  //   }
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [doctors]);
 
   /* ------- runtime: doctor slot-by-id API whenever doctor/date changes ------ */
   const [slotLoading, setSlotLoading] = useState(false);
@@ -204,24 +195,27 @@ export function AppointmentFormModal({
   const handleSubmit = form.handleSubmit(async (values) => {
     const doctorData = doctors.find((d: any) => d.id === values.doctorId);
 
+    /* payload mirrors CreateAppointmentDto exactly */
+    const payload = {
+      patientId: values.patientId,
+      doctorProfileId: values.doctorId,
+      departmentId: doctorData?.departmentId
+        ? Number(doctorData.departmentId)
+        : undefined,
+      appointmentDate: values.date, // "2025-06-10" (ISO date)
+      slotStartTime: values.time, // "10:30" (HH:MM 24h)
+      appointmentType: values.type,
+      visitType: values.visitType,
+      priority: Number(values.priority) || 0, // 0 Normal | 1 Urgent | 2 Emergency
+      referredByDoctorName: values.referredByDoctorName?.trim() || undefined,
+      referralNote: values.referralNote?.trim() || undefined,
+      reasonForVisit: values.reasonForVisit?.trim() || undefined,
+      notes: values.notes?.trim() || undefined,
+    };
+
     await dispatch(
       appointmentsApi.thunks.createOne({
-        data: {
-          patientId: values.patientId,
-          doctorId: values.doctorId,
-          departmentId: doctorData?.departmentId || "",
-          specializationId: doctorData?.specializationId || "",
-          date: values.date,
-          time: values.time,
-          duration: doctorData?.slotDuration || 20,
-          type: values.type,
-          priority: values.priority,
-          fee: Number(values.fee),
-          notes: values.notes,
-          status: "Scheduled",
-          code: `APT-${9000 + Math.floor(Math.random() * 9999)}`,
-          createdAt: new Date().toISOString(),
-        },
+        data: payload,
         successMessage: "Appointment booked successfully",
       } as any),
     );
@@ -282,7 +276,7 @@ export function AppointmentFormModal({
               error={form.errors.patientId}
               placeholder="Search registered patients..."
               options={patients
-                .filter((p: any) => p.status === "active")
+                .filter((p: any) => p.status === "ACTIVE")
                 .map((p: any) => ({
                   value: p.id,
                   label: fullName(p),
@@ -342,25 +336,25 @@ export function AppointmentFormModal({
               <Select
                 name="type"
                 label="Appointment type"
+                required
                 value={form.values.type}
                 onChange={(v) => form.setValue("type", v)}
-                options={[
-                  { value: "Consultation", label: "Consultation" },
-                  { value: "Follow-up", label: "Follow-up" },
-                  { value: "Procedure", label: "Procedure" },
-                  { value: "Emergency", label: "Emergency" },
-                  { value: "Telemedicine", label: "Telemedicine" },
-                ]}
+                options={APPOINTMENT_TYPES.map((t) => ({ ...t }))}
+              />
+              <Select
+                name="visitType"
+                label="Visit type"
+                required
+                value={form.values.visitType}
+                onChange={(v) => form.setValue("visitType", v)}
+                options={VISIT_TYPES.map((t) => ({ ...t }))}
               />
               <Select
                 name="priority"
                 label="Priority"
                 value={form.values.priority}
                 onChange={(v) => form.setValue("priority", v)}
-                options={[
-                  { value: "Routine", label: "Routine" },
-                  { value: "Urgent", label: "Urgent" },
-                ]}
+                options={PRIORITY_OPTIONS.map((p) => ({ ...p }))}
               />
               <Input
                 name="fee"
@@ -403,6 +397,42 @@ export function AppointmentFormModal({
                 </p>
               )}
             </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+              REFERRAL &amp; PATIENT INPUT
+            </span>
+            <div className="h-px flex-1 bg-ink-100" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Input
+              name="reasonForVisit"
+              label="Reason for visit"
+              placeholder="e.g. Chest pain since two days"
+              value={form.values.reasonForVisit}
+              onChange={(e) => form.setValue("reasonForVisit", e.target.value)}
+            />
+            <Input
+              name="referredByDoctorName"
+              label="Referred by (doctor name)"
+              placeholder="Optional — Dr. who referred this patient"
+              value={form.values.referredByDoctorName}
+              onChange={(e) =>
+                form.setValue("referredByDoctorName", e.target.value)
+              }
+            />
+            <Textarea
+              name="referralNote"
+              label="Referral note"
+              rows={2}
+              placeholder="Optional — referral details"
+              value={form.values.referralNote}
+              onChange={(e) => form.setValue("referralNote", e.target.value)}
+            />
           </div>
         </div>
 

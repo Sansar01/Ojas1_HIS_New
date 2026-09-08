@@ -204,12 +204,12 @@ function AppointmentForm({
       patientId:
         initial.patientId ??
         record?.patientId ??
-        patients.find((p: any) => p.status === "active")?.id ??
+        patients.find((p: any) => p.status === "ACTIVE")?.id ??
         "",
       doctorId:
         initial.doctorId ??
         record?.doctorId ??
-        doctors.find((d: any) => d.status === "active")?.id ??
+        doctors.find((d: any) => d.isActive === true)?.id ??
         "",
       date: initial.date ?? record?.date ?? addDays(new Date(), 1),
       time: initial.time ?? record?.time ?? "",
@@ -533,16 +533,19 @@ export function AppointmentsPage() {
   const table = useTable<Appointment>(filtered, {
     pageSize: 10,
     searchFields: [
-      (a) => a.code,
-      (a) => fullName(patientMap.get(a.patientId)),
-      (a) => `Dr. ${fullName(doctorMap.get(a.doctorId))}`,
-      (a) => a.notes,
+      (a: any) => a.code,
+      (a: any) => fullName(a.patient ?? patientMap.get(a.patientId)),
+      (a: any) => `Dr. ${fullName(a.doctor ?? doctorMap.get(a.doctorId))}`,
+      (a: any) => a.patient?.uhid,
+      (a: any) => a.patient?.mobile,
+      (a: any) => a.reasonForVisit,
+      (a: any) => a.notes,
     ],
     sortAccessors: {
-      date: (a) => `${a.date}${a.time}`,
-      status: (a) => a.status,
-      fee: (a) => a.fee,
-      patient: (a) => fullName(patientMap.get(a.patientId)),
+      date: (a: any) => `${a.date}${a.time ?? ""}`,
+      status: (a: any) => a.status,
+      fee: (a: any) => a.fee,
+      patient: (a: any) => fullName(a.patient ?? patientMap.get(a.patientId)),
     },
   });
 
@@ -609,28 +612,42 @@ export function AppointmentsPage() {
           </>
         }
         actions={
-          <Segmented
-            value={view}
-            onChange={(v) => setView(v)}
-            options={[
-              {
-                value: "list",
-                label: (
-                  <span className="flex items-center gap-1.5">
-                    <ListChecks className="size-3.5" /> List
-                  </span>
-                ),
-              },
-              {
-                value: "board",
-                label: (
-                  <span className="flex items-center gap-1.5">
-                    <CalendarDays className="size-3.5" /> Day board
-                  </span>
-                ),
-              },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              value={view}
+              onChange={(v) => setView(v)}
+              options={[
+                {
+                  value: "list",
+                  label: (
+                    <span className="flex items-center gap-1.5">
+                      <ListChecks className="size-3.5" /> List
+                    </span>
+                  ),
+                },
+                {
+                  value: "board",
+                  label: (
+                    <span className="flex items-center gap-1.5">
+                      <CalendarDays className="size-3.5" /> Day board
+                    </span>
+                  ),
+                },
+              ]}
+            />
+            {canCreate("appointments") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<RefreshCw />}
+                onClick={() =>
+                  dispatch(appointmentsApi.thunks.fetchAll() as any)
+                }
+              >
+                Refresh
+              </Button>
+            ) : undefined}
+          </div>
         }
       />
 
@@ -862,19 +879,20 @@ export function AppointmentsPage() {
                 key: "patient",
                 header: "Patient",
                 sortable: true,
-                render: (a) => (
+                render: (a: any) => (
                   <div className="flex items-center gap-2.5">
                     <Avatar
-                      name={fullName(patientMap.get(a.patientId))}
+                      name={fullName(a.patient ?? patientMap.get(a.patientId))}
                       size="xs"
                       color="bg-ink-600"
                     />
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-semibold text-ink-900">
-                        {fullName(patientMap.get(a.patientId))}
+                        {fullName(a.patient ?? patientMap.get(a.patientId))}
                       </p>
                       <p className="num truncate text-[11px] text-ink-400">
-                        {a.code} · {patientMap.get(a.patientId)?.mrn}
+                        {a.code} ·{" "}
+                        {a.patient?.uhid ?? patientMap.get(a.patientId)?.mrn}
                       </p>
                     </div>
                   </div>
@@ -884,9 +902,12 @@ export function AppointmentsPage() {
                 key: "doctor",
                 header: "Doctor",
                 hideBelow: "md",
-                render: (a) => (
+                render: (a: any) => (
                   <span className="text-[12.5px] text-ink-600">
-                    Dr. {fullName(doctorMap.get(a.doctorId))}
+                    Dr. {fullName(a.doctor ?? doctorMap.get(a.doctorId))}
+                    {a.doctor?.specialization
+                      ? ` · ${a.doctor.specialization}`
+                      : ""}
                   </span>
                 ),
               },
@@ -894,7 +915,7 @@ export function AppointmentsPage() {
                 key: "date",
                 header: "Slot",
                 sortable: true,
-                render: (a) => (
+                render: (a: any) => (
                   <div>
                     <p className="text-[12.5px] font-medium text-ink-800">
                       {formatDate(a.date, {
@@ -904,7 +925,10 @@ export function AppointmentsPage() {
                       })}
                     </p>
                     <p className="num text-[11px] text-ink-400">
-                      {formatTime(a.time)} · {a.duration}m
+                      {a.time
+                        ? `${formatTime(a.time)}${a.endTime ? ` – ${formatTime(a.endTime)}` : ""}`
+                        : "Walk-in"}
+                      {a.duration ? ` · ${a.duration}m` : ""}
                     </p>
                   </div>
                 ),
@@ -914,7 +938,7 @@ export function AppointmentsPage() {
                 header: "Type",
                 hideBelow: "lg",
                 align: "center",
-                render: (a) => (
+                render: (a: any) => (
                   <Badge
                     className={cn(
                       "ring-1 ring-inset",
@@ -923,7 +947,7 @@ export function AppointmentsPage() {
                     size="xs"
                     tone="neutral"
                   >
-                    {a.type}
+                    {String(a.type ?? "").replace(/_/g, " ")}
                   </Badge>
                 ),
               },
@@ -933,7 +957,7 @@ export function AppointmentsPage() {
                 align: "right",
                 sortable: true,
                 hideBelow: "sm",
-                render: (a) => (
+                render: (a: any) => (
                   <span className="num text-[12.5px] font-semibold">
                     {formatMoney(a.fee)}
                   </span>
@@ -1116,7 +1140,7 @@ export function AppointmentsPage() {
         title={detail ? `Appointment ${detail.code}` : "Appointment"}
         description={
           detail
-            ? `${formatDate(detail.date, { weekday: "long" })} at ${formatTime(detail.time)} · ${detail.type}`
+            ? `${formatDate(detail.date, { weekday: "long" })}${detail.time ? ` at ${formatTime(detail.time)}` : " (walk-in)"} · ${String(detail.type ?? "").replace(/_/g, " ")}`
             : undefined
         }
         footer={
@@ -1156,7 +1180,7 @@ export function AppointmentsPage() {
                 )}
                 <Button
                   size="sm"
-                  onClick={() => navigate(`/app/patients/${detail.patientId}`)}
+                  onClick={() => navigate(`/patients/${detail.patientId}`)}
                 >
                   Open patient chart
                 </Button>
@@ -1169,16 +1193,21 @@ export function AppointmentsPage() {
           <div className="space-y-5">
             <div className="flex items-center gap-3 rounded-xl border border-ink-100 bg-ink-25/70 p-3.5">
               <Avatar
-                name={fullName(patientMap.get(detail.patientId))}
+                name={fullName(
+                  detail?.patient ?? patientMap.get(detail.patientId),
+                )}
                 color="bg-brand-600"
               />
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">
-                  {fullName(patientMap.get(detail.patientId))}
+                  {fullName(detail.patient ?? patientMap.get(detail.patientId))}
                 </p>
                 <p className="text-[11.5px] text-ink-400">
-                  {patientMap.get(detail.patientId)?.mrn} ·{" "}
-                  {patientMap.get(detail.patientId)?.mobile}
+                  {detail.patient?.uhid ??
+                    patientMap.get(detail.patientId)?.mrn}{" "}
+                  ·{" "}
+                  {detail.patient?.mobile ??
+                    patientMap.get(detail.patientId)?.mobile}
                 </p>
               </div>
               <StatusBadge status={detail.status} className="ml-auto" />
@@ -1188,13 +1217,15 @@ export function AppointmentsPage() {
               items={[
                 {
                   label: "Doctor",
-                  value: `Dr. ${fullName(doctorMap.get(detail.doctorId))}`,
+                  value: `Dr. ${fullName(detail.doctor ?? doctorMap.get(detail.doctorId))}`,
                 },
                 {
                   label: "Department",
                   value:
+                    detail.departmentName ??
                     departments.find((d: any) => d.id === detail.departmentId)
-                      ?.name ?? "—",
+                      ?.name ??
+                    "—",
                 },
                 {
                   label: "Date",
@@ -1207,18 +1238,53 @@ export function AppointmentsPage() {
                 },
                 {
                   label: "Time",
-                  value: `${formatTime(detail.time)} · ${detail.duration} min`,
+                  value: detail.time
+                    ? `${formatTime(detail.time)}${detail.slotEndTime ? ` – ${formatTime(detail.slotEndTime)}` : ""}`
+                    : "Walk-in",
                 },
-                { label: "Type", value: detail.type },
+                {
+                  label: "Type",
+                  value: String(detail.type ?? "").replace(/_/g, " "),
+                },
+                {
+                  label: "Visit type",
+                  value: detail.visitType
+                    ? String(detail.visitType).replace(/_/g, " ")
+                    : "—",
+                },
+                {
+                  label: "Specialization",
+                  value: detail.doctor?.specialization ?? "—",
+                },
                 { label: "Priority", value: detail.priority },
                 { label: "Consultation fee", value: formatMoney(detail.fee) },
-                { label: "Booked on", value: formatDate(detail.createdAt) },
+                {
+                  label: "Booked on",
+                  value: formatDate(detail.bookedAt ?? detail.createdAt),
+                },
+                {
+                  label: "Reason for visit",
+                  value: detail.reasonForVisit || "—",
+                },
                 { label: "Notes", value: detail.notes || "—" },
-                ...(detail.cancelledReason
+                { label: "Token", value: detail.token ?? "—" },
+                {
+                  label: "Allergies",
+                  value: detail.patient?.allergies || "—",
+                },
+                {
+                  label: "Chronic diseases",
+                  value: detail.patient?.chronicDiseases || "—",
+                },
+                {
+                  label: "Referred by",
+                  value: detail.referredByDoctorName || "—",
+                },
+                ...(detail.cancelReason || detail.cancelledReason
                   ? [
                       {
                         label: "Cancellation reason",
-                        value: detail.cancelledReason,
+                        value: detail.cancelReason ?? detail.cancelledReason,
                       },
                     ]
                   : []),
@@ -1255,248 +1321,248 @@ interface AppointmentFormModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function AppointmentNewPage() {
-  const dispatch = useAppDispatch();
-  const navigate = useNavigate();
+// export function AppointmentNewPage() {
+//   const dispatch = useAppDispatch();
+//   const navigate = useNavigate();
 
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
-  const existingAppointments = useRootSelector((s) => s.appointments.items);
+//   const patients = useRootSelector((s) => s.patients.items);
+//   const doctors = useRootSelector((s) => s.doctors.items);
+//   const departments = useRootSelector((s) => s.departments.items);
+//   const specializations = useRootSelector((s) => s.specializations.items);
+//   const existingAppointments = useRootSelector((s) => s.appointments.items);
 
-  const form = useForm({
-    initialValues: {
-      patientId: patients.find((p: any) => p.status === "active")?.id || "",
-      doctorId: doctors.find((d: any) => d.status === "active")?.id || "",
-      date: addDays(new Date(), 1),
-      time: "",
-      type: "Consultation",
-      priority: "Routine",
-      fee: 0,
-      notes: "",
-      reason: "",
-    },
-    schema: {
-      patientId: [{ required: "Patient is required" }],
-      doctorId: [{ required: "Doctor is required" }],
-      date: [{ required: "Date is required" }],
-      time: [{ required: "Time slot is required" }],
-    },
-  });
+//   const form = useForm({
+//     initialValues: {
+//       patientId: patients.find((p: any) => p.status === "ACTIVE")?.id || "",
+//       doctorId: doctors.find((d: any) => d.isActive === true)?.id || "",
+//       date: addDays(new Date(), 1),
+//       time: "",
+//       type: "Consultation",
+//       priority: "Routine",
+//       fee: 0,
+//       notes: "",
+//       reason: "",
+//     },
+//     schema: {
+//       patientId: [{ required: "Patient is required" }],
+//       doctorId: [{ required: "Doctor is required" }],
+//       date: [{ required: "Date is required" }],
+//       time: [{ required: "Time slot is required" }],
+//     },
+//   });
 
-  const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+//   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
 
-  const handleSubmit = form.handleSubmit(async (values) => {
-    const doctorData = doctors.find((d: any) => d.id === values.doctorId);
+//   const handleSubmit = form.handleSubmit(async (values) => {
+//     const doctorData = doctors.find((d: any) => d.id === values.doctorId);
 
-    const payload = {
-      patientId: values.patientId,
-      doctorId: values.doctorId,
-      departmentId: doctorData?.departmentId || "",
-      specializationId: doctorData?.specializationId || "",
-      date: values.date,
-      time: values.time,
-      duration: doctorData?.slotDuration || 20,
-      type: values.type,
-      priority: values.priority,
-      fee: Number(values.fee),
-      notes: values.notes,
-      status: "Scheduled",
-    };
+//     const payload = {
+//       patientId: values.patientId,
+//       doctorId: values.doctorId,
+//       departmentId: doctorData?.departmentId || "",
+//       specializationId: doctorData?.specializationId || "",
+//       date: values.date,
+//       time: values.time,
+//       duration: doctorData?.slotDuration || 20,
+//       type: values.type,
+//       priority: values.priority,
+//       fee: Number(values.fee),
+//       notes: values.notes,
+//       status: "Scheduled",
+//     };
 
-    await dispatch(
-      appointmentsApi.thunks.createOne({
-        data: {
-          ...payload,
-          code: `APT-${9000 + Math.floor(Math.random() * 9999)}`,
-          createdAt: new Date().toISOString(),
-        },
-        successMessage: "Appointment booked successfully",
-      } as any),
-    );
+//     await dispatch(
+//       appointmentsApi.thunks.createOne({
+//         data: {
+//           ...payload,
+//           code: `APT-${9000 + Math.floor(Math.random() * 9999)}`,
+//           createdAt: new Date().toISOString(),
+//         },
+//         successMessage: "Appointment booked successfully",
+//       } as any),
+//     );
 
-    navigate("/app/appointments");
-  });
+//     navigate("/app/appointments");
+//   });
 
-  return (
-    <div className="max-w-6xl mx-auto">
-      <PageIntro
-        title="Book New Appointment"
-        description="Fill in the patient, doctor, and slot details."
-        back
-      />
+//   return (
+//     <div className="max-w-6xl mx-auto">
+//       <PageIntro
+//         title="Book New Appointment"
+//         description="Fill in the patient, doctor, and slot details."
+//         back
+//       />
 
-      <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Patient & Clinician Section */}
-          <div>
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-                PATIENT &amp; CLINICIAN
-              </span>
-              <div className="h-px flex-1 bg-ink-100" />
-            </div>
+//       <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
+//         <form onSubmit={handleSubmit} className="space-y-8">
+//           {/* Patient & Clinician Section */}
+//           <div>
+//             <div className="mb-4 flex items-center gap-2">
+//               <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+//                 PATIENT &amp; CLINICIAN
+//               </span>
+//               <div className="h-px flex-1 bg-ink-100" />
+//             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Select
-                name="patientId"
-                label="Patient"
-                required
-                value={form.values.patientId}
-                onChange={(v) => form.setValue("patientId", v)}
-                error={form.errors.patientId}
-                placeholder="Search registered patients..."
-                options={patients
-                  .filter((p: any) => p.status === "active")
-                  .map((p: any) => ({
-                    value: p.id,
-                    label: fullName(p),
-                    description: p.mrn,
-                  }))}
-              />
+//             <div className="grid gap-4 lg:grid-cols-2">
+//               <Select
+//                 name="patientId"
+//                 label="Patient"
+//                 required
+//                 value={form.values.patientId}
+//                 onChange={(v) => form.setValue("patientId", v)}
+//                 error={form.errors.patientId}
+//                 placeholder="Search registered patients..."
+//                 options={patients
+//                   .filter((p: any) => p.status === "ACTIVE")
+//                   .map((p: any) => ({
+//                     value: p.id,
+//                     label: fullName(p),
+//                     description: p.mrn,
+//                   }))}
+//               />
 
-              <div>
-                <Select
-                  name="doctorId"
-                  label="Doctor"
-                  required
-                  value={form.values.doctorId}
-                  onChange={(v) => form.setValue("doctorId", v)}
-                  error={form.errors.doctorId}
-                  options={doctors.map((d: any) => ({
-                    value: d.id,
-                    label: `Dr. ${fullName(d)}`,
-                    description: specializations.find(
-                      (s: any) => s.id === d.specializationId,
-                    )?.name,
-                    disabled: d.status !== "active",
-                  }))}
-                />
-                {doctor && (
-                  <p className="mt-1 text-[12px] text-ink-500">
-                    {
-                      departments.find(
-                        (dep: any) => dep.id === doctor.departmentId,
-                      )?.name
-                    }{" "}
-                    · {doctor.slotDuration}m slots
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+//               <div>
+//                 <Select
+//                   name="doctorId"
+//                   label="Doctor"
+//                   required
+//                   value={form.values.doctorId}
+//                   onChange={(v) => form.setValue("doctorId", v)}
+//                   error={form.errors.doctorId}
+//                   options={doctors.map((d: any) => ({
+//                     value: d.id,
+//                     label: `Dr. ${fullName(d)}`,
+//                     description: specializations.find(
+//                       (s: any) => s.id === d.specializationId,
+//                     )?.name,
+//                     disabled: d.status !== "active",
+//                   }))}
+//                 />
+//                 {doctor && (
+//                   <p className="mt-1 text-[12px] text-ink-500">
+//                     {
+//                       departments.find(
+//                         (dep: any) => dep.id === doctor.departmentId,
+//                       )?.name
+//                     }{" "}
+//                     · {doctor.slotDuration}m slots
+//                   </p>
+//                 )}
+//               </div>
+//             </div>
+//           </div>
 
-          {/* Date & Slot Section */}
-          <div>
-            <div className="mb-4 flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-                DATE &amp; SLOT
-              </span>
-              <div className="h-px flex-1 bg-ink-100" />
-            </div>
+//           {/* Date & Slot Section */}
+//           <div>
+//             <div className="mb-4 flex items-center gap-2">
+//               <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+//                 DATE &amp; SLOT
+//               </span>
+//               <div className="h-px flex-1 bg-ink-100" />
+//             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-              {/* Left Side */}
-              <div className="space-y-4">
-                <DatePicker
-                  label="Appointment date"
-                  required
-                  value={form.values.date}
-                  onChange={(v) => form.setValue("date", v)}
-                  error={form.errors.date}
-                  min={addDays(new Date(), 0)}
-                />
+//             <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+//               {/* Left Side */}
+//               <div className="space-y-4">
+//                 <DatePicker
+//                   label="Appointment date"
+//                   required
+//                   value={form.values.date}
+//                   onChange={(v) => form.setValue("date", v)}
+//                   error={form.errors.date}
+//                   min={addDays(new Date(), 0)}
+//                 />
 
-                <Select
-                  name="type"
-                  label="Appointment type"
-                  value={form.values.type}
-                  onChange={(v) => form.setValue("type", v)}
-                  options={[
-                    { value: "Consultation", label: "Consultation" },
-                    { value: "Follow-up", label: "Follow-up" },
-                    { value: "Procedure", label: "Procedure" },
-                    { value: "Emergency", label: "Emergency" },
-                    { value: "Telemedicine", label: "Telemedicine" },
-                  ]}
-                />
+//                 <Select
+//                   name="type"
+//                   label="Appointment type"
+//                   value={form.values.type}
+//                   onChange={(v) => form.setValue("type", v)}
+//                   options={[
+//                     { value: "Consultation", label: "Consultation" },
+//                     { value: "Follow-up", label: "Follow-up" },
+//                     { value: "Procedure", label: "Procedure" },
+//                     { value: "Emergency", label: "Emergency" },
+//                     { value: "Telemedicine", label: "Telemedicine" },
+//                   ]}
+//                 />
 
-                <Select
-                  name="priority"
-                  label="Priority"
-                  value={form.values.priority}
-                  onChange={(v) => form.setValue("priority", v)}
-                  options={[
-                    { value: "Routine", label: "Routine" },
-                    { value: "Urgent", label: "Urgent" },
-                  ]}
-                />
+//                 <Select
+//                   name="priority"
+//                   label="Priority"
+//                   value={form.values.priority}
+//                   onChange={(v) => form.setValue("priority", v)}
+//                   options={[
+//                     { value: "Routine", label: "Routine" },
+//                     { value: "Urgent", label: "Urgent" },
+//                   ]}
+//                 />
 
-                <Input
-                  name="fee"
-                  label="Consultation Fee"
-                  type="number"
-                  prefix="₹"
-                  value={String(form.values.fee)}
-                  onChange={(e) => form.setValue("fee", Number(e.target.value))}
-                />
-              </div>
+//                 <Input
+//                   name="fee"
+//                   label="Consultation Fee"
+//                   type="number"
+//                   prefix="₹"
+//                   value={String(form.values.fee)}
+//                   onChange={(e) => form.setValue("fee", Number(e.target.value))}
+//                 />
+//               </div>
 
-              {/* Right Side - Slots */}
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[12.5px] font-medium text-ink-600">
-                    Available slots ·{" "}
-                    {formatDate(form.values.date, {
-                      weekday: "long",
-                      day: "2-digit",
-                      month: "short",
-                    })}
-                  </p>
-                  {doctor && (
-                    <Badge tone="mint" size="xs">
-                      {form.values.time ? "1 selected" : "Open slots"}
-                    </Badge>
-                  )}
-                </div>
+//               {/* Right Side - Slots */}
+//               <div>
+//                 <div className="mb-2 flex items-center justify-between">
+//                   <p className="text-[12.5px] font-medium text-ink-600">
+//                     Available slots ·{" "}
+//                     {formatDate(form.values.date, {
+//                       weekday: "long",
+//                       day: "2-digit",
+//                       month: "short",
+//                     })}
+//                   </p>
+//                   {doctor && (
+//                     <Badge tone="mint" size="xs">
+//                       {form.values.time ? "1 selected" : "Open slots"}
+//                     </Badge>
+//                   )}
+//                 </div>
 
-                <SlotPicker
-                  doctorId={form.values.doctorId}
-                  date={form.values.date}
-                  appointments={existingAppointments}
-                  value={form.values.time}
-                  onChange={(t) => form.setValue("time", t)}
-                />
+//                 <SlotPicker
+//                   doctorId={form.values.doctorId}
+//                   date={form.values.date}
+//                   appointments={existingAppointments}
+//                   value={form.values.time}
+//                   onChange={(t) => form.setValue("time", t)}
+//                 />
 
-                {form.errors.time && (
-                  <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
-                    {form.errors.time}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
+//                 {form.errors.time && (
+//                   <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
+//                     {form.errors.time}
+//                   </p>
+//                 )}
+//               </div>
+//             </div>
+//           </div>
 
-          {/* Notes */}
-          <div>
-            <Textarea
-              name="notes"
-              label="Notes"
-              rows={3}
-              value={form.values.notes}
-              onChange={(e) => form.setValue("notes", e.target.value)}
-            />
-          </div>
+//           {/* Notes */}
+//           <div>
+//             <Textarea
+//               name="notes"
+//               label="Notes"
+//               rows={3}
+//               value={form.values.notes}
+//               onChange={(e) => form.setValue("notes", e.target.value)}
+//             />
+//           </div>
 
-          {/* Submit Button */}
-          <div className="flex justify-end pt-4 border-t border-ink-100">
-            <Button type="submit" loading={form.submitting}>
-              Book Appointment
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+//           {/* Submit Button */}
+//           <div className="flex justify-end pt-4 border-t border-ink-100">
+//             <Button type="submit" loading={form.submitting}>
+//               Book Appointment
+//             </Button>
+//           </div>
+//         </form>
+//       </div>
+//     </div>
+//   );
+// }

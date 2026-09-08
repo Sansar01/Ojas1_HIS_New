@@ -9,7 +9,7 @@ import {
 import { DashboardPage } from "@/pages/DashboardPage";
 import { PatientsPage } from "@/pages/patients/PatientsPage";
 import { DoctorsPage, DoctorDetailPage } from "@/pages/doctors/DoctorsPage";
-import { AppointmentNewPage, AppointmentsPage } from "@/pages/appointments/AppointmentsPage";
+import { AppointmentsPage } from "@/pages/appointments/AppointmentsPage";
 import {
   ConsultationsPage,
   ConsultationWorkspacePage,
@@ -150,7 +150,7 @@ export function AppRoutes() {
               </RequireModule>
             }
           />
-          <Route
+          {/* <Route
             path="/appointments/register"
             element={
               <RequireModule module="appointments">
