@@ -176,6 +176,7 @@ export interface RequestConfig {
   withCredentials?: boolean;
   /** Extra headers (e.g. x-refresh-token on the refresh call) */
   headers?: Record<string, string>;
+  credentials?:string
   meta?: { successMessage?: string; errorMessage?: string };
 }
 
@@ -304,12 +305,7 @@ export const authApi = {
       skipRefresh: true, // never recurse: refresh failure is final
       skipAuth: true, // no Bearer header — this is the refresh call
       withCredentials: true, // send the refreshToken cookie when present
-      ...(refreshToken
-        ? {
-            body: { refreshToken },
-            headers: { "x-refresh-token": refreshToken },
-          }
-        : {}),
+
     });
   },
 
