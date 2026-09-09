@@ -307,7 +307,7 @@ export function PatientDetailPage() {
                     <Stethoscope className="size-3.5" /> Chronic conditions
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(patient.chronicConditions || "None reported")
+                    {(patient.chronicDiseases || "None reported")
                       .split(",")
                       .map((a) => (
                         <span

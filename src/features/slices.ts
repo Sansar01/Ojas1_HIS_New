@@ -3,7 +3,7 @@ import { createCrudSlice } from "@/features/crud/createCrudSlice";
 import { request } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { HospitalInfo  , CreateDoctorPayload  , ScheduleDay , Doctor} from "@/types";
+import type { HospitalInfo, CreateDoctorPayload, ScheduleDay, Doctor } from "@/types";
 
 /* ---------------------------------------------------------------------------
  * One modular slice per domain feature (Redux Toolkit).
@@ -131,8 +131,90 @@ export const patientsApi = createCrudSlice<import("@/types").Patient>({ name: "p
 export const doctorsApi = createCrudSlice<import("@/types").Doctor>({ name: "doctors", resource: "doctors" });
 export const departmentsApi = createCrudSlice<import("@/types").Department>({ name: "departments", resource: "departments" });
 export const specializationsApi = createCrudSlice<import("@/types").Specialization>({ name: "specializations", resource: "specializations" });
-export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({ name: "appointments", resource: "appointments" });
+export const appointmentsApi = createCrudSlice<import("@/types").Appointment>({
+  name: "appointments",
+  resource: "appointment",
+  // map the appointment list API shape (nested patient/doctor, appointmentNo,
+  // appointmentDate, slotStartTime, BOOKED/… statuses) into the app shape
+  normalize: (raw: any) => ({
+    ...raw,
+    code: raw.appointmentNo ?? raw.code ?? "",
+    patientId: raw.patient?.id ?? raw.patientId ?? "",
+    doctorId: raw.doctor?.id ?? raw.doctorId ?? "",
+    date: raw.appointmentDate ?? raw.date ?? "",
+    time: raw.slotStartTime ?? raw.time ?? "",
+    endTime: raw.slotEndTime ?? null,
+    duration: raw.doctor?.slotDurationMins ?? raw.duration ?? 20,
+    type: raw.appointmentType ?? raw.type ?? "Consultation",
+    fee: raw.consultationFee ?? raw.fee ?? 0,
+    priority: raw.priority === 1 || raw.priority === "Urgent" ? "Urgent" : "Routine",
+    status: normalizeStatus(raw.status ?? raw.appointmentStatus),
+    rawStatus: raw.status ?? null,
+    token: raw.token ?? null,
+    checkedInAt: raw.checkedInAt ?? null,
+    bookedAt: raw.bookedAt ?? raw.createdAt ?? null,
+    cancelledAt: raw.cancelledAt ?? null,
+    cancelReason: raw.cancelReason ?? raw.cancelledReason ?? null,
+    reasonForVisit: raw.reasonForVisit ?? null,
+    referredByDoctorName: raw.referredByDoctorName ?? null,
+    referralNote: raw.referralNote ?? null,
+    departmentName: raw.departmentName ?? null,
+    createdAt: raw.bookedAt ?? raw.createdAt ?? null,
+    patient: raw.patient ?? null,
+    doctor: raw.doctor ?? null,
+  } as any),
+});
 export const consultationsApi = createCrudSlice<import("@/types").Consultation>({ name: "consultations", resource: "consultations" });
+
+/* ------------------------- appointment status mapping --------------------- */
+
+const STATUS_MAP: Record<string, string> = {
+  BOOKED: "Scheduled",
+  SCHEDULED: "Scheduled",
+  CONFIRMED: "Confirmed",
+  CHECKED_IN: "Checked In",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  NO_SHOW: "No Show",
+};
+const normalizeStatus = (s: any) =>
+  STATUS_MAP[String(s ?? "").toUpperCase()] ?? s ?? "Scheduled";
+
+/* ------------------------- doctor slot availability ---------------------- */
+
+export interface DoctorSlotFetchPayload {
+  doctorId: string | number;
+  date?: string;
+}
+
+/**
+ * Runtime call: fetch a particular doctor's available slots by doctor id.
+ * Runs when the appointment form modal needs slots for a selected doctor —
+ * shows the global application loader until the slots are available.
+ */
+export const fetchDoctorSlots = createAsyncThunk(
+  "doctors/fetchSlots",
+  async (
+    payload: DoctorSlotFetchPayload,
+    { dispatch, rejectWithValue },
+  ) => {
+    dispatch(showLoader("Loading available slots"));
+    try {
+      const response: any = await request({
+        url: API_ENDPOINTS.doctors.getSlotById(payload.doctorId),
+        method: "GET",
+        params: payload.date ? { date: payload.date } : undefined,
+      });
+      dispatch(hideLoader());
+      return response?.data ?? response;
+    } catch (error: any) {
+      dispatch(hideLoader());
+      dispatch(toast.error("Could not load doctor slots", error?.message));
+      return rejectWithValue(error?.message ?? "Failed to load slots");
+    }
+  },
+);
 export const invoicesApi = createCrudSlice<import("@/types").Invoice>({ name: "invoices", resource: "invoices" });
 export const activitiesApi = createCrudSlice<import("@/types").ActivityLog>({ name: "activities", resource: "activities" });
 
@@ -186,7 +268,7 @@ export const mapScheduleToApi = (schedule: ScheduleDay[]) => {
     ...(s.enabled && {
       startTime: s.start,
       endTime: s.end,
-      breakStartTime: s.breakStartTime, 
+      breakStartTime: s.breakStartTime,
       breakEndTime: s.breakEndTime,
     }),
   }));
@@ -244,7 +326,7 @@ export const onboardDoctor = createAsyncThunk(
     try {
       // Step A: Create Profile
       const profileResult = await dispatch(createDoctorProfile(payload.profile)).unwrap();
-      
+
       const newDoctorId = profileResult.id;
       if (!newDoctorId) throw new Error("Doctor ID missing from backend response");
 
@@ -259,7 +341,7 @@ export const onboardDoctor = createAsyncThunk(
 
       dispatch(hideLoader());
       dispatch(toast.success("Profile Setup Complete!"));
-      
+
       return { doctorId: newDoctorId, profile: profileResult };
     } catch (error: any) {
       dispatch(hideLoader());

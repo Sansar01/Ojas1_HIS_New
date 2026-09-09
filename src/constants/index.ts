@@ -217,6 +217,32 @@ export const AVATAR_COLORS = [
 export const PAGE_SIZES = [8, 12, 25, 50];
 
 
+/* ------------------------- backend DTO value mirrors ----------------------- */
+/** Mirrors the backend `AppointmentType` enum */
+export const APPOINTMENT_TYPES = [
+  { value: "WALK_IN", label: "Walk In" },
+  { value: "SCHEDULED", label: "Scheduled" },
+  { value: "EMERGENCY", label: "Emergency" },
+  { value: "TELECONSULTATION", label: "Teleconsultation" },
+] as const;
+
+/** Mirrors the backend `VisitType` enum */
+export const VISIT_TYPES = [
+  { value: "NEW_VISIT", label: "New Visit" },
+  { value: "FOLLOW_UP", label: "Follow Up" },
+  { value: "REVIEW", label: "Review" },
+  { value: "REFERRAL", label: "Referral" },
+  { value: "POST_OP", label: "Post Op" },
+  { value: "EMERGENCY", label: "Emergency" },
+] as const;
+
+/** 0 = Normal | 1 = Urgent | 2 = Emergency (backend DTO priority) —
+ *  values kept as strings because the Select component expects string options */
+export const PRIORITY_OPTIONS = [
+  { value: "0", label: "Routine" },
+  { value: "1", label: "Urgent" },
+  { value: "2", label: "Emergency" },
+] as const;
 
 // Add this in src/constants.ts or a new file src/constants/specializations.ts
 

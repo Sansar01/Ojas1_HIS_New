@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { useSelector } from "react-redux";
 import { Provider } from "react-redux";
 import { store } from "@/store";
-import { logout, restoreSession } from "@/features/auth/authSlice";
+import { logout, restoreSession, refreshSession } from "@/features/auth/authSlice";
+import { registerRefreshHandler, startSessionWatchdog } from "@/services/apiClient";
 import { fetchEntitlements } from "@/features/entitlement/entitlementSlice";
 import { AppRoutes } from "@/routes";
 import { TooltipProvider } from "@/components/ui/overlays";
@@ -18,6 +19,20 @@ function Root() {
 
   useEffect(() => {
     store.dispatch(restoreSession() as any);
+
+    // 401 anywhere in the app → refresh the token once and retry.
+    // If refresh fails, apiClient clears the session and navigates to login.
+    registerRefreshHandler(async () => {
+      try {
+        await store.dispatch(refreshSession() as any).unwrap();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    // Proactively refresh the token before it expires; watch every 60s
+    startSessionWatchdog(60_000);
   }, []);
 
   useEffect(() => {

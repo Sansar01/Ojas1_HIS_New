@@ -174,3 +174,5 @@ export function nextAvailableDate(doctor: Doctor | undefined, appointments: Appo
 }
 
 export const range = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+export { addDays };

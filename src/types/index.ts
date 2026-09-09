@@ -138,6 +138,7 @@ export interface Doctor {
   registrationNumber: string;
   consultationFee: number;
   slotDuration: number; // minutes
+  specialization:string
   bufferTime: number; // minutes
   maxPatientsPerDay: number;
   schedule: ScheduleDay[];
@@ -155,6 +156,7 @@ export interface Doctor {
 
 export interface Patient {
   id: ID;
+  uhid:ID;
   mrn: string;
   firstName: string;
   lastName: string;
@@ -171,7 +173,7 @@ export interface Patient {
   emergencyContactName: string;
   emergencyContactNumber: string;
   allergies: string;
-  chronicConditions: string;
+  chronicDiseases: string;
   heightCm?: number;
   weightKg?: number;
   status: Status;
@@ -193,6 +195,7 @@ export interface Appointment {
   patientId: ID;
   doctorId: ID;
   departmentId: ID;
+  departmentName: string;
   specializationId: ID;
   date: ISODate;
   time: string; // "10:30"
@@ -208,7 +211,17 @@ export interface Appointment {
   status: AppointmentStatus;
   notes: string;
   createdAt: ISODateTime;
+  bookedAt:ISODateTime;
   cancelledReason?: string;
+  reasonForVisit?:string
+  slotEndTime?:string
+  referredByDoctorName?:string
+  cancelReason?:string
+  slotStartTime?:string
+  visitType:string
+  token?:string
+  patient:Patient
+  doctor:Doctor
 }
 
 export type ConsultationStatus =

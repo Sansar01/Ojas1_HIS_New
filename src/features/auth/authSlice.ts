@@ -3,7 +3,14 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { authApi, setToken, TOKEN_KEY } from "@/services/apiClient";
+import {
+  authApi,
+  clearRefreshToken,
+  setRefreshToken,
+  setToken,
+  setTokenExpiry,
+  TOKEN_KEY,
+} from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ModuleKey, Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
@@ -17,11 +24,11 @@ interface AuthState {
   session: Session | null;
   entitlements: Entitlements | null;
   status:
-    | "idle"
-    | "restoring"
-    | "authenticating"
-    | "authenticated"
-    | "unauthenticated";
+  | "idle"
+  | "restoring"
+  | "authenticating"
+  | "authenticated"
+  | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -50,6 +57,7 @@ export const restoreSession = createAsyncThunk(
 
       // Set token in memory
       setToken(parsed.accessToken);
+      setTokenExpiry(parsed.expiresAt);
 
       // Return the stored session directly (no API call)
       return {
@@ -75,20 +83,21 @@ export const login = createAsyncThunk(
     try {
       const res = await authApi.login(email, password);
 
-      if (
-        res.data?.accessToken &&
-        res.data?.user
-      ) {
-        // Save token
+      if (res.data?.accessToken && res.data?.user) {
+        // Save token (persist refreshToken too so it survives page reloads
+        // and can be sent explicitly on /auth/refresh if the cookie is lost)
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             accessToken: res.data.accessToken,
             user: res.data.user,
             expiresAt: res.data.expiresAt,
+            refreshToken: (res.data as any).refreshToken ?? null,
           }),
         );
+        setRefreshToken((res.data as any).refreshToken);
         setToken(res.data.accessToken);
+        setTokenExpiry(res.data.expiresAt);
 
         // Success toast
         dispatch(
@@ -156,6 +165,50 @@ export const resetPassword = createAsyncThunk(
   },
 );
 
+// ==================== REFRESH TOKEN THUNK ====================
+/**
+ * Called by apiClient when a request returns 401.
+ * Tries POST /auth/refresh to get a new accessToken.
+ * - Success → updates localStorage + Redux session, apiClient retries the
+ *   original request transparently. User never sees a login screen.
+ * - Failure → returns false to apiClient, which clears the session and
+ *   navigates to /accounts/login.
+ * Uses skipRefresh on the underlying request so it can never recurse.
+ */
+export const refreshSession = createAsyncThunk(
+  "auth/refreshSession",
+  async (_, { rejectWithValue }) => {
+    try {
+      const res = await authApi.refresh();
+
+      if (res.data?.accessToken) {
+        // Merge the new token into the stored session (keep user/role/etc.)
+        const stored = localStorage.getItem(TOKEN_KEY);
+        const parsed = stored ? JSON.parse(stored) : {};
+        const rotatedRefresh = (res.data as any).refreshToken ?? null;
+        localStorage.setItem(
+          TOKEN_KEY,
+          JSON.stringify({
+            ...parsed,
+            accessToken: res.data.accessToken,
+            expiresAt: res.data.expiresAt ?? parsed.expiresAt,
+            // keep the old refresh token unless the backend rotated it
+            refreshToken: rotatedRefresh ?? parsed.refreshToken ?? null,
+          }),
+        );
+        if (rotatedRefresh) setRefreshToken(rotatedRefresh);
+        setToken(res.data.accessToken);
+        setTokenExpiry(res.data.expiresAt);
+        return res.data;
+      }
+
+      return rejectWithValue(res.message || "Unable to refresh session");
+    } catch (error: any) {
+      return rejectWithValue(error?.message || "Session expired");
+    }
+  },
+);
+
 // ==================== LOGOUT THUNK ====================
 export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
@@ -168,6 +221,7 @@ export const logoutUser = createAsyncThunk(
 
       // Clear local storage and token
       localStorage.removeItem(TOKEN_KEY);
+      clearRefreshToken();
       setToken(null);
 
       // Clear entitlements
@@ -179,6 +233,7 @@ export const logoutUser = createAsyncThunk(
     } catch (error: any) {
       // Even if API fails, we still logout locally
       localStorage.removeItem(TOKEN_KEY);
+      clearRefreshToken();
       setToken(null);
       dispatch(clearEntitlements());
 
@@ -229,6 +284,23 @@ const authSlice = createSlice({
         }
       })
       .addCase(restoreSession.rejected, (state) => {
+        state.session = null;
+        state.status = "unauthenticated";
+      })
+      // ==================== REFRESH HANDLERS ====================
+      .addCase(refreshSession.fulfilled, (state, action) => {
+        // Keep the existing user in place, just swap the fresh token in
+        if (state.session) {
+          state.session = {
+            ...state.session,
+            accessToken: action.payload.accessToken,
+            expiresAt: action.payload.expiresAt ?? state.session.expiresAt,
+          } as Session;
+        }
+        state.status = "authenticated";
+        state.error = null;
+      })
+      .addCase(refreshSession.rejected, (state) => {
         state.session = null;
         state.status = "unauthenticated";
       })

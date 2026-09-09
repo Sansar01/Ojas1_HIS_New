@@ -25,8 +25,8 @@ export const API_ENDPOINTS = {
   auth: {
     login: "/api/hospital/auth/login",
     logout: "/api/hospital/auth/logout",
-    refresh:"/api/hospital/auth/refresh",
-    me: "/api/hospital/auth/me",
+    refresh: "/api/hospital/auth/refresh",
+    //me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
     resetPassword: "/api/hospital/auth/reset-password",
   },
@@ -46,8 +46,14 @@ export const API_ENDPOINTS = {
   // Patients
   patients: "/api/opd/patients",
 
+  // Doctors
+  // doctors: "/api/opd/doctors/create",
+  doctors: {
+    create: "/api/opd/doctors/create",
+    list: "/api/opd/doctors/list",
+    getSlotById: (Id: string | number) => `/api/opd/doctors/${Id}/availability`,
+  },
   // Doctors / OPD Module
-  doctors: "/api/opd/doctors",
   createDoctor: "/api/opd/doctors/create",
   doctorDetail: (doctorId: string | number) =>
     `/api/opd/doctors/${doctorId}`,
@@ -60,10 +66,16 @@ export const API_ENDPOINTS = {
   departments: "/api/hospital/masters/departments",
 
   // Specializations
-  specializations: "/specializations",
+   specializations: "/specializations",
 
-  // Appointments
-  appointments: "/appointments",
+  // Appointments (grouped — the appointments slice resolves list/create/getById from here)
+  appointment: {
+    list: "/api/opd/appointments",
+    create: "/api/opd/appointments",
+    slot: "/api/opd/appointments/slot",
+    getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
+    today: '/api/opd/appointments/today'
+  },
 
   // Consultations
   consultations: "/consultations",

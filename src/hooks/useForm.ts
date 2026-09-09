@@ -18,7 +18,10 @@ export interface Rule {
   pattern?: RegExp;
   message?: string;
   /** return a string to fail, false to fail with `message`, anything else to pass */
-  validate?: (value: any, values: Record<string, any>) => string | undefined | true | false;
+  validate?: (
+    value: any,
+    values: Record<string, any>,
+  ) => string | undefined | true | false;
 }
 
 export type ValidationSchema<T> = Partial<Record<keyof T, Rule[]>>;
@@ -29,13 +32,19 @@ export interface UseFormConfig<T> {
 }
 
 const isBlank = (v: any) =>
-  v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
+  v === undefined ||
+  v === null ||
+  (typeof v === "string" && v.trim() === "") ||
+  (Array.isArray(v) && v.length === 0);
 
 /** Registry of the form currently rendering — lets inline stepped panels
  *  validate their own step without prop-drilling the form instance. */
 export const formRegistry: { current: any } = { current: null };
 
-export function useForm<T extends Record<string, any>>({ initialValues, schema = {} }: UseFormConfig<T>) {
+export function useForm<T extends Record<string, any>>({
+  initialValues,
+  schema = {},
+}: UseFormConfig<T>) {
   const dispatch = useAppDispatch();
   const [values, setValues] = useState<T>(initialValues);
   const [errors, setErrors] = useState<Partial<Record<keyof T, string>>>({});
@@ -46,12 +55,19 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
   const validateField = useCallback(
     (name: keyof T, value: any, all: T) => {
       for (const rule of schema[name] ?? []) {
-        if (rule.required && isBlank(value)) return typeof rule.required === "string" ? rule.required : rule.message ?? "This field is required";
+        if (rule.required && isBlank(value))
+          return typeof rule.required === "string"
+            ? rule.required
+            : (rule.message ?? "This field is required");
         if (isBlank(value) && !rule.required) continue;
-        if (rule.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(value))) return rule.message ?? "Enter a valid email address";
-        if (rule.min !== undefined && String(value).length < rule.min) return rule.message ?? `Must be at least ${rule.min} characters`;
-        if (rule.max !== undefined && String(value).length > rule.max) return rule.message ?? `Must be no more than ${rule.max} characters`;
-        if (rule.pattern && !rule.pattern.test(String(value))) return rule.message ?? "Invalid format";
+        if (rule.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(value)))
+          return rule.message ?? "Enter a valid email address";
+        if (rule.min !== undefined && String(value).length < rule.min)
+          return rule.message ?? `Must be at least ${rule.min} characters`;
+        if (rule.max !== undefined && String(value).length > rule.max)
+          return rule.message ?? `Must be no more than ${rule.max} characters`;
+        if (rule.pattern && !rule.pattern.test(String(value)))
+          return rule.message ?? "Invalid format";
         if (rule.validate) {
           const res = rule.validate(value, all);
           if (typeof res === "string") return res;
@@ -66,7 +82,9 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
   const runValidation = useCallback(
     (names?: (keyof T)[]) => {
       const next: Partial<Record<keyof T, string>> = {};
-      const keys = names?.length ? names.filter((k) => (schema as any)[k]) : (Object.keys(schema) as (keyof T)[]);
+      const keys = names?.length
+        ? names.filter((k) => (schema as any)[k])
+        : (Object.keys(schema) as (keyof T)[]);
       keys.forEach((key) => {
         const message = validateField(key, (values as any)[key], values);
         if (message) next[key] = message;
@@ -86,11 +104,22 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
   const validateFields = useCallback(
     (names: string[]) => {
       const next = runValidation(names as (keyof T)[]);
+
       setErrors((prev) => {
         const merged: any = { ...prev };
-        names.forEach((n) => (next[n as keyof T] ? (merged[n] = next[n as keyof T]) : delete merged[n]));
+
+        names.forEach((n) => {
+          const key = n as keyof T;
+          if (next[key]) {
+            merged[key] = next[key];
+          } else {
+            delete merged[key];
+          }
+        });
+
         return merged;
       });
+
       return next;
     },
     [runValidation],
@@ -101,7 +130,10 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
     const el = nodes.current[name];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.setTimeout(() => (el as HTMLInputElement).focus?.({ preventScroll: true }), 240);
+      window.setTimeout(
+        () => (el as HTMLInputElement).focus?.({ preventScroll: true }),
+        240,
+      );
     }
   }, []);
 
@@ -109,12 +141,23 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
     (name: keyof T, value: any, validateNow = true) => {
       setValues((prev) => {
         const nextValues = { ...prev, [name]: value } as T;
+
         if (validateNow) {
           const message = validateField(name, value, nextValues);
-          setErrors((e) => (e[name] === message ? e : { ...e, [name]: message }));
+          setErrors((e) => {
+            const newErrors = { ...e };
+            if (message) {
+              newErrors[name] = message;
+            } else {
+              delete newErrors[name];
+            }
+            return newErrors;
+          });
         }
+
         return nextValues;
       });
+
       setDirty(true);
     },
     [validateField],
@@ -154,6 +197,21 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
       }
     };
 
+    // ==================== GLOBAL NUMERIC INPUT HANDLER ====================
+  const handleNumericChange = useCallback(
+    (field: keyof T, value: string) => {
+      // Remove all non-numeric characters
+      const numericValue = value.replace(/[^0-9]/g, "");
+
+      // Update the field value
+      setValue(field, numericValue);
+
+      // Trigger real-time validation
+      validateFields([field as string]);
+    },
+    [setValue, validateFields],
+  );
+
   const api = {
     values,
     errors,
@@ -168,6 +226,7 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
     focusField,
     reset,
     handleSubmit,
+    handleNumericChange,
     schema,
     hasError: Object.keys(errors).length > 0,
     registerRef: (name: keyof T) => (el: HTMLElement | null) => {
@@ -177,9 +236,12 @@ export function useForm<T extends Record<string, any>>({ initialValues, schema =
 
   // the panel rendered by this component reads the form from the registry
   formRegistry.current = api;
-  useEffect(() => () => {
-    if (formRegistry.current === api) formRegistry.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      if (formRegistry.current === api) formRegistry.current = null;
+    },
+    [],
+  );
 
   return api;
 }
