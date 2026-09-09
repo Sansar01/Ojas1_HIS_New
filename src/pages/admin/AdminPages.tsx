@@ -24,7 +24,6 @@ import {
   createHospitalRole,
   type RoleMasterCatalogItem,
 } from "@/features/slices";
-import { fetchEntitlements } from "@/features/entitlement/entitlementSlice";
 import { resetDb } from "@/data/db";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, ModuleKey, Permission, Role } from "@/types";
@@ -54,7 +53,6 @@ export function RolesPage() {
   const { items: roles, status } = useRootSelector((s) => s.roles);
   const users = useRootSelector((s) => s.users.items);
   const entitlementModules = useRootSelector((s) => s.entitlement.modules);
-  const entitlementsReady = useRootSelector((s) => s.entitlement.ready);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Role> | null>(null);
@@ -64,8 +62,7 @@ export function RolesPage() {
 
   useEffect(() => {
     if (status === "idle") dispatch(rolesApi.thunks.fetchAll() as any);
-    if (!entitlementsReady) dispatch(fetchEntitlements() as any);
-  }, [status, entitlementsReady, dispatch]);
+  }, [status, dispatch]);
 
   const selected = roles.find(
     (r: any) => r.id === (selectedId ?? roles[0]?.id),

@@ -318,7 +318,7 @@ export function GlobalSearch({
         out.push({
           label: `Dr. ${d.firstName} ${d.lastName}`,
           meta: `Doctor · ${d.registrationNumber}`,
-          to: `/app/doctors/${d.id}`,
+          to: `/doctors/${d.id}`,
         }),
       );
     invoices

@@ -90,6 +90,18 @@ export interface Department {
   createdAt: ISODateTime;
 }
 
+
+
+export interface CreateDoctorPayload {
+  hospitalUserId: string;
+  specialization: string;
+  qualifications: string;
+  consultationFee: number;
+  slotDurationMins: number;
+  bufferTimeMins: number;
+  maxPatientsPerDay: number;
+  isActive: boolean;
+}
 export interface Specialization {
   id: ID;
   name: string;
@@ -100,16 +112,19 @@ export interface Specialization {
   createdAt: ISODateTime;
 }
 
-export interface ScheduleDay {
-  day: number; // 0 = Sunday
+export type ScheduleDay = {
+  day: number;
   enabled: boolean;
-  start: string; // "09:00"
-  end: string; // "17:00"
-}
+  start: string;
+  end: string;
+  breakStartTime?: string; // Add this
+  breakEndTime?: string;   // Add this
+};
 
 export interface Doctor {
   id: ID;
   userId: ID | null;
+  hospitalUserId: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -133,6 +148,11 @@ export interface Doctor {
   rating: number;
   joinedAt: ISODateTime;
 }
+
+
+
+
+// inside types.ts
 
 export interface Patient {
   id: ID;

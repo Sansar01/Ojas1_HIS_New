@@ -161,6 +161,14 @@ function forceLoginRedirect() {
 
   window.location.replace(`/accounts/login?expired=1`);
 }
+const handleUnauthorized = () => {
+  token = null;
+  localStorage.removeItem(TOKEN_KEY);
+
+  if (window.location.pathname !== "/accounts/login") {
+    window.location.replace("/accounts/login");
+  }
+};
 
 export interface RequestConfig {
   url: string;
@@ -247,6 +255,9 @@ export async function request<T = any>(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (response.status === 401) {
+        handleUnauthorized();
+      }
       const message =
         data?.message || `Request failed with status ${response.status}`;
       throw new Error(message);

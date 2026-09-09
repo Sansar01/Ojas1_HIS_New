@@ -3,7 +3,7 @@ import { createCrudSlice } from "@/features/crud/createCrudSlice";
 import { request } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { HospitalInfo } from "@/types";
+import type { HospitalInfo  , CreateDoctorPayload  , ScheduleDay , Doctor} from "@/types";
 
 /* ---------------------------------------------------------------------------
  * One modular slice per domain feature (Redux Toolkit).
@@ -254,6 +254,123 @@ export const saveHospital = createAsyncThunk("hospital/save", async (data: Hospi
     throw error;
   }
 });
+
+
+
+
+
+
+// Helper to convert UI Schedule to API Schedule
+export const mapScheduleToApi = (schedule: ScheduleDay[]) => {
+  return schedule.map((s) => ({
+    dayOfWeek: s.day,
+    isActive: s.enabled,
+    ...(s.enabled && {
+      startTime: s.start,
+      endTime: s.end,
+      breakStartTime: s.breakStartTime, 
+      breakEndTime: s.breakEndTime,
+    }),
+  }));
+};
+
+// 2. Thunk: Create Profile (API 1)
+export const createDoctorProfile = createAsyncThunk(
+  "doctors/createProfile",
+  async (payload: CreateDoctorPayload, { dispatch, rejectWithValue }) => {
+    try {
+      const response: any = await request({
+        url: API_ENDPOINTS.createDoctor,
+        method: "POST",
+        body: payload,
+      });
+      // Return the new doctor data (must contain the generated ID)
+      return response.data || response;
+    } catch (error: any) {
+      return rejectWithValue(error?.message || "Failed to create profile");
+    }
+  }
+);
+
+// 3. Thunk: Set Availability (API 2)
+export const setDoctorAvailability = createAsyncThunk(
+  "doctors/setAvailability",
+  async (
+    payload: { doctorId: string; slotDurationMins: number; schedule: ScheduleDay[] },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response: any = await request({
+        url: API_ENDPOINTS.doctorAvailability(payload.doctorId),
+        method: "POST",
+        body: {
+          slotDurationMins: payload.slotDurationMins,
+          schedule: mapScheduleToApi(payload.schedule),
+        },
+      });
+      return response.data || response;
+    } catch (error: any) {
+      return rejectWithValue(error?.message || "Failed to save schedule");
+    }
+  }
+);
+
+// 4. Master Thunk: ONBOARD DOCTOR (Runs both API 1 and API 2 in sequence)
+export const onboardDoctor = createAsyncThunk(
+  "doctors/onboard",
+  async (
+    payload: { profile: CreateDoctorPayload; schedule: ScheduleDay[] },
+    { dispatch, rejectWithValue }
+  ) => {
+    dispatch(showLoader("Setting up doctor profile..."));
+    try {
+      // Step A: Create Profile
+      const profileResult = await dispatch(createDoctorProfile(payload.profile)).unwrap();
+      
+      const newDoctorId = profileResult.id;
+      if (!newDoctorId) throw new Error("Doctor ID missing from backend response");
+
+      // Step B: Save Schedule
+      await dispatch(
+        setDoctorAvailability({
+          doctorId: newDoctorId,
+          slotDurationMins: payload.profile.slotDurationMins,
+          schedule: payload.schedule,
+        })
+      );
+
+      dispatch(hideLoader());
+      dispatch(toast.success("Profile Setup Complete!"));
+      
+      return { doctorId: newDoctorId, profile: profileResult };
+    } catch (error: any) {
+      dispatch(hideLoader());
+      dispatch(toast.error("Setup failed", error?.message || error));
+      return rejectWithValue(error);
+    }
+  }
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 import { createSlice } from "@reduxjs/toolkit";
 
