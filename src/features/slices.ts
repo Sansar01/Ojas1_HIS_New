@@ -3,7 +3,7 @@ import { createCrudSlice } from "@/features/crud/createCrudSlice";
 import { request } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { HospitalInfo  , CreateDoctorPayload  , ScheduleDay , Doctor} from "@/types";
+import type { HospitalInfo, CreateDoctorPayload, ScheduleDay, Doctor } from "@/types";
 
 /* ---------------------------------------------------------------------------
  * One modular slice per domain feature (Redux Toolkit).
@@ -268,7 +268,7 @@ export const mapScheduleToApi = (schedule: ScheduleDay[]) => {
     ...(s.enabled && {
       startTime: s.start,
       endTime: s.end,
-      breakStartTime: s.breakStartTime, 
+      breakStartTime: s.breakStartTime,
       breakEndTime: s.breakEndTime,
     }),
   }));
@@ -326,7 +326,7 @@ export const onboardDoctor = createAsyncThunk(
     try {
       // Step A: Create Profile
       const profileResult = await dispatch(createDoctorProfile(payload.profile)).unwrap();
-      
+
       const newDoctorId = profileResult.id;
       if (!newDoctorId) throw new Error("Doctor ID missing from backend response");
 
@@ -341,7 +341,7 @@ export const onboardDoctor = createAsyncThunk(
 
       dispatch(hideLoader());
       dispatch(toast.success("Profile Setup Complete!"));
-      
+
       return { doctorId: newDoctorId, profile: profileResult };
     } catch (error: any) {
       dispatch(hideLoader());

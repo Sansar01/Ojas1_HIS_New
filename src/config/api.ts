@@ -66,7 +66,7 @@ export const API_ENDPOINTS = {
   departments: "/api/hospital/masters/departments",
 
   // Specializations
-  // specializations: "/specializations",
+   specializations: "/specializations",
 
   // Appointments (grouped — the appointments slice resolves list/create/getById from here)
   appointment: {
