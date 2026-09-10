@@ -52,6 +52,7 @@ export const API_ENDPOINTS = {
     create: "/api/opd/doctors/create",
     list: "/api/opd/doctors/list",
     getSlotById: (Id: string | number) => `/api/opd/doctors/${Id}/availability`,
+    cancel: (Id: string | number) => `/api/opd/doctors/${Id}/cancel`
   },
   // Doctors / OPD Module
   createDoctor: "/api/opd/doctors/create",
@@ -66,7 +67,7 @@ export const API_ENDPOINTS = {
   departments: "/api/hospital/masters/departments",
 
   // Specializations
-   specializations: "/specializations",
+  specializations: "/specializations",
 
   // Appointments (grouped — the appointments slice resolves list/create/getById from here)
   appointment: {
@@ -74,6 +75,7 @@ export const API_ENDPOINTS = {
     create: "/api/opd/appointments",
     slot: "/api/opd/appointments/slot",
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
+    cancel: (Id: string | number) => `/api/opd/appointments/${Id}/cancel`,
     today: '/api/opd/appointments/today'
   },
 

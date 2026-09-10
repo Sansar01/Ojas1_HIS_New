@@ -443,20 +443,20 @@ export const appointmentApi = {
     });
   },
 
-  // async update(id: string, data: any) {
-  //   return request({
-  //     url: API_ENDPOINTS.appointment.update,
-  //     method: "PUT",
-  //     body: data,
-  //   });
-  // },
+  async getById(id: string) {
+    return request({
+      url: API_ENDPOINTS.appointment.getById(id),
+      method: "GET",
+    });
+  },
 
-  // async remove(id: string) {
-  //   return request({
-  //     url: API_ENDPOINTS.appointment.delete,
-  //     method: "DELETE",
-  //   });
-  // },
+  async cancel(id: string, data: any) {
+    return request({
+      url: API_ENDPOINTS.appointment.cancel(id),
+      method: "PATCH",
+      body: data,
+    });
+  },
 };
 
 /* ------------------------------- Helpers --------------------------------- */
