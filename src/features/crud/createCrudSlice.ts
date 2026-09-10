@@ -7,6 +7,7 @@ import { resourceApi } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { ListQuery, Status } from "@/types";
+import { RootState } from "@/store";
 
 /* ---------------------------------------------------------------------------
  * Generic CRUD slice factory — keeps every module modular, typed and ready
@@ -59,6 +60,7 @@ export function createCrudSlice<T extends { id: string }>(
     `${name}/fetchAll`,
     async (_: void, { dispatch }) => {
       const done = guard(dispatch, `Loading ${name}`);
+
       try {
         const res = await resourceApi.list(
           resource,
@@ -66,17 +68,39 @@ export function createCrudSlice<T extends { id: string }>(
             ? undefined
             : config.listParams,
         );
+
         done();
+
         const responseData = Array.isArray(res) ? res : res.data;
+
         const rows = Array.isArray(responseData)
           ? responseData
           : responseData?.rows ?? [];
+
         return rows.map(map);
       } catch (error: any) {
         done();
-        dispatch(toast.error(`Could not load ${name}`, error?.message));
+        dispatch(
+          toast.error(
+            `Could not load ${name}`,
+            error?.message
+          )
+        );
         throw error;
       }
+    },
+    {
+      condition: (_, { getState }) => {
+        const state = getState() as RootState;
+
+        const resourceState = state[
+          name as keyof RootState
+        ] as {
+          status?: string;
+        };
+
+        return resourceState?.status !== "loading";
+      },
     },
   );
 
