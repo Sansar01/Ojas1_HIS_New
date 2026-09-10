@@ -100,13 +100,17 @@ function normalizeSlots(
 interface AppointmentFormModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** when set, the modal loads the record via appointments getById and saves edits instead of creating */
+  editing?: any;
 }
 
 export function AppointmentFormModal({
   open,
   onOpenChange,
+  editing = null,
 }: AppointmentFormModalProps) {
   const dispatch = useAppDispatch();
+  const isEdit = !!editing?.id;
 
   const patients = useRootSelector((s) => s.patients.items);
   const doctors = useRootSelector((s) => s.doctors.items);
@@ -120,8 +124,8 @@ export function AppointmentFormModal({
       doctorId: "",
       date: addDays(new Date(), 1),
       time: "",
-      type: "CONSULTATION",
-      visitType: "NEW",
+      type: "",
+      visitType: "",
       priority: "0",
       fee: 0,
       reasonForVisit: "",
@@ -133,12 +137,52 @@ export function AppointmentFormModal({
     schema: {
       patientId: [{ required: "Patient is required" }],
       doctorId: [{ required: "Doctor is required" }],
+      type: [{ required: "Appointment Type is required" }],
+      visitType: [{ required: "Visit Type is required" }],
       date: [{ required: "Date is required" }],
       time: [{ required: "Time slot is required" }],
     },
   });
 
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+
+  /* --------------------- edit mode: load record by id --------------------- */
+  const [editLoading, setEditLoading] = useState(false);
+  // single appointments getById call — the patient/doctor lists are already in
+  // the store from the page, so we don't re-fetch them here
+  useEffect(() => {
+    if (!open || !isEdit) return;
+    let cancelled = false;
+    setEditLoading(true);
+    dispatch(appointmentsApi.thunks.getOne(editing.id) as any)
+      .unwrap()
+      .then((record: any) => {
+        if (cancelled || !record) return;
+        form.reset({
+          patientId: record.patientId ?? "",
+          doctorId: record.doctorId ?? "",
+          date: record.date ?? addDays(new Date(), 1),
+          time: record.time ?? "",
+          type: record.raw?.appointmentType ?? record.type ?? "",
+          visitType: record.raw?.visitType ?? record.visitType ?? "",
+          priority: String(record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0)),
+          fee: Number(record.fee ?? 0),
+          reasonForVisit: record.reasonForVisit ?? "",
+          referredByDoctorName: record.referredByDoctorName ?? "",
+          referralNote: record.referralNote ?? "",
+          notes: record.notes ?? "",
+          reason: "",
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setEditLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit]);
 
   /* default to the first active doctor once the doctors list arrives */
   // useEffect(() => {
@@ -213,12 +257,25 @@ export function AppointmentFormModal({
       notes: values.notes?.trim() || undefined,
     };
 
-    await dispatch(
-      appointmentsApi.thunks.createOne({
-        data: payload,
-        successMessage: "Appointment booked successfully",
-      } as any),
-    );
+    if (isEdit) {
+      await dispatch(
+        appointmentsApi.thunks.updateOne({
+          id: editing.id,
+          data: payload,
+          successMessage: "Appointment updated successfully",
+        } as any),
+      );
+    } else {
+      await dispatch(
+        appointmentsApi.thunks.createOne({
+          data: payload,
+          successMessage: "Appointment booked successfully",
+        } as any),
+      );
+    }
+
+    // re-sync the list from the API after create/update so the table reflects the change
+    dispatch(appointmentsApi.thunks.fetchAll() as any);
 
     form.reset();
     onOpenChange(false);
@@ -231,8 +288,12 @@ export function AppointmentFormModal({
         if (!v) form.reset();
         onOpenChange(v);
       }}
-      title="Book New Appointment"
-      description="Fill in the patient, doctor, and slot details."
+      title={isEdit ? "Edit Appointment" : "Book New Appointment"}
+      description={
+        isEdit
+          ? "Update the patient, doctor, and slot details."
+          : "Fill in the patient, doctor, and slot details."
+      }
       size="xl"
       footer={
         <>
@@ -248,7 +309,7 @@ export function AppointmentFormModal({
             form="appointment-new-form"
             loading={form.submitting}
           >
-            Book Appointment
+            {isEdit ? "Save Changes" : "Book Appointment"}
           </Button>
         </>
       }
@@ -338,6 +399,7 @@ export function AppointmentFormModal({
                 label="Appointment type"
                 required
                 value={form.values.type}
+                error={form.errors.type}
                 onChange={(v) => form.setValue("type", v)}
                 options={APPOINTMENT_TYPES.map((t) => ({ ...t }))}
               />
@@ -346,6 +408,7 @@ export function AppointmentFormModal({
                 label="Visit type"
                 required
                 value={form.values.visitType}
+                error={form.errors.visitType}
                 onChange={(v) => form.setValue("visitType", v)}
                 options={VISIT_TYPES.map((t) => ({ ...t }))}
               />

@@ -48,7 +48,6 @@ const bloodGroupApiValue = (bloodGroup: string) =>
 export function PatientsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const hasFetchedPatients = useRef(false);
   const { items: patients, status } = useRootSelector((s) => s.patients);
   const appointments = useRootSelector((s) => s.appointments.items);
   const { canEdit, canDelete, canCreate } = usePermission();
@@ -81,8 +80,6 @@ export function PatientsPage() {
   });
 
   useEffect(() => {
-    if (hasFetchedPatients.current) return;
-    hasFetchedPatients.current = true;
     dispatch(patientsApi.thunks.fetchAll() as any);
   }, [dispatch]);
 
