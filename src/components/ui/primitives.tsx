@@ -176,17 +176,17 @@ export function Badge({
 export const STATUS_TONE: Record<string, Tone> = {
   active: "mint",
   inactive: "neutral",
-  Scheduled: "lagoon",
-  Confirmed: "brand",
-  "Checked In": "amber",
-  "In Progress": "amber",
-  Completed: "mint",
-  Cancelled: "coral",
+  scheduled: "lagoon",
+  confirmed: "brand",
+  "checked in": "amber",
+  "in progress": "amber",
+  completed: "mint",
+  cancelled: "coral",
   "No Show": "neutral",
-  Pending: "amber",
-  "Partially Paid": "lagoon",
-  Paid: "mint",
-  Refunded: "coral",
+  pending: "amber",
+  "partially paid": "lagoon",
+  paid: "mint",
+  refunded: "coral",
 };
 
 export const StatusBadge = ({
