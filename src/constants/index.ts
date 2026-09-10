@@ -142,11 +142,11 @@ export const PAYMENT_STATUSES: PaymentStatus[] = [
 ];
 
 export const APPT_TYPE_COLORS: Record<string, string> = {
-  Consultation: "bg-brand-50 text-brand-700 ring-brand-200",
-  "Follow-up": "bg-lagoon-50 text-lagoon-600 ring-lagoon-500/20",
-  Procedure: "bg-amberly-50 text-amberly-600 ring-amberly-500/25",
-  Emergency: "bg-coral-50 text-coral-600 ring-coral-500/25",
-  Telemedicine: "bg-mint-50 text-mint-600 ring-mint-500/25",
+  TELECONSULTATION: "bg-brand-50 text-brand-700 ring-brand-200",
+  WALK_IN: "bg-lagoon-50 text-lagoon-600 ring-lagoon-500/20",
+  SCHEDULED: "bg-amberly-50 text-amberly-600 ring-amberly-500/25",
+  EMERGENCY: "bg-coral-50 text-coral-600 ring-coral-500/25",
+  telemedicine: "bg-mint-50 text-mint-600 ring-mint-500/25",
 };
 
 export const WEEKDAYS = [

@@ -778,7 +778,7 @@ export function AppointmentsPage() {
                           <button
                             className="min-w-0 flex-1 text-left"
                             onClick={() =>
-                              navigate(`/app/patients/${a.patientId}`)
+                              navigate(`/patients/${a.patientId}`)
                             }
                           >
                             <span className="block truncate text-[12.5px] font-medium text-ink-800">
