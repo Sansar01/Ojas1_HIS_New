@@ -67,7 +67,7 @@ const emptyUser = (): Partial<User> => ({
   lastName: "Deshpande",
   gender: "Female",
   dateOfBirth: "1994-02-09",
-  email: "neha.deshpande@meridian.care",
+  email: "neha.deshpande@ojas1.care",
   mobile: "+91 99001 48210",
   title: "Executive · Patient Access",
   status: "active",
@@ -212,7 +212,7 @@ export function UsersPage() {
         }
         module="users"
         createLabel="Add user"
-        onCreate={() => setEditing(emptyUser())}
+        onCreate={() => navigation.navigate("/users/new")}
         actions={
           <Button
             variant="outline"
@@ -280,7 +280,7 @@ export function UsersPage() {
             <Button
               size="sm"
               icon={<UserPlus />}
-              onClick={() => setEditing(emptyUser())}
+              onClick={() => navigation.navigate("/users/new")}
             >
               New user
             </Button>
@@ -473,7 +473,7 @@ export function UsersPage() {
                   size="sm"
                   onClick={() =>
                     navigator.clipboard?.writeText(
-                      `https://portal.meridian.care/invite/${detail.id}`,
+                      `https://portal.ojas1.care/invite/${detail.id}`,
                     )
                   }
                 >
@@ -873,7 +873,7 @@ function UserFormDialog({
             type="email"
             label="Email address"
             required
-            placeholder="name@meridian.care"
+            placeholder="name@ojas1.care"
             value={form.values.email}
             onChange={(e) => form.setValue("email", e.target.value)}
             error={form.errors.email}

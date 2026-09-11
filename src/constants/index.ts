@@ -7,7 +7,7 @@ import type {
   Permission,
 } from "@/types";
 
-export const APP_NAME = "Meridian Care";
+export const APP_NAME = "OJAS1";
 export const APP_SUBTITLE = "Hospital Management Portal";
 export const STORAGE_KEY = "meridian.session.v1";
 export const DB_KEY = "meridian.db.v1";

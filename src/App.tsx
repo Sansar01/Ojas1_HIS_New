@@ -10,18 +10,16 @@ import { TooltipProvider } from "@/components/ui/overlays";
 import { ToastHost } from "@/components/ui/feedback";
 import type { RootState } from "@/store";
 
+
+
 function Root() {
   const authStatus = useSelector((state: RootState) => state.auth.status);
+  const entitlements = useSelector((state: RootState) => state.entitlement.modules);
   const toasts = useSelector((state: RootState) => state.ui.toasts);
-  const entitlementError = useSelector(
-    (state: RootState) => state.entitlement.error,
-  );
 
   useEffect(() => {
     store.dispatch(restoreSession() as any);
 
-    // 401 anywhere in the app → refresh the token once and retry.
-    // If refresh fails, apiClient clears the session and navigates to login.
     registerRefreshHandler(async () => {
       try {
         await store.dispatch(refreshSession() as any).unwrap();
@@ -31,22 +29,18 @@ function Root() {
       }
     });
 
-    // Proactively refresh the token before it expires; watch every 60s
-    startSessionWatchdog(60_000);
+    const stopWatchdog = startSessionWatchdog(60_000);
+    return () => {
+      if (typeof stopWatchdog === "function") stopWatchdog();
+    };
   }, []);
 
   useEffect(() => {
-    if (authStatus === "authenticated") {
+    // Sirf tabhi entitlements fetch karein jab user authenticated ho AUR pehle se load na hue hon
+    if (authStatus === "authenticated" && (!entitlements || entitlements.length === 0)) {
       store.dispatch(fetchEntitlements() as any);
-      // store.dispatch(fetchHospital() as any);
     }
-  }, [authStatus]);
-
-  // useEffect(() => {
-  //   if (authStatus === "authenticated" && entitlementError) {
-  //     store.dispatch(logout());
-  //   }
-  // }, [authStatus, entitlementError]);
+  }, [authStatus, entitlements]);
 
   return (
     <TooltipProvider>

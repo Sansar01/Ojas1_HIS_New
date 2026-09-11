@@ -25,6 +25,8 @@ import {
 } from "@/pages/admin/AdminPages";
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
+
+import {OpdExaminationRoom } from "@/pages/opd/Opd";
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
@@ -84,6 +86,17 @@ export function AppRoutes() {
               <RequireModule module="patients">
                 <PatientsPage />
               </RequireModule>
+            }
+          />
+
+
+          <Route
+            path="/opd"
+            element={
+              <RequireModule module="patients">
+
+                <OpdExaminationRoom/>
+                </RequireModule>
             }
           />
           <Route
@@ -150,22 +163,7 @@ export function AppRoutes() {
               </RequireModule>
             }
           />
-          {/* <Route
-            path="/appointments/register"
-            element={
-              <RequireModule module="appointments">
-                <AppointmentNewPage />
-              </RequireModule>
-            }
-          />
-          {/* <Route
-            path="/appointments:id/edit"
-            element={
-              <RequireModule module="appointments">
-                <AppointmentFormPage />
-              </RequireModule>
-            }
-          /> */}
+    
           <Route
             path="/consultation"
             element={

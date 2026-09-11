@@ -2,16 +2,8 @@ import { API_BASE_URL, API_ENDPOINTS } from "@/config/api";
 import type { ApiResponse, ListQuery, Paginated, Session } from "@/types";
 import { EntitlementModule } from "@/types/entitlement";
 
-/* ---------------------------------------------------------------------------
- * Real API Client (Production Mode)
- *
- * Uses centralized configuration from src/config/api.ts
- * All URLs come from API_ENDPOINTS — no hardcoded paths or duplication.
- * ------------------------------------------------------------------------- */
 
 export const TOKEN_KEY = "authUserToken";
-
-/** Refresh proactively when the token is within this window of expiring */
 const EXPIRY_MARGIN_MS = 30_000;
 
 let token: string | null = (() => {
@@ -23,7 +15,6 @@ let token: string | null = (() => {
   }
 })();
 
-/** When the current accessToken expires (epoch ms). Restored from localStorage. */
 let expiresAtMs: number | null = (() => {
   try {
     const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
@@ -33,7 +24,6 @@ let expiresAtMs: number | null = (() => {
   }
 })();
 
-/** Accepts epoch seconds, epoch ms, or an ISO date string; returns epoch ms */
 function parseExpiry(value: any): number | null {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value === "number") return value > 1e12 ? value : value * 1000;
@@ -52,12 +42,6 @@ export const getToken = () => token;
 
 /* ------------------------- Refresh token storage ------------------------- */
 
-/**
- * The refresh token normally lives in an httpOnly cookie, but some backends
- * return it in the login/refresh response body instead (or the cookie does
- * not survive cross-origin reloads). We persist it to localStorage so the
- * refresh call can always send it explicitly.
- */
 const REFRESH_KEY = "authRefreshToken";
 
 export function setRefreshToken(t: string | null | undefined) {
@@ -73,7 +57,6 @@ export function getRefreshToken(): string | null {
   try {
     const direct = localStorage.getItem(REFRESH_KEY);
     if (direct) return direct;
-    // fallback: stored inside the persisted auth session object
     const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
     return stored?.refreshToken ?? stored?.user?.refreshToken ?? null;
   } catch {
@@ -85,17 +68,14 @@ export function clearRefreshToken() {
   setRefreshToken(null);
 }
 
-/** Keep the in-memory expiry in sync whenever login/refresh/store gives us one */
 export function setTokenExpiry(value: any) {
   expiresAtMs = parseExpiry(value);
 }
 
-/** Token exists AND its expiry has passed */
 export function isTokenExpired() {
   return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs;
 }
 
-/** Token exists AND will expire within the margin window */
 export function isTokenExpiringSoon() {
   return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs - EXPIRY_MARGIN_MS;
 }
@@ -103,14 +83,6 @@ export function isTokenExpiringSoon() {
 /* --------------------- Token refresh coordination ------------------------ */
 
 let refreshPromise: Promise<boolean> | null = null;
-
-/**
- * Ask the auth slice to run the refresh-token flow. All concurrent 401s
- * share a single in-flight refresh so the API is hit only once.
- * The actual refresh request lives in authSlice.refreshSession — apiClient
- * cannot import the store directly (circular import), so the thunk is
- * invoked through the registered callback set by the store bootstrap.
- */
 let runRefresh: (() => Promise<boolean>) | null = null;
 
 export function registerRefreshHandler(fn: () => Promise<boolean>) {
@@ -127,13 +99,8 @@ async function refreshOnce(): Promise<boolean> {
   return refreshPromise;
 }
 
-/**
- * Proactive watchdog: while the tab is open, refresh the token shortly before
- * it expires so active users never hit a 401 at all. If the refresh fails and
- * the token is already dead, navigate to the login screen.
- */
 export function startSessionWatchdog(intervalMs = 60_000) {
-  setInterval(async () => {
+  const timer = setInterval(async () => {
     if (!token) return;
     if (!isTokenExpiringSoon()) return;
     const ok = await refreshOnce();
@@ -141,12 +108,9 @@ export function startSessionWatchdog(intervalMs = 60_000) {
       forceLoginRedirect();
     }
   }, intervalMs);
+  return () => clearInterval(timer);
 }
 
-/**
- * Called when refresh ultimately fails (thunk returned false):
- * clears the session and navigates to the login page.
- */
 function forceLoginRedirect() {
   localStorage.removeItem(TOKEN_KEY);
   clearRefreshToken();
@@ -161,14 +125,6 @@ function forceLoginRedirect() {
 
   window.location.replace(`/accounts/login?expired=1`);
 }
-const handleUnauthorized = () => {
-  token = null;
-  localStorage.removeItem(TOKEN_KEY);
-
-  if (window.location.pathname !== "/accounts/login") {
-    window.location.replace("/accounts/login");
-  }
-};
 
 export interface RequestConfig {
   url: string;
@@ -176,27 +132,96 @@ export interface RequestConfig {
   body?: any;
   params?: Record<string, any>;
   silent?: boolean;
-  /** Skip the automatic 401 → refresh → retry flow (used by login/refresh itself) */
   skipRefresh?: boolean;
-  /** Do not attach the Authorization header (cookie-based refresh call) */
   skipAuth?: boolean;
-  /** Include cookies (needed when the session lives in an httpOnly cookie) */
   withCredentials?: boolean;
-  /** Extra headers (e.g. x-refresh-token on the refresh call) */
   headers?: Record<string, string>;
-  credentials?:string
   meta?: { successMessage?: string; errorMessage?: string };
 }
 
 /* ----------------------------- Core Request ------------------------------ */
 
+// export async function request<T = any>(
+//   config: RequestConfig,
+// ): Promise<ApiResponse<T>> {
+//   const queryString = config.params
+//     ? "?" + new URLSearchParams(config.params as any).toString()
+//     : "";
+//   const url = `${API_BASE_URL}${config.url}${queryString}`;
+
+//   const headers: Record<string, string> = {
+//     "Content-Type": "application/json",
+//     Accept: "application/json",
+//   };
+
+//   if (token && !config.skipAuth) {
+//     headers["Authorization"] = `Bearer ${token}`;
+//   }
+//   if (config.headers) Object.assign(headers, config.headers);
+
+//   const fetchInit = (): RequestInit => ({
+//     method: config.method,
+//     headers,
+//     body: config.body ? JSON.stringify(config.body) : undefined,
+//     credentials: config.withCredentials ? "include" : "same-origin",
+//   });
+
+//   try {
+//     // 1. Proactive Refresh (Skip for login/refresh calls)
+//     if (token && !config.skipRefresh && isTokenExpiringSoon()) {
+//       const ok = await refreshOnce();
+//       if (!ok && isTokenExpired()) {
+//         forceLoginRedirect();
+//         throw new Error("Session expired. Please sign in again.");
+//       }
+//       if (ok && token) {
+//         headers["Authorization"] = `Bearer ${token}`;
+//       }
+//     }
+
+//     let response = await fetch(url, fetchInit());
+
+//     // 2. Reactive 401 Refresh (ONLY if skipRefresh is false)
+//     if (response.status === 401 && !config.skipRefresh) {
+//       const refreshed = await refreshOnce();
+//       if (refreshed && token) {
+//         // Retry the original request with the fresh token
+//         headers["Authorization"] = `Bearer ${token}`;
+//         response = await fetch(url, fetchInit());
+//       } else {
+//         // Refresh failed → Session is dead
+//         forceLoginRedirect();
+//         const data401 = await response.json().catch(() => ({}));
+//         throw new Error(
+//           data401?.message || "Session expired. Please sign in again.",
+//         );
+//       }
+//     }
+
+//     const data = await response.json().catch(() => ({}));
+
+//     if (!response.ok) {
+//       const message =
+//         data?.message || `Request failed with status ${response.status}`;
+//       throw new Error(message);
+//     }
+
+//     return data as ApiResponse<T>;
+//   } catch (error: any) {
+//     throw new Error(error?.message || "Network error");
+//   }
+// }
+
+
+
+
+// 1. request function me AbortController / Timeout add karein:
 export async function request<T = any>(
   config: RequestConfig,
 ): Promise<ApiResponse<T>> {
   const queryString = config.params
     ? "?" + new URLSearchParams(config.params as any).toString()
     : "";
-  // src/config/api.ts
   const url = `${API_BASE_URL}${config.url}${queryString}`;
 
   const headers: Record<string, string> = {
@@ -209,41 +234,40 @@ export async function request<T = any>(
   }
   if (config.headers) Object.assign(headers, config.headers);
 
-  try {
-    const fetchInit = (): RequestInit => ({
-      method: config.method,
-      headers,
-      body: config.body ? JSON.stringify(config.body) : undefined,
-      credentials: config.withCredentials ? "include" : "same-origin",
-    });
+  // 10 second ka timeout lagayein taaki API kabhi "atak" na sake
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
-    // -------- Proactive check: token expired or about to expire? --------
-    // Refresh BEFORE sending so the request goes out with a valid token.
+  const fetchInit = (): RequestInit => ({
+    method: config.method,
+    headers,
+    body: config.body ? JSON.stringify(config.body) : undefined,
+    credentials: "include", // Hamesha cookies allow karein
+    signal: controller.signal,
+  });
+
+  try {
+    // Proactive refresh
     if (token && !config.skipRefresh && isTokenExpiringSoon()) {
       const ok = await refreshOnce();
       if (!ok && isTokenExpired()) {
-        // Refresh failed and the token is dead → login screen
         forceLoginRedirect();
         throw new Error("Session expired. Please sign in again.");
       }
-      if (ok && token) headers["Authorization"] = `Bearer ${token}`;
+      if (ok && token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
     }
 
     let response = await fetch(url, fetchInit());
 
-    // ---------------- 401 → try refresh once, then retry ----------------
-    if (response.status === 401) {
+    // 401 aane par refresh flow
+    if (response.status === 401 && !config.skipRefresh) {
       const refreshed = await refreshOnce();
       if (refreshed && token) {
-        // Retry the original request with the new access token
         headers["Authorization"] = `Bearer ${token}`;
         response = await fetch(url, fetchInit());
-      }
-
-      // Refresh failed (or retry still 401) → session is dead → login
-      if (response.status === 401) {
-        // [FALLBACK — kept for easy undo] old behavior:
-        // handleUnauthorized();
+      } else {
         forceLoginRedirect();
         const data401 = await response.json().catch(() => ({}));
         throw new Error(
@@ -255,9 +279,6 @@ export async function request<T = any>(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      if (response.status === 401) {
-        handleUnauthorized();
-      }
       const message =
         data?.message || `Request failed with status ${response.status}`;
       throw new Error(message);
@@ -265,71 +286,52 @@ export async function request<T = any>(
 
     return data as ApiResponse<T>;
   } catch (error: any) {
+    if (error.name === "AbortError") {
+      throw new Error("Request timeout. Server did not respond.");
+    }
     throw new Error(error?.message || "Network error");
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
-
 /* ------------------------------- Auth API -------------------------------- */
 
 export const authApi = {
   async login(email: string, password: string): Promise<ApiResponse<Session>> {
-    const res = await request<Session>({
+    return request<Session>({
       url: API_ENDPOINTS.auth.login,
       method: "POST",
       body: { email, password },
-      skipRefresh: true, // a failed login (401) must NOT trigger a refresh
-      withCredentials: true, // REQUIRED: lets the browser store the httpOnly refreshToken cookie the server sets
+      skipRefresh: true,
+      withCredentials: true,
     });
-
-    return res;
   },
 
   async logout(): Promise<ApiResponse<boolean>> {
     try {
-      const res = await request<boolean>({
-        url: API_ENDPOINTS.auth.logout, // Make sure this endpoint exists in api.ts
+      return await request<boolean>({
+        url: API_ENDPOINTS.auth.logout,
         method: "POST",
-        withCredentials: true, // server clears the refreshToken cookie here
+        skipRefresh: true,
+        withCredentials: true,
       });
-
-      return res;
-    } catch (error: any) {
-      // Even if the API fails, we still want to logout locally
-      console.warn("Logout API failed, proceeding with local logout");
-      return {
-        success: true,
-        data: true,
-        message: "Logged out locally",
-      };
+    } catch {
+      return { success: true, data: true, message: "Logged out locally" };
     }
   },
 
-  async refresh(): Promise<ApiResponse<Session>> {
-    // Primary: the backend identifies the session via the httpOnly refreshToken
-    // cookie. Fallback: if the cookie is missing (e.g. cleared on reload,
-    // cross-origin port mismatch) we send the persisted refresh token in both
-    // the body and the x-refresh-token header.
-    const refreshToken = getRefreshToken();
-    return request<Session>({
-      url: API_ENDPOINTS.auth.refresh,
-      method: "POST",
-      skipRefresh: true, // never recurse: refresh failure is final
-      skipAuth: true, // no Bearer header — this is the refresh call
-      withCredentials: true, // send the refreshToken cookie when present
-
-    });
-  },
-
-  // async me(): Promise<ApiResponse<Session | null>> {
-  //   if (!token) return { success: true, data: null, message: "No session" };
-  //   try {
-  //     return await request<Session>({
-  //       url: API_ENDPOINTS.auth.me,
-  //       method: "GET",
-  //     });
-  //   } catch {
-  //     return { success: false, data: null, message: "Session invalid" };
-  //   }
+  // async refresh(): Promise<ApiResponse<Session>> {
+  //   const refreshToken = getRefreshToken();
+  //   return request<Session>({
+  //     url: API_ENDPOINTS.auth.refresh,
+  //     method: "POST",
+  //     skipRefresh: true, // Crucial: prevents loop on failure
+  //     skipAuth: true,
+  //     withCredentials: true,
+  //     // Fallback: send token explicitly in body and header in case cookies are not preserved
+  //     body: refreshToken ? { refreshToken } : undefined,
+  //     headers: refreshToken ? { "x-refresh-token": refreshToken } : undefined,
+  //   });
   // },
 
   async changePassword(email: string) {
@@ -337,6 +339,7 @@ export const authApi = {
       url: API_ENDPOINTS.auth.changePassword,
       method: "POST",
       body: { email },
+      skipRefresh: true,
     });
   },
 
@@ -345,11 +348,27 @@ export const authApi = {
       url: API_ENDPOINTS.auth.resetPassword,
       method: "POST",
       body: { email, password },
+      skipRefresh: true,
+    });
+  },
+
+
+
+   async refresh(): Promise<ApiResponse<Session>> {
+    const refreshToken = getRefreshToken();
+    return request<Session>({
+      url: API_ENDPOINTS.auth.refresh,
+      method: "POST",
+      skipRefresh: true, // loop rokne ke liye zaroori hai
+      skipAuth: true,    // expired Bearer token mat bhejo
+      withCredentials: true,
+      // Sirf body me refreshToken bhejein (agar cookie na ho to fallback)
+      body: refreshToken ? { refreshToken } : undefined,
     });
   },
 };
 
-/*----------------------------------- Entitlement API -------------------------------- */
+/* ----------------------------- Other APIs -------------------------------- */
 
 export const entitlementApi = {
   async getModules() {
@@ -360,13 +379,6 @@ export const entitlementApi = {
   },
 };
 
-/* ------------------------------- CRUD API -------------------------------- */
-
-// Use API_ENDPOINTS for all resource URLs instead of duplicating paths
-/**
- * Some endpoints are grouped objects (e.g. doctors: { create, list },
- * appointment: { list, create, getById }) — resolve the right one per verb.
- */
 const resolveEndpoint = (
   resource: keyof typeof API_ENDPOINTS,
   verb: "list" | "create" | "get" | "update" | "remove",
@@ -424,8 +436,6 @@ export const resourceApi = {
     }),
 };
 
-// ------------------------------------Appointment------------------------------
-
 export const appointmentApi = {
   async list(params?: any) {
     return request({
@@ -458,8 +468,6 @@ export const appointmentApi = {
     });
   },
 };
-
-/* ------------------------------- Helpers --------------------------------- */
 
 export const snapshot = () => null;
 export const resetDb = () => {
