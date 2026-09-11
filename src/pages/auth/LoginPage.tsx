@@ -28,7 +28,7 @@ export function LoginPage() {
   const [remember, setRemember] = useState(true);
 
   const form = useForm({
-    initialValues: { email: "admin@meridian.care", password: "admin123" },
+    initialValues: { email: "", password: "" },
     schema: {
       email: [{ required: "Email address is required", email: true }],
       password: [{ required: "Password is required", min: 6 }],
@@ -158,45 +158,7 @@ export function LoginPage() {
         </form>
       </div>
 
-      {/* <div className="mt-5 overflow-hidden rounded-2xl border border-ink-100 bg-white shadow-card">
-        <p className="flex items-center gap-2 border-b border-ink-100 bg-ink-25/70 px-4 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.12em] text-ink-500">
-          <KeyRound className="size-3.5 text-brand-600" /> Demo accounts — click
-          to autofill
-          <span className="ml-auto rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-brand-700">
-            SUPER_ADMIN pre-filled
-          </span>
-        </p>
-        <ul className="divide-y divide-ink-100">
-          {DEMO.map((account) => (
-            <li key={account.email}>
-              <button
-                onClick={() => fillDemo(account)}
-                className={cn(
-                  "group flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-brand-25",
-                  form.values.email === account.email && "bg-brand-25",
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block text-[12.5px] font-semibold text-ink-800">
-                    {account.role}
-                  </span>
-                  <span className="num block truncate text-[11.5px] text-ink-400">
-                    {account.email}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right">
-                  <span className="block text-[11px] text-ink-400">
-                    {account.note}
-                  </span>
-                  <span className="num block text-[11px] font-medium text-brand-600 opacity-0 transition-opacity group-hover:opacity-100">
-                    {account.password}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div> */}
+    
 
       <p className="mt-6 text-center text-[11.5px] leading-relaxed text-ink-400">
         Protected facility environment · Access attempts are logged.{" "}

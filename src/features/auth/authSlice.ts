@@ -175,40 +175,48 @@ export const resetPassword = createAsyncThunk(
  *   navigates to /accounts/login.
  * Uses skipRefresh on the underlying request so it can never recurse.
  */
+
+
+
+
+
 export const refreshSession = createAsyncThunk(
   "auth/refreshSession",
   async (_, { rejectWithValue }) => {
     try {
       const res = await authApi.refresh();
+      // Handle both { data: { accessToken } } and direct { accessToken } formats
+      const payload: any = res?.data ?? res;
+      const accessToken = payload?.accessToken ?? payload?.token;
 
-      if (res.data?.accessToken) {
-        // Merge the new token into the stored session (keep user/role/etc.)
+      if (accessToken) {
         const stored = localStorage.getItem(TOKEN_KEY);
         const parsed = stored ? JSON.parse(stored) : {};
-        const rotatedRefresh = (res.data as any).refreshToken ?? null;
+        const rotatedRefresh = payload?.refreshToken ?? null;
+        
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             ...parsed,
-            accessToken: res.data.accessToken,
-            expiresAt: res.data.expiresAt ?? parsed.expiresAt,
-            // keep the old refresh token unless the backend rotated it
+            accessToken,
+            expiresAt: payload?.expiresAt ?? parsed.expiresAt,
             refreshToken: rotatedRefresh ?? parsed.refreshToken ?? null,
           }),
         );
+
         if (rotatedRefresh) setRefreshToken(rotatedRefresh);
-        setToken(res.data.accessToken);
-        setTokenExpiry(res.data.expiresAt);
-        return res.data;
+        setToken(accessToken);
+        setTokenExpiry(payload?.expiresAt ?? parsed.expiresAt);
+
+        return payload;
       }
 
-      return rejectWithValue(res.message || "Unable to refresh session");
+      return rejectWithValue(res?.message || "Unable to refresh session");
     } catch (error: any) {
       return rejectWithValue(error?.message || "Session expired");
     }
   },
 );
-
 // ==================== LOGOUT THUNK ====================
 export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
