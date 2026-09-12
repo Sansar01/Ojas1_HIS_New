@@ -61,25 +61,7 @@ import {
   PageIntro,
 } from "@/components/common";
 import { useCurrentUser } from "@/hooks";
-
-const emptyUser = (): Partial<User> => ({
-  firstName: "Neha",
-  lastName: "Deshpande",
-  gender: "Female",
-  dateOfBirth: "1994-02-09",
-  email: "neha.deshpande@ojas1.care",
-  mobile: "+91 99001 48210",
-  title: "Executive · Patient Access",
-  status: "active",
-  password: "Portal@2026",
-  modules: ["dashboard", "patients", "appointments", "billing"],
-  permissions: {
-    dashboard: ["view"],
-    patients: ["view", "create", "edit"],
-    appointments: ["view", "create", "edit"],
-    billing: ["view", "create"],
-  },
-});
+import { useNavigate } from "react-router-dom";
 
 const normalizeUser = (record: any): User => {
   const primaryRole =
@@ -118,10 +100,14 @@ const normalizeUser = (record: any): User => {
 
 export function UsersPage() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+
   const me = useCurrentUser();
   const { canCreate, canEdit, canDelete } = usePermission();
   const [users, setUsers] = useState<User[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const roles = useRootSelector((s) => s.roles.items);
   const [filters, setFilters] = useState({ role: "all", status: "all" });
@@ -158,7 +144,7 @@ export function UsersPage() {
           ? rawResponse
           : Array.isArray(rawResponse.data)
             ? rawResponse.data
-            : rawResponse.data?.rows ?? [];
+            : (rawResponse.data?.rows ?? []);
         setUsers(records.map(normalizeUser));
         setStatus("ready");
       })
@@ -212,7 +198,7 @@ export function UsersPage() {
         }
         module="users"
         createLabel="Add user"
-        onCreate={() => navigation.navigate("/users/new")}
+        onCreate={() => navigate("/users/new")}
         actions={
           <Button
             variant="outline"
@@ -275,19 +261,19 @@ export function UsersPage() {
               )}
             </>
           }
-          actions={
-            // canCreate("users") ? (
-            <Button
-              size="sm"
-              icon={<UserPlus />}
-              onClick={() => navigation.navigate("/users/new")}
-            >
-              New user
-            </Button>
-            // ) : (
-            //   <Badge tone="neutral">Read-only access</Badge>
-            // )
-          }
+          // actions={
+          //   // canCreate("users") ? (
+          //   // <Button
+          //   //   size="sm"
+          //   //   icon={<UserPlus />}
+          //   //   onClick={() => navigation.navigate("/users/new")}
+          //   // >
+          //   //   New user
+          //   // </Button>
+          //   // ) : (
+          //   //   <Badge tone="neutral">Read-only access</Badge>
+          //   // )
+          // }
         />
 
         <DataTable
