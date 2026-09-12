@@ -94,14 +94,19 @@ export function SlotPicker({
   remoteSlots?: SlotOption[] | null;
 }) {
   const doctors = useRootSelector((s) => s.doctors.items);
+  console.log("doctors" , doctors)
   const doctor = doctors.find((d: any) => d.id === doctorId) as any;
   const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
   );
+
+  console.log("genererate sloe" , generated)
   const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
 
+
+  console.log('slots' , slots)
   if (loading)
     return (
       <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500">
@@ -1298,7 +1303,25 @@ export function AppointmentsPage() {
                   value: detail.reasonForVisit || "—",
                 },
                 { label: "Notes", value: detail.notes || "—" },
-                { label: "Token", value: detail.token ?? "—" },
+             {
+  label: "Token",
+  value: (() => {
+    const t = detail.token as any;
+    if (!t) return "—";
+    
+    // If token is an object from new API
+    if (typeof t === "object") {
+      return (
+        `#${t.tokenNumber ?? "—"}` +
+        (t.status ? ` · ${t.status}` : "") +
+        (t.roomNo ? ` · Room ${t.roomNo}` : "")
+      );
+    }
+    
+    // Fallback if token is still just a string/number
+    return `#${t}`;
+  })(),
+},
                 {
                   label: "Allergies",
                   value: detail.patient?.allergies || "—",

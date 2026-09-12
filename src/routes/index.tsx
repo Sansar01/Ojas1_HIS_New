@@ -27,6 +27,7 @@ import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
 
 import {OpdExaminationRoom } from "@/pages/opd/Opd";
+import {MasterConfigurationPage}  from "@/pages/masterConfiguration/MasterConfigurationPage"
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
@@ -218,6 +219,16 @@ export function AppRoutes() {
               <RequireModule module="settings">
                 <SettingsPage />
               </RequireModule>
+            }
+          />
+
+          <Route
+            path="/master-config"
+            element={
+              <RequireModule  module='settings'>
+
+                <MasterConfigurationPage/>
+                </RequireModule>
             }
           />
           <Route path="*" element={<NotFoundPage />} />

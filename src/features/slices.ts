@@ -367,7 +367,47 @@ export const onboardDoctor = createAsyncThunk(
 
 
 
+/* ------------------------- OPD queue token generation ------------------------- */
 
+export interface GenerateOpdTokenPayload {
+  appointmentId: string | number;
+}
+
+/**
+ * Post-Booking Call: Generates an OPD queue token for walk-in appointments.
+ * Dispatches standard loaders and notification toasts on success/failure.
+ */
+export const generateOpdToken = createAsyncThunk(
+  "api/opd/generateToken",
+  async (
+    payload: GenerateOpdTokenPayload,
+    { dispatch, rejectWithValue },
+  ) => {
+    dispatch(showLoader("Generating queue token..."));
+    try {
+      const response: any = await request({
+        url: "/api/opd/queue/generate", // Adjust to "/api/v1/opd/queue/generate" if your client does not auto-prefix /api/v1
+        method: "POST",
+        body: payload,
+      });
+      dispatch(hideLoader());
+      
+      // Extract token details if available in response to show in the toast
+      const tokenNumber = response?.data?.tokenNumber ?? response?.tokenNumber ?? "";
+      dispatch(
+        toast.success(
+          "Token Generated Successfully",
+          tokenNumber ? `Queue Token: ${tokenNumber}` : undefined
+        )
+      );
+      return response?.data ?? response;
+    } catch (error: any) {
+      dispatch(hideLoader());
+      dispatch(toast.error("Could not generate queue token", error?.message));
+      return rejectWithValue(error?.message ?? "Failed to generate token");
+    }
+  },
+);
 
 
 

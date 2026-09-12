@@ -1,5 +1,4 @@
 import React, { useState, ChangeEvent } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Phone,
   AlertCircle,
@@ -8,8 +7,10 @@ import {
 } from "lucide-react";
 import { PageIntro } from "@/components/common";
 import { Button } from "@/components/ui/primitives";
+import { useAppDispatch } from "@/hooks";
+import { toast } from "@/features/ui/uiSlice"; // adjust path if needed (ui slice)
 
-// Section Header matching your app theme (title + divider line)
+// Section Header matching your app theme
 const SectionHeader = ({ title }: { title: string }) => (
   <div className="flex items-center gap-4 mb-4">
     <h3 className="text-sm font-bold text-gray-900 whitespace-nowrap">{title}</h3>
@@ -92,7 +93,7 @@ const DUMMY_HISTORY = [
 ];
 
 export function OpdExaminationRoom() {
-  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const [activeTab, setActiveTab] = useState<"waiting" | "done">("waiting");
   const [selectedPatient, setSelectedPatient] = useState(DUMMY_QUEUE[0]);
   const [painScore, setPainScore] = useState<number | null>(6);
@@ -123,7 +124,6 @@ export function OpdExaminationRoom() {
   const handleSelectPatient = (patient: (typeof DUMMY_QUEUE)[0]) => {
     setSelectedPatient(patient);
     setChiefComplaint(patient.complaint + " since 2 days");
-    // reset dummy vitals when switching patient
     setVitals({
       bp: "120/80",
       pulse: "78",
@@ -148,19 +148,35 @@ export function OpdExaminationRoom() {
       weight: "",
       height: "",
     });
+    dispatch(toast.info("Form cleared"));
   };
 
   const handleMarkReady = () => {
-    // Dummy action for now
-    alert(
-      `${selectedPatient.name} marked as Ready for Doctor\n` +
-        `BP: ${vitals.bp} | Pulse: ${vitals.pulse} | Temp: ${vitals.temp} | Pain: ${painScore}`
+    if (!chiefComplaint.trim()) {
+      dispatch(
+        toast.warning(
+          "Chief complaint is required",
+          "Please enter the patient's chief complaint before marking ready."
+        )
+      );
+      return;
+    }
+
+    dispatch(
+      toast.success(
+        `${selectedPatient.name} marked as Ready for Doctor`,
+        `BP: ${vitals.bp || "N/A"} · Pulse: ${vitals.pulse || "N/A"} · Temp: ${vitals.temp || "N/A"} · Pain: ${painScore ?? "N/A"}`
+      )
     );
+  };
+
+  const handleCallPatient = (patientName: string) => {
+    dispatch(toast.info(`Calling ${patientName}...`));
   };
 
   return (
     <div className="w-full">
-      {/* Page Header — uses your existing PageIntro / layout style */}
+      {/* Page Header */}
       <div className="flex justify-between items-end mb-6">
         <PageIntro
           title="OPD Examination Room"
@@ -184,7 +200,6 @@ export function OpdExaminationRoom() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Patients Queue" />
 
-            {/* Tabs */}
             <div className="flex bg-slate-100 p-1 rounded-lg mb-5 text-sm font-medium text-center">
               <button
                 type="button"
@@ -210,7 +225,6 @@ export function OpdExaminationRoom() {
               </button>
             </div>
 
-            {/* Patient List */}
             <div className="space-y-3">
               {activeTab === "waiting" ? (
                 DUMMY_QUEUE.map((patient) => {
@@ -252,7 +266,7 @@ export function OpdExaminationRoom() {
                             className="flex-1 py-1.5 text-xs bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-1.5"
                             onClick={(e) => {
                               e.stopPropagation();
-                              alert(`Calling ${patient.name}...`);
+                              handleCallPatient(patient.name);
                             }}
                           >
                             <Phone size={14} /> Call
@@ -274,7 +288,6 @@ export function OpdExaminationRoom() {
         {/* Center Column: Assessment Form */}
         <div className="xl:col-span-6 flex flex-col gap-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Patient Profile Header */}
             <div className="p-6 border-b border-gray-200 bg-white flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-xl font-bold border border-slate-200">
@@ -304,7 +317,6 @@ export function OpdExaminationRoom() {
                 </div>
               </div>
 
-              {/* Stepper */}
               <div className="flex items-center gap-2">
                 <div className="flex flex-col items-center">
                   <div className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">
@@ -335,9 +347,7 @@ export function OpdExaminationRoom() {
               </div>
             </div>
 
-            {/* Form Content */}
             <div className="p-6 space-y-8 bg-white">
-              {/* Nursing Assessment */}
               <section>
                 <SectionHeader title="Nursing Assessment" />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -376,9 +386,7 @@ export function OpdExaminationRoom() {
                       {painScore !== null && painScore > 6 ? (
                         <span className="text-red-600">😫 Severe Pain</span>
                       ) : painScore !== null && painScore > 3 ? (
-                        <span className="text-orange-500">
-                          😐 Moderate Pain
-                        </span>
+                        <span className="text-orange-500">😐 Moderate Pain</span>
                       ) : (
                         <span className="text-teal-600">🙂 Mild/No Pain</span>
                       )}
@@ -387,7 +395,6 @@ export function OpdExaminationRoom() {
                 </div>
               </section>
 
-              {/* Vital Signs */}
               <section>
                 <SectionHeader title="Vital Signs" />
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -435,7 +442,6 @@ export function OpdExaminationRoom() {
                     onChange={(v) => handleVitalChange("height", v)}
                   />
 
-                  {/* BMI */}
                   <div className="border border-slate-200 rounded-lg p-3 bg-slate-50 flex flex-col justify-between">
                     <div className="text-xs font-medium text-slate-500 mb-1 uppercase tracking-wide">
                       BMI
@@ -453,7 +459,6 @@ export function OpdExaminationRoom() {
               </section>
             </div>
 
-            {/* Footer Actions */}
             <div className="p-4 border-t border-gray-200 bg-slate-50 flex justify-end gap-3">
               <Button variant="outline" onClick={handleClear}>
                 Clear Form
@@ -466,9 +471,8 @@ export function OpdExaminationRoom() {
           </div>
         </div>
 
-        {/* Right Column: Alerts + History */}
+        {/* Right Column */}
         <div className="xl:col-span-3 flex flex-col gap-6">
-          {/* Risk & Alerts */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Risk & Alerts" />
             <div className="space-y-3">
@@ -491,7 +495,6 @@ export function OpdExaminationRoom() {
             </div>
           </div>
 
-          {/* Previous Visits */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Previous Visits" />
             <div className="space-y-0">
@@ -519,6 +522,14 @@ export function OpdExaminationRoom() {
                     <button
                       type="button"
                       className="text-[11px] font-medium text-gray-500 hover:text-teal-700 border border-gray-200 rounded px-2 py-1 bg-white hover:bg-teal-50 flex items-center gap-1 transition-colors"
+                      onClick={() =>
+                        dispatch(
+                          toast.info(
+                            visit.action,
+                            `${visit.date} · ${selectedPatient.name}`
+                          )
+                        )
+                      }
                     >
                       <FileText size={10} /> {visit.action}
                     </button>
@@ -533,7 +544,6 @@ export function OpdExaminationRoom() {
   );
 }
 
-// Vital input matching your form field style
 interface VitalInputProps {
   label: string;
   unit: string;
