@@ -5,8 +5,6 @@ import {
 } from "@reduxjs/toolkit";
 import {
   authApi,
-  clearRefreshToken,
-  setRefreshToken,
   setToken,
   setTokenExpiry,
   TOKEN_KEY,
@@ -24,11 +22,11 @@ interface AuthState {
   session: Session | null;
   entitlements: Entitlements | null;
   status:
-  | "idle"
-  | "restoring"
-  | "authenticating"
-  | "authenticated"
-  | "unauthenticated";
+    | "idle"
+    | "restoring"
+    | "authenticating"
+    | "authenticated"
+    | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -41,6 +39,7 @@ const initialState: AuthState = {
   reset: { email: null, token: null },
 };
 
+// ==================== RESTORE SESSION ====================
 export const restoreSession = createAsyncThunk(
   "auth/restoreSession",
   async (_, { rejectWithValue }) => {
@@ -55,11 +54,10 @@ export const restoreSession = createAsyncThunk(
         return null;
       }
 
-      // Set token in memory
+      // Set accessToken in memory
       setToken(parsed.accessToken);
       setTokenExpiry(parsed.expiresAt);
 
-      // Return the stored session directly (no API call)
       return {
         accessToken: parsed.accessToken,
         user: parsed.user,
@@ -74,6 +72,7 @@ export const restoreSession = createAsyncThunk(
   },
 );
 
+// ==================== LOGIN ====================
 export const login = createAsyncThunk(
   "auth/login",
   async (
@@ -84,22 +83,19 @@ export const login = createAsyncThunk(
       const res = await authApi.login(email, password);
 
       if (res.data?.accessToken && res.data?.user) {
-        // Save token (persist refreshToken too so it survives page reloads
-        // and can be sent explicitly on /auth/refresh if the cookie is lost)
+        // Save ONLY accessToken and user data in localStorage
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             accessToken: res.data.accessToken,
             user: res.data.user,
             expiresAt: res.data.expiresAt,
-            refreshToken: (res.data as any).refreshToken ?? null,
           }),
         );
-        setRefreshToken((res.data as any).refreshToken);
+
         setToken(res.data.accessToken);
         setTokenExpiry(res.data.expiresAt);
 
-        // Success toast
         dispatch(
           toast.success(
             `Welcome back, ${res.data.user.firstName}`,
@@ -110,7 +106,6 @@ export const login = createAsyncThunk(
         return res.data;
       }
 
-      // If response is not successful
       const errorMessage =
         res.message || "The email or password is incorrect. Please try again.";
       return rejectWithValue(errorMessage);
@@ -124,6 +119,7 @@ export const login = createAsyncThunk(
   },
 );
 
+// ==================== CHANGE / RESET PASSWORD ====================
 export const changePassword = createAsyncThunk(
   "auth/changePassword",
   async (email: string, { dispatch, rejectWithValue }) => {
@@ -166,45 +162,29 @@ export const resetPassword = createAsyncThunk(
 );
 
 // ==================== REFRESH TOKEN THUNK ====================
-/**
- * Called by apiClient when a request returns 401.
- * Tries POST /auth/refresh to get a new accessToken.
- * - Success → updates localStorage + Redux session, apiClient retries the
- *   original request transparently. User never sees a login screen.
- * - Failure → returns false to apiClient, which clears the session and
- *   navigates to /accounts/login.
- * Uses skipRefresh on the underlying request so it can never recurse.
- */
-
-
-
-
-
 export const refreshSession = createAsyncThunk(
   "auth/refreshSession",
   async (_, { rejectWithValue }) => {
     try {
       const res = await authApi.refresh();
-      // Handle both { data: { accessToken } } and direct { accessToken } formats
       const payload: any = res?.data ?? res;
       const accessToken = payload?.accessToken ?? payload?.token;
 
       if (accessToken) {
+        // Update the access token and expiry in localStorage
         const stored = localStorage.getItem(TOKEN_KEY);
         const parsed = stored ? JSON.parse(stored) : {};
-        const rotatedRefresh = payload?.refreshToken ?? null;
-        
+
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
             ...parsed,
             accessToken,
             expiresAt: payload?.expiresAt ?? parsed.expiresAt,
-            refreshToken: rotatedRefresh ?? parsed.refreshToken ?? null,
           }),
         );
 
-        if (rotatedRefresh) setRefreshToken(rotatedRefresh);
+        // Update in-memory token and expiry
         setToken(accessToken);
         setTokenExpiry(payload?.expiresAt ?? parsed.expiresAt);
 
@@ -217,6 +197,7 @@ export const refreshSession = createAsyncThunk(
     }
   },
 );
+
 // ==================== LOGOUT THUNK ====================
 export const logoutUser = createAsyncThunk(
   "auth/logoutUser",
@@ -224,34 +205,18 @@ export const logoutUser = createAsyncThunk(
     dispatch(showLoader("Signing out..."));
 
     try {
-      // Call logout API
+      // Backend clears the httpOnly cookie
       await authApi.logout();
-
-      // Clear local storage and token
-      localStorage.removeItem(TOKEN_KEY);
-      clearRefreshToken();
-      setToken(null);
-
-      // Clear entitlements
-      dispatch(clearEntitlements());
-
-      dispatch(toast.success("Logged out successfully"));
-
-      return true;
     } catch (error: any) {
-      // Even if API fails, we still logout locally
+      console.warn("Server logout failed, clearing local session");
+    } finally {
       localStorage.removeItem(TOKEN_KEY);
-      clearRefreshToken();
       setToken(null);
       dispatch(clearEntitlements());
-
-      dispatch(
-        toast.warning(error?.message || "Logged out (server error ignored)"),
-      );
-      return true;
-    } finally {
       dispatch(hideLoader());
     }
+
+    return true;
   },
 );
 
@@ -267,7 +232,6 @@ const authSlice = createSlice({
       setToken(null);
       localStorage.removeItem(TOKEN_KEY);
     },
-    /** keeps the active session in sync after a profile / user edit */
     syncUser(state, action: PayloadAction<User>) {
       if (state.session && state.session.user.id === action.payload.id) {
         state.session = { ...state.session, user: action.payload };
@@ -279,6 +243,7 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // RESTORE
       .addCase(restoreSession.pending, (state) => {
         state.status = "restoring";
       })
@@ -295,13 +260,12 @@ const authSlice = createSlice({
         state.session = null;
         state.status = "unauthenticated";
       })
-      // ==================== REFRESH HANDLERS ====================
+      // REFRESH
       .addCase(refreshSession.fulfilled, (state, action) => {
-        // Keep the existing user in place, just swap the fresh token in
         if (state.session) {
           state.session = {
             ...state.session,
-            accessToken: action.payload.accessToken,
+            accessToken: action.payload.accessToken ?? action.payload.token,
             expiresAt: action.payload.expiresAt ?? state.session.expiresAt,
           } as Session;
         }
@@ -312,11 +276,11 @@ const authSlice = createSlice({
         state.session = null;
         state.status = "unauthenticated";
       })
+      // LOGIN
       .addCase(login.pending, (state) => {
         state.status = "authenticating";
         state.error = null;
       })
-      // In login.fulfilled
       .addCase(login.fulfilled, (state, action) => {
         state.status = "authenticated";
         state.session = action.payload;
@@ -325,8 +289,8 @@ const authSlice = createSlice({
         state.status = "unauthenticated";
         state.error = (action.payload as string) ?? "Unable to sign in.";
       })
+      // PASSWORD
       .addCase(changePassword.fulfilled, (state, action) => {
-        // action.payload is ApiResponse<any>
         const payload = action.payload as any;
         const token = payload?.data?.token ?? payload?.token ?? null;
         state.reset = { email: action.meta.arg, token };
@@ -334,7 +298,7 @@ const authSlice = createSlice({
       .addCase(resetPassword.fulfilled, (state) => {
         state.reset = { email: null, token: null };
       })
-      // ==================== LOGOUT THUNK HANDLERS ====================
+      // LOGOUT
       .addCase(logoutUser.fulfilled, (state) => {
         state.session = null;
         state.status = "unauthenticated";
@@ -345,8 +309,6 @@ const authSlice = createSlice({
 });
 
 export const { logout, syncUser, setResetEmail } = authSlice.actions;
-
-/* ------------------------------- selectors ------------------------------- */
 
 export const selectSession = (s: { auth: AuthState }) => s.auth.session;
 export const selectUser = (s: { auth: AuthState }) =>

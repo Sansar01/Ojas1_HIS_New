@@ -190,6 +190,15 @@ export type AppointmentStatus =
   | "Cancelled"
   | "No Show";
 
+
+
+export interface OpdToken {
+  tokenNumber: string |  number;
+  status?: string | null;
+  estimatedTime?: string | null;
+  roomNo?: string | number | null;
+}
+
 export interface Appointment {
   id: ID;
   code: string;
@@ -220,7 +229,7 @@ export interface Appointment {
   cancelReason?:string
   slotStartTime?:string
   visitType:string
-  token?:string
+  token?:OpdToken | string | null
   patient:Patient
   doctor:Doctor
 }

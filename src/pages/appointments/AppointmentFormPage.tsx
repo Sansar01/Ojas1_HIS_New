@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { DatePicker, Input, Textarea } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
-import { appointmentsApi, fetchDoctorSlots } from "@/features/slices";
+import { appointmentsApi, fetchDoctorSlots , generateOpdToken } from "@/features/slices";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
@@ -17,14 +17,7 @@ const toMinutes = (t: string) => {
   return (h || 0) * 60 + (m || 0);
 };
 
-/**
- * Build the slot grid from the doctor availability API response, e.g.:
- * { doctorProfileId, slotDurationMins, bufferTimeMins,
- *   schedule: [{ dayOfWeek, isActive, startTime, endTime,
- *                breakStartTime, breakEndTime }] }
- * Slots are generated for the weekday matching the selected date, with the
- * break window marked unavailable and already-booked times marked booked.
- */
+
 function normalizeSlots(
   data: any,
   date: string,
@@ -236,6 +229,8 @@ export function AppointmentFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.values.doctorId, form.values.date]);
 
+
+
   const handleSubmit = form.handleSubmit(async (values) => {
     const doctorData = doctors.find((d: any) => d.id === values.doctorId);
 
@@ -257,29 +252,50 @@ export function AppointmentFormModal({
       notes: values.notes?.trim() || undefined,
     };
 
-    if (isEdit) {
-      await dispatch(
-        appointmentsApi.thunks.updateOne({
-          id: editing.id,
-          data: payload,
-          successMessage: "Appointment updated successfully",
-        } as any),
-      );
-    } else {
-      await dispatch(
-        appointmentsApi.thunks.createOne({
-          data: payload,
-          successMessage: "Appointment booked successfully",
-        } as any),
-      );
+    try {
+      let appointmentId: string | undefined;
+
+      // 1. Create or Update Appointment
+      if (isEdit) {
+        const result = await dispatch(
+          appointmentsApi.thunks.updateOne({
+            id: editing.id,
+            data: payload,
+            successMessage: "Appointment updated successfully",
+          } as any),
+        ).unwrap();
+        appointmentId = result?.id ?? editing.id;
+      } else {
+        const result = await dispatch(
+          appointmentsApi.thunks.createOne({
+            data: payload,
+            successMessage: "Appointment booked successfully",
+          } as any),
+        ).unwrap();
+        appointmentId = result?.id;
+      }
+
+      // 2. Post-Booking Chain: Trigger Auto-Token Generation if "Walk-In"
+      const isWalkIn =
+        String(values.visitType).toUpperCase() === "WALK_IN" ||
+        String(values.type).toUpperCase() === "WALK_IN";
+
+      if (isWalkIn && appointmentId) {
+        // Dispatches your newly created async thunk elegantly
+        await dispatch(generateOpdToken({ appointmentId }) as any).unwrap();
+      }
+
+    } catch (err) {
+      // Caught gracefully; standard alerts are handled by your Redux/Thunk middleware
+      console.error("Booking process chain encountered an error:", err);
     }
 
-    // re-sync the list from the API after create/update so the table reflects the change
+    // 3. Re-sync table list and close the form
     dispatch(appointmentsApi.thunks.fetchAll() as any);
-
     form.reset();
     onOpenChange(false);
   });
+
 
   return (
     <Dialog
