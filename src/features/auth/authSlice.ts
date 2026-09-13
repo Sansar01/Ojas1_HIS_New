@@ -12,7 +12,7 @@ import {
   TOKEN_KEY,
 } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { ModuleKey, Permission, Session, User } from "@/types";
+import type { ModuleKey, Permission, Role, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
 import { Entitlements } from "@/types/entitlement";
 
@@ -41,36 +41,149 @@ const initialState: AuthState = {
   reset: { email: null, token: null },
 };
 
+/* ========================= session storage ===============================
+ * Everything about the signed-in session lives in ONE localStorage JSON blob
+ * (TOKEN_KEY = "authUserToken"). All reads/writes go through the helpers below
+ * so login / restoreSession / refreshSession / logout can never disagree on
+ * the stored shape.
+ * ------------------------------------------------------------------------- */
+
+interface StoredSession {
+  accessToken?: string;
+  /** Persisted only when the backend exposes it. In httpOnly-cookie mode the
+   *  refresh token never reaches JS, so this stays absent and the refresh
+   *  request simply relies on the cookie. */
+  refreshToken?: string;
+  user?: User;
+  role?: Role;
+  expiresAt?: string;
+  entitlements?: Entitlements | null;
+  /** login response flag — user must set a new password first */
+  forcePasswordChange?: boolean;
+}
+
+function readStoredSession(): StoredSession | null {
+  try {
+    const raw = localStorage.getItem(TOKEN_KEY);
+    return raw ? (JSON.parse(raw) as StoredSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Single writer for the session blob — never throws (private mode, quota). */
+function writeStoredSession(session: StoredSession): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify(session));
+  } catch {
+    /* storage unavailable — the session stays in memory only */
+  }
+}
+
+/** Single remover for the session blob. */
+function clearStoredSession(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+
+/**
+ * Defensive token extraction — accepts the key variants real backends use
+ * (accessToken/token, refreshToken/refresh). Returns undefined for fields the
+ * backend did not include, so callers can decide what to persist/rotate.
+ */
+function pickTokens(data: any): {
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+} {
+  return {
+    accessToken: data?.accessToken ?? data?.token,
+    refreshToken: data?.refreshToken ?? data?.refresh, // undefined ⇒ no rotation
+    expiresAt: data?.expiresAt,
+  };
+}
+
 export const restoreSession = createAsyncThunk(
   "auth/restoreSession",
   async (_, { rejectWithValue }) => {
-    try {
-      const stored = localStorage.getItem(TOKEN_KEY);
-      if (!stored) return null;
-
-      const parsed = JSON.parse(stored);
-
-      if (!parsed?.accessToken || !parsed?.user) {
-        localStorage.removeItem(TOKEN_KEY);
-        return null;
-      }
-
-      // Set token in memory
-      setToken(parsed.accessToken);
-      setTokenExpiry(parsed.expiresAt);
-
-      // Return the stored session directly (no API call)
-      return {
-        accessToken: parsed.accessToken,
-        user: parsed.user,
-        role: parsed.role || { name: parsed.user.userType },
-        expiresAt: parsed.expiresAt,
-        entitlements: parsed.entitlements || null,
-      };
-    } catch (error: any) {
-      localStorage.removeItem(TOKEN_KEY);
-      return rejectWithValue(error?.message);
+    const stored = readStoredSession();
+    if (!stored?.accessToken || !stored?.user) {
+      clearStoredSession();
+      setToken(null);
+      return null;
     }
+
+    // Bring the access token back into memory for the apiClient.
+    setToken(stored.accessToken);
+
+    const user = stored.user;
+    const role = stored.role;
+    let { accessToken, refreshToken, expiresAt } = stored;
+    const entitlements = stored.entitlements ?? null;
+
+    // Fast path: the stored access token is still valid (or the backend did
+    // not send an expiresAt) → restore from localStorage with NO API call.
+    // This is the common reload case and stays synchronous-fast.
+    //
+    // Slow path: the access token is already expired but the refresh-token
+    // httpOnly cookie may still be alive → silently refresh once before
+    // restoring, otherwise the very first API call would 401. If the refresh
+    // fails the session is genuinely gone → unauthenticated (login screen).
+    const isExpired =
+      !!expiresAt && new Date(expiresAt).getTime() <= Date.now();
+
+    if (isExpired) {
+      try {
+        const res = await authApi.refresh(); // cookie travels automatically
+        // Accept both shapes: envelope { data: { accessToken } } (login style)
+        // and a bare { accessToken } body (the refresh controller returns data
+        // directly) — whichever the backend uses.
+        const body = res as any;
+        const payload = body?.data ?? res;
+        const tokens = pickTokens(payload);
+
+        if (!tokens.accessToken) {
+          clearStoredSession();
+          setToken(null);
+          return null;
+        }
+
+        accessToken = tokens.accessToken;
+        refreshToken = tokens.refreshToken ?? refreshToken;
+        expiresAt = tokens.expiresAt ?? expiresAt;
+
+        // spread the stored record first so nothing is lost on rotation
+        // (forcePasswordChange, and any field a future backend adds)
+        writeStoredSession({
+          ...stored,
+          accessToken,
+          ...(refreshToken ? { refreshToken } : {}),
+          user,
+          role,
+          entitlements,
+          ...(expiresAt ? { expiresAt } : {}),
+        });
+        setToken(accessToken);
+      } catch (error: any) {
+        // Dead access token + failed refresh ⇒ the session cannot be restored.
+        clearStoredSession();
+        setToken(null);
+        return rejectWithValue(error?.message ?? "Session expired");
+      }
+    }
+
+    return {
+      accessToken,
+      user,
+      role: role ?? ({ name: user.userType } as Role),
+      expiresAt,
+      entitlements,
+      forcePasswordChange: Boolean(stored.forcePasswordChange),
+    } as Session;
   },
 );
 
@@ -82,32 +195,46 @@ export const login = createAsyncThunk(
   ) => {
     try {
       const res = await authApi.login(email, password);
+      const data = (res.data ?? {}) as any;
+      const accessToken = data.accessToken ?? data.token;
+      const user = data.user;
 
-      if (res.data?.accessToken && res.data?.user) {
-        // Save token (persist refreshToken too so it survives page reloads
-        // and can be sent explicitly on /auth/refresh if the cookie is lost)
-        localStorage.setItem(
-          TOKEN_KEY,
-          JSON.stringify({
-            accessToken: res.data.accessToken,
-            user: res.data.user,
-            expiresAt: res.data.expiresAt,
-            refreshToken: (res.data as any).refreshToken ?? null,
-          }),
+      if (accessToken && user) {
+        const { refreshToken, expiresAt } = pickTokens(data);
+        // backend flag from the login response
+        const forcePasswordChange = Boolean(
+          data?.forcePasswordChange ?? data?.user?.forcePasswordChange,
         );
-        setRefreshToken((res.data as any).refreshToken);
-        setToken(res.data.accessToken);
-        setTokenExpiry(res.data.expiresAt);
+
+        // Persist the whole session. With an httpOnly-cookie backend the
+        // refresh token is NOT part of the response — the browser stored the
+        // cookie from the Set-Cookie header of this same login request. When
+        // the backend *does* return one we persist it as well (rotation-ready,
+        // token-in-body backends).
+        writeStoredSession({
+          accessToken,
+          ...(refreshToken ? { refreshToken } : {}),
+          user,
+          role: data.role,
+          entitlements: data.entitlements ?? null,
+          ...(expiresAt ? { expiresAt } : {}),
+          ...(forcePasswordChange ? { forcePasswordChange: true } : {}),
+        });
+        setToken(accessToken);
 
         // Success toast
         dispatch(
           toast.success(
-            `Welcome back, ${res.data.user.firstName}`,
-            `Signed in as ${res.data.user.userType}`,
+            `Welcome back, ${user.firstName}`,
+            forcePasswordChange
+              ? "Set a new password to finish signing in."
+              : `Signed in as ${user.userType}`,
           ),
         );
 
-        return res.data;
+        // `forcePasswordChange` lets the login screen route to the
+        // force-password page instead of the dashboard.
+        return { ...(res.data as any), forcePasswordChange };
       }
 
       // If response is not successful
@@ -124,11 +251,111 @@ export const login = createAsyncThunk(
   },
 );
 
+// export const login = createAsyncThunk(
+//   "auth/login",
+//   async (
+//     { email, password }: { email: string; password: string },
+//     { dispatch, rejectWithValue },
+//   ) => {
+//     try {
+//       const res = await authApi.login(email, password);
+
+//       if (res.data?.accessToken && res.data?.user) {
+//         // Save token (persist refreshToken too so it survives page reloads
+//         // and can be sent explicitly on /auth/refresh if the cookie is lost)
+//         localStorage.setItem(
+//           TOKEN_KEY,
+//           JSON.stringify({
+//             accessToken: res.data.accessToken,
+//             user: res.data.user,
+//             expiresAt: res.data.expiresAt,
+//             refreshToken: (res.data as any).refreshToken ?? null,
+//           }),
+//         );
+//         setRefreshToken((res.data as any).refreshToken);
+//         setToken(res.data.accessToken);
+//         setTokenExpiry(res.data.expiresAt);
+
+//         // Success toast
+//         dispatch(
+//           toast.success(
+//             `Welcome back, ${res.data.user.firstName}`,
+//             `Signed in as ${res.data.user.userType}`,
+//           ),
+//         );
+
+//         return res.data;
+//       }
+
+//       // If response is not successful
+//       const errorMessage =
+//         res.message || "The email or password is incorrect. Please try again.";
+//       return rejectWithValue(errorMessage);
+//     } catch (error: any) {
+//       const errorMessage =
+//         error?.message === "Failed to fetch"
+//           ? "Unable to reach the server. Please check your connection and try again."
+//           : error?.message || "Unable to sign in. Please try again.";
+//       return rejectWithValue(errorMessage);
+//     }
+//   },
+// );
+
+/**
+ * changePassword — one thunk for both password flows.
+ *
+ *   changePassword("user@mail.com")                     → recovery (pre-auth):
+ *        emails the verification code.  ({ email } also accepted)
+ *
+ *   changePassword({ oldPassword, newPassword })         → forced change for the
+ *        signed-in user, i.e. the backend's HospitalChangePasswordDto. On
+ *        success the session's forcePasswordChange flag is cleared (stored
+ *        session included) and the user re-signs in with the new password.
+ */
 export const changePassword = createAsyncThunk(
   "auth/changePassword",
-  async (email: string, { dispatch, rejectWithValue }) => {
+  async (
+    payload:
+      | string
+      | { oldPassword: string; newPassword: string },
+    { dispatch, rejectWithValue },
+  ) => {
+    const isForcedChange =
+      typeof payload === "object" && "oldPassword" in payload;
+
     try {
-      const res = await authApi.changePassword(email);
+      const res = await authApi.changePassword(payload as any);
+
+      if (isForcedChange) {
+        // password replaced → the temporary-password requirement is satisfied
+        const data: any = (res as any)?.data ?? {};
+        const { accessToken, refreshToken, expiresAt } = pickTokens(data);
+        const stored = readStoredSession() ?? {};
+        const nextUser = stored.user
+          ? { ...stored.user, forcePasswordChange: false }
+          : stored.user;
+
+        writeStoredSession({
+          ...stored,
+          ...(nextUser ? { user: nextUser } : {}),
+          ...(accessToken ? { accessToken } : {}),
+          ...(refreshToken ? { refreshToken } : {}),
+          ...(expiresAt ? { expiresAt } : {}),
+          forcePasswordChange: false,
+        });
+        if (accessToken) setToken(accessToken);
+
+        dispatch(
+          toast.success(
+            "Password updated",
+            "Sign in again with your new password.",
+          ),
+        );
+        return { ...data, forcePasswordChange: false };
+      }
+
+      const email =
+        typeof payload === "string" ? payload : (payload as any).email;
       dispatch(
         toast.success(
           "Reset link sent",
@@ -137,8 +364,20 @@ export const changePassword = createAsyncThunk(
       );
       return res;
     } catch (error: any) {
-      dispatch(toast.error("Could not send reset link", error?.message));
-      return rejectWithValue(error?.message ?? "Unable to send reset link.");
+      const message =
+        error?.message === "Failed to fetch"
+          ? "Unable to reach the server. Please try again."
+          : error?.message ||
+          (isForcedChange
+            ? "Could not update the password."
+            : "Unable to send reset link.");
+      dispatch(
+        toast.error(
+          isForcedChange ? "Password change failed" : "Could not send reset link",
+          message,
+        ),
+      );
+      return rejectWithValue(message);
     }
   },
 );
@@ -193,7 +432,7 @@ export const refreshSession = createAsyncThunk(
         const stored = localStorage.getItem(TOKEN_KEY);
         const parsed = stored ? JSON.parse(stored) : {};
         const rotatedRefresh = payload?.refreshToken ?? null;
-        
+
         localStorage.setItem(
           TOKEN_KEY,
           JSON.stringify({
@@ -326,10 +565,29 @@ const authSlice = createSlice({
         state.error = (action.payload as string) ?? "Unable to sign in.";
       })
       .addCase(changePassword.fulfilled, (state, action) => {
-        // action.payload is ApiResponse<any>
+        const arg: any = action.meta.arg;
         const payload = action.payload as any;
+
+        // forced change (HospitalChangePasswordDto) → flag is satisfied
+        if (arg && typeof arg === "object" && "oldPassword" in arg) {
+          if (state.session) {
+            state.session = {
+              ...state.session,
+              forcePasswordChange: false,
+              user: state.session.user
+                ? { ...state.session.user, forcePasswordChange: false }
+                : state.session.user,
+            };
+          }
+          state.error = null;
+          return;
+        }
+
+        // recovery → remember the email + verification token
+        const email =
+          typeof arg === "string" ? arg : (arg?.email ?? null);
         const token = payload?.data?.token ?? payload?.token ?? null;
-        state.reset = { email: action.meta.arg, token };
+        state.reset = { email, token };
       })
       .addCase(resetPassword.fulfilled, (state) => {
         state.reset = { email: null, token: null };

@@ -1,5 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { RequireAuth, RequireModule, PublicOnly } from "@/routes/guards";
+import {
+  RequireAuth,
+  RequireModule,
+  PublicOnly,
+  RequirePasswordChange,
+} from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import {
@@ -26,7 +31,8 @@ import {
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
 
-import {OpdExaminationRoom } from "@/pages/opd/Opd";
+import { OpdExaminationRoom } from "@/pages/opd/Opd";
+import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
@@ -52,6 +58,15 @@ export function AppRoutes() {
             <PublicOnly>
               <ChangePasswordPage />
             </PublicOnly>
+          }
+        />
+        {/* shown only when the login response carried forcePasswordChange: true */}
+        <Route
+          path="/accounts/force-password-change"
+          element={
+            <RequirePasswordChange>
+              <ForcePasswordChange />
+            </RequirePasswordChange>
           }
         />
         <Route
@@ -89,14 +104,12 @@ export function AppRoutes() {
             }
           />
 
-
           <Route
             path="/opd"
             element={
               <RequireModule module="patients">
-
-                <OpdExaminationRoom/>
-                </RequireModule>
+                <OpdExaminationRoom />
+              </RequireModule>
             }
           />
           <Route
@@ -163,7 +176,7 @@ export function AppRoutes() {
               </RequireModule>
             }
           />
-    
+
           <Route
             path="/consultation"
             element={

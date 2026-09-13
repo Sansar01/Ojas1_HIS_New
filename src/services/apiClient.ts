@@ -334,11 +334,11 @@ export const authApi = {
   //   });
   // },
 
-  async changePassword(email: string) {
+  async changePassword(payload: string) {
     return request({
       url: API_ENDPOINTS.auth.changePassword,
       method: "POST",
-      body: { email },
+      body: payload,
       skipRefresh: true,
     });
   },

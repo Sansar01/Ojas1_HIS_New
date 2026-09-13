@@ -76,7 +76,8 @@ export const API_ENDPOINTS = {
     slot: "/api/opd/appointments/slot",
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
     cancel: (Id: string | number) => `/api/opd/appointments/${Id}/cancel`,
-    today: '/api/opd/appointments/today'
+    today: '/api/opd/appointments/today',
+    edit:(Id:string | number)=>`/api/opd/appointments/${Id}/edit`
   },
 
   // Consultations

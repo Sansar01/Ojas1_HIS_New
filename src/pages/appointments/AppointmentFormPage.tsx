@@ -148,6 +148,7 @@ export function AppointmentFormModal({
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [editLoading, setEditLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // single appointments getById call — the patient/doctor lists are already in
   // the store from the page, so we don't re-fetch them here
   useEffect(() => {
@@ -257,35 +258,52 @@ export function AppointmentFormModal({
       notes: values.notes?.trim() || undefined,
     };
 
-    if (isEdit) {
-      await dispatch(
-        appointmentsApi.thunks.updateOne({
-          id: editing.id,
-          data: payload,
-          successMessage: "Appointment updated successfully",
-        } as any),
-      );
-    } else {
-      await dispatch(
-        appointmentsApi.thunks.createOne({
-          data: payload,
-          successMessage: "Appointment booked successfully",
-        } as any),
-      );
+    try {
+      if (isEdit) {
+        // .unwrap() re-throws the rejection from the thunk so failures are
+        // surfaced here instead of being silently ignored
+        await dispatch(
+          appointmentsApi.thunks.updateOne({
+            id: editing.id,
+            data: payload,
+            successMessage: "Appointment updated successfully",
+          } as any),
+        ).unwrap();
+      } else {
+        await dispatch(
+          appointmentsApi.thunks.createOne({
+            data: payload,
+            successMessage: "Appointment booked successfully",
+          } as any),
+        ).unwrap();
+      }
+
+      // re-sync the list from the API after create/update so the table reflects the change
+      dispatch(appointmentsApi.thunks.fetchAll() as any);
+
+      setSubmitError(null);
+      form.reset();
+      onOpenChange(false);
+    } catch (error: any) {
+      // failure — thunk already shows an error toast; keep the dialog open,
+      // restore the values, and show an inline banner with the API message
+      const message =
+        error?.data?.message ??
+        error?.data?.detail ??
+        error?.message ??
+        "Something went wrong while saving the appointment. Please try again.";
+      setSubmitError(message);
     }
-
-    // re-sync the list from the API after create/update so the table reflects the change
-    dispatch(appointmentsApi.thunks.fetchAll() as any);
-
-    form.reset();
-    onOpenChange(false);
   });
 
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        if (!v) form.reset();
+        if (!v) {
+          form.reset();
+          setSubmitError(null);
+        }
         onOpenChange(v);
       }}
       title={isEdit ? "Edit Appointment" : "Book New Appointment"}
@@ -319,6 +337,23 @@ export function AppointmentFormModal({
         onSubmit={handleSubmit}
         className="space-y-8"
       >
+        {submitError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-coral-200 bg-coral-50 px-3.5 py-2.5 text-[12.5px] font-medium text-coral-700"
+          >
+            <span className="mt-0.5">⚠</span>
+            <span className="flex-1">{submitError}</span>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              className="text-coral-500 hover:text-coral-700"
+              aria-label="Dismiss error"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div>
           <div className="mb-4 flex items-center gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
