@@ -71,12 +71,18 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 export function PublicOnly({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const user = useRootSelector(selectUser);
+  const mustChange = useRootSelector(selectMustChangePassword);
 
   if ((status === "idle" || status === "restoring") && !user) {
     return <Splash label="Checking authentication" />;
   }
 
-  if (user) return <Navigate to="/dashboard" />;
+  // Accounts that owe a password change must land on the force-password
+  // screen, not the dashboard (RequireAuth would only bounce them back).
+  if (user)
+    return (
+      <Navigate to={mustChange ? FORCE_PASSWORD_PATH : "/dashboard"} replace />
+    );
   return <>{children}</>;
 }
 

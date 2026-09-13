@@ -180,7 +180,7 @@ export const changePassword = createAsyncThunk(
         dispatch(
           toast.success(
             "Password updated",
-            "Sign in again with your new password.",
+            "You can now continue to the dashboard",
           ),
         );
         return { changed: true };
