@@ -2,7 +2,11 @@ import * as React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
-import { canAccess, selectUser } from "@/features/auth/authSlice";
+import {
+  canAccess,
+  selectMustChangePassword,
+  selectUser,
+} from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
 import { FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
@@ -34,6 +38,7 @@ export function Splash({
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const session = useRootSelector(selectUser);
+  const mustChange = useRootSelector(selectMustChangePassword);
   const location = useLocation();
 
   // While restoring session from localStorage
@@ -54,9 +59,6 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   // Signed in but the backend asked for a new password first → divert.
   // (Mirrors the backend flag forcePasswordChange from the login response.)
-  const mustChange =
-    Boolean((session as any).forcePasswordChange) ||
-    Boolean((session as any).user?.forcePasswordChange);
   if (mustChange && location.pathname !== FORCE_PASSWORD_PATH) {
     return <Navigate to={FORCE_PASSWORD_PATH} replace />;
   }
@@ -91,6 +93,7 @@ export function RequirePasswordChange({
 }) {
   const status = useAuthStatus();
   const session = useRootSelector((s) => s.auth.session) as any;
+  const mustChange = useRootSelector(selectMustChangePassword);
 
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash label="Checking your session" />;
@@ -98,7 +101,7 @@ export function RequirePasswordChange({
   if (!session) {
     return <Navigate to="/accounts/login" replace />;
   }
-  if (!session.forcePasswordChange && !session.user?.forcePasswordChange) {
+  if (!mustChange) {
     return <Navigate to="/dashboard" replace />;
   }
   return <>{children}</>;

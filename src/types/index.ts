@@ -362,6 +362,9 @@ export interface ApiResponse<T> {
   success: boolean;
   data: T;
   message: string;
+  /** true when the client dropped the call locally — signed out, or the
+  *  session is waiting on a forced password change (no request was sent) */
+  cancelled?: boolean;
 }
 
 export interface ListQuery {

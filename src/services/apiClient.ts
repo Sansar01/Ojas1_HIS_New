@@ -80,6 +80,62 @@ export function isTokenExpiringSoon() {
   return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs - EXPIRY_MARGIN_MS;
 }
 
+/* --------------------------- Session gate -------------------------------- */
+/**
+ * Single choke point for "may this request leave the browser?".
+ *
+ * The gate is wired once by <App/> (see registerSessionGate) and reads the live
+ * auth state from the store, so it is always in sync with Redux:
+ *   • signed out (logout)                      → only auth calls may run
+ *   • signed in with forcePasswordChange: true → only auth calls may run
+ *   • signed in normally                       → everything runs
+ *
+ * Without it, pages keep firing their module APIs while the session is being
+ * torn down (logout) or before the password has been changed.
+ */
+
+export interface SessionGate {
+  /** a usable session exists (login/restore fulfilled and not logged out) */
+  signedIn: boolean;
+  /** login answered forcePasswordChange: true → block every business API */
+  mustChangePassword: boolean;
+}
+
+/** Carried by the (empty) response of a request the gate refused to send. */
+export const SESSION_CLOSED_MESSAGE = "Session closed — request skipped.";
+
+let readSessionGate: (() => SessionGate | null) | null = null;
+
+/** Registered once, at app start, so the client can read the auth state. */
+export function registerSessionGate(fn: () => SessionGate | null) {
+  readSessionGate = fn;
+}
+/**
+ * Endpoints that stay callable while the gate is shut — sign-in, sign-out and
+ * password change/reset. Everything else (entitlements/modules, patients,
+ * doctors, appointments…) is skipped before it hits the network.
+ */
+const ALWAYS_ALLOWED_ENDPOINTS: string[] = [
+  API_ENDPOINTS.auth.login,
+  API_ENDPOINTS.auth.logout,
+  API_ENDPOINTS.auth.changePassword,
+  API_ENDPOINTS.auth.resetPassword,
+];
+/**
+ * true only when ordinary (non-auth) traffic is allowed right now.
+ * The token check matters while a logout is in flight: the thunk drops the
+ * token first and the Redux session only a tick later.
+ */
+export function isSessionUsable(): boolean {
+  const gate = readSessionGate?.() ?? null;
+  if (!gate) return true; // nothing wired yet → keep the previous behaviour
+  return Boolean(token) && gate.signedIn && !gate.mustChangePassword;
+}
+
+function isRequestBlocked(url: string): boolean {
+  return !isSessionUsable() && !ALWAYS_ALLOWED_ENDPOINTS.includes(url);
+}
+
 /* --------------------- Token refresh coordination ------------------------ */
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -219,6 +275,17 @@ export interface RequestConfig {
 export async function request<T = any>(
   config: RequestConfig,
 ): Promise<ApiResponse<T>> {
+  // Logged out, or signed in but still owing a password change → never hit the
+  // network. Returns a cancelled envelope instead of throwing so the slices do
+  // not raise "could not load …" toasts on a session the user just ended.
+  if (isRequestBlocked(config.url)) {
+    return {
+      success: false,
+      cancelled: true,
+      message: SESSION_CLOSED_MESSAGE,
+    } as ApiResponse<T>;
+  }
+
   const queryString = config.params
     ? "?" + new URLSearchParams(config.params as any).toString()
     : "";
@@ -261,8 +328,8 @@ export async function request<T = any>(
 
     let response = await fetch(url, fetchInit());
 
-    // 401 aane par refresh flow
-    if (response.status === 401 && !config.skipRefresh) {
+    // 401 aane par refresh flow (only while the session is actually usable)
+    if (response.status === 401 && !config.skipRefresh && isSessionUsable()) {
       const refreshed = await refreshOnce();
       if (refreshed && token) {
         headers["Authorization"] = `Bearer ${token}`;
@@ -354,7 +421,7 @@ export const authApi = {
 
 
 
-   async refresh(): Promise<ApiResponse<Session>> {
+  async refresh(): Promise<ApiResponse<Session>> {
     const refreshToken = getRefreshToken();
     return request<Session>({
       url: API_ENDPOINTS.auth.refresh,
