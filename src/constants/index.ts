@@ -269,3 +269,6 @@ export const STATIC_SPECIALIZATIONS: StaticSpecialization[] = [
   { id: "Urology", name: "Urology", code: "URO" },
   { id: "Oncology", name: "Oncology", code: "ONCO" },
 ];
+
+/** Where the forced password change lives — kept in one place. */
+export const FORCE_PASSWORD_PATH = "/accounts/force-password-change";

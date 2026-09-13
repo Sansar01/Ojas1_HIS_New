@@ -5,7 +5,7 @@ import { useAuthStatus, usePermission } from "@/hooks";
 import { canAccess, selectUser } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
-import { MODULE_LABEL } from "@/constants";
+import { FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
 import type { ModuleKey, Permission } from "@/types";
 import { canAccessModule } from "@/utils/permissions";
 
@@ -52,6 +52,15 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // Signed in but the backend asked for a new password first → divert.
+  // (Mirrors the backend flag forcePasswordChange from the login response.)
+  const mustChange =
+    Boolean((session as any).forcePasswordChange) ||
+    Boolean((session as any).user?.forcePasswordChange);
+  if (mustChange && location.pathname !== FORCE_PASSWORD_PATH) {
+    return <Navigate to={FORCE_PASSWORD_PATH} replace />;
+  }
+
   // User is authenticated → render protected content
   return <>{children}</>;
 }
@@ -66,6 +75,32 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
   }
 
   if (user) return <Navigate to="/dashboard" />;
+  return <>{children}</>;
+}
+
+/**
+ * Guard for the force-password screen.
+ *  - not signed in            → login
+ *  - signed in, no flag       → dashboard (the screen is pointless otherwise)
+ *  - signed in with the flag  → render the form
+ */
+export function RequirePasswordChange({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const status = useAuthStatus();
+  const session = useRootSelector((s) => s.auth.session) as any;
+
+  if ((status === "restoring" || status === "idle") && !session) {
+    return <Splash label="Checking your session" />;
+  }
+  if (!session) {
+    return <Navigate to="/accounts/login" replace />;
+  }
+  if (!session.forcePasswordChange && !session.user?.forcePasswordChange) {
+    return <Navigate to="/dashboard" replace />;
+  }
   return <>{children}</>;
 }
 

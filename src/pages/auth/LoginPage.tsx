@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import { APP_NAME } from "@/constants";
+import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppDispatch, useAuthStatus } from "@/hooks";
 import { login } from "@/features/auth/authSlice";
@@ -17,8 +17,6 @@ import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
 import { toast } from "@/features/ui/uiSlice";
-
-
 
 export function LoginPage() {
   const dispatch = useAppDispatch();
@@ -39,7 +37,14 @@ export function LoginPage() {
     const result: any = await dispatch(login(values));
     if (login.fulfilled.match(result)) {
       form.reset();
-      navigate("/dashboard", { replace: true });
+      // The backend tells us whether a new password is required first.
+      const mustChangePassword = Boolean(
+        result.payload?.forcePasswordChange ??
+        result.payload?.user?.forcePasswordChange,
+      );
+      navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/dashboard", {
+        replace: true,
+      });
     } else {
       const message =
         (result.payload as string) ||
@@ -158,8 +163,6 @@ export function LoginPage() {
         </form>
       </div>
 
-    
-
       <p className="mt-6 text-center text-[11.5px] leading-relaxed text-ink-400">
         Protected facility environment · Access attempts are logged.{" "}
         <span className="text-ink-300">Need help? Call ext. 4101</span>
@@ -182,4 +185,3 @@ function HeartIcon() {
     </svg>
   );
 }
-

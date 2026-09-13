@@ -94,19 +94,15 @@ export function SlotPicker({
   remoteSlots?: SlotOption[] | null;
 }) {
   const doctors = useRootSelector((s) => s.doctors.items);
-  console.log("doctors" , doctors)
   const doctor = doctors.find((d: any) => d.id === doctorId) as any;
   const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
   );
 
-  console.log("genererate sloe" , generated)
   const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
 
-
-  console.log('slots' , slots)
   if (loading)
     return (
       <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500">

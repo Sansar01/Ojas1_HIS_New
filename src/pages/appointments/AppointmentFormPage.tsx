@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { DatePicker, Input, Textarea } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
-import { appointmentsApi, fetchDoctorSlots , generateOpdToken } from "@/features/slices";
+import {
+  appointmentsApi,
+  fetchDoctorSlots,
+  generateOpdToken,
+} from "@/features/slices";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
@@ -16,7 +20,6 @@ const toMinutes = (t: string) => {
   const [h, m] = String(t).split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
 };
-
 
 function normalizeSlots(
   data: any,
@@ -141,6 +144,7 @@ export function AppointmentFormModal({
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [editLoading, setEditLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // single appointments getById call — the patient/doctor lists are already in
   // the store from the page, so we don't re-fetch them here
   useEffect(() => {
@@ -158,7 +162,9 @@ export function AppointmentFormModal({
           time: record.time ?? "",
           type: record.raw?.appointmentType ?? record.type ?? "",
           visitType: record.raw?.visitType ?? record.visitType ?? "",
-          priority: String(record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0)),
+          priority: String(
+            record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0),
+          ),
           fee: Number(record.fee ?? 0),
           reasonForVisit: record.reasonForVisit ?? "",
           referredByDoctorName: record.referredByDoctorName ?? "",
@@ -229,8 +235,6 @@ export function AppointmentFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.values.doctorId, form.values.date]);
 
-
-
   const handleSubmit = form.handleSubmit(async (values) => {
     const doctorData = doctors.find((d: any) => d.id === values.doctorId);
 
@@ -284,7 +288,6 @@ export function AppointmentFormModal({
         // Dispatches your newly created async thunk elegantly
         await dispatch(generateOpdToken({ appointmentId }) as any).unwrap();
       }
-
     } catch (err) {
       // Caught gracefully; standard alerts are handled by your Redux/Thunk middleware
       console.error("Booking process chain encountered an error:", err);
@@ -296,12 +299,14 @@ export function AppointmentFormModal({
     onOpenChange(false);
   });
 
-
   return (
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        if (!v) form.reset();
+        if (!v) {
+          form.reset();
+          setSubmitError(null);
+        }
         onOpenChange(v);
       }}
       title={isEdit ? "Edit Appointment" : "Book New Appointment"}
@@ -335,6 +340,23 @@ export function AppointmentFormModal({
         onSubmit={handleSubmit}
         className="space-y-8"
       >
+        {submitError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-coral-200 bg-coral-50 px-3.5 py-2.5 text-[12.5px] font-medium text-coral-700"
+          >
+            <span className="mt-0.5">⚠</span>
+            <span className="flex-1">{submitError}</span>
+            <button
+              type="button"
+              onClick={() => setSubmitError(null)}
+              className="text-coral-500 hover:text-coral-700"
+              aria-label="Dismiss error"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div>
           <div className="mb-4 flex items-center gap-2">
             <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-400">
