@@ -108,12 +108,12 @@ export function ForcePasswordChange() {
         }),
       ).unwrap();
 
-      // Password replaced → end the session and make the user sign in again
-      // with the new credentials (the flag is already cleared, so the login
-      // screen will send them straight to the dashboard afterwards).
-      authApi.logout().catch(() => undefined); // best-effort: clear the refresh cookie
-      dispatch(clearEntitlements());
-      dispatch(logout()); // clears the session + localStorage (no toast)
+      // // Password replaced → end the session and make the user sign in again
+      // // with the new credentials (the flag is already cleared, so the login
+      // // screen will send them straight to the dashboard afterwards).
+      // authApi.logout().catch(() => undefined); // best-effort: clear the refresh cookie
+      // dispatch(clearEntitlements());
+      // dispatch(logout()); // clears the session + localStorage (no toast)
       navigate("/accounts/login", { replace: true });
     } catch (error: any) {
       const message =

@@ -3,7 +3,6 @@ import { useSelector } from "react-redux";
 import { Provider } from "react-redux";
 import { store } from "@/store";
 import {
-  logout,
   restoreSession,
   refreshSession,
   selectMustChangePassword,
@@ -25,6 +24,9 @@ function Root() {
     (state: RootState) => state.entitlement.modules,
   );
   const mustChangePassword = useSelector(selectMustChangePassword);
+  const entitlementsReady = useSelector(
+    (state: RootState) => state.entitlement.ready,
+  );
   const toasts = useSelector((state: RootState) => state.ui.toasts);
 
   useEffect(() => {
@@ -55,15 +57,21 @@ function Root() {
     };
   }, []);
 
-  useEffect(() => {
-    // Sirf tabhi entitlements fetch karein jab user authenticated ho AUR pehle se load na hue hon
-    if (
-      authStatus === "authenticated" &&
-      (!entitlements || entitlements.length === 0)
-    ) {
-      store.dispatch(fetchEntitlements() as any);
-    }
-  }, [authStatus, entitlements]);
+  // AFTER
+useEffect(() => {
+  // While the account owes a password change the session gate blocks every
+  // business API, so never fire entitlements here — the call returns a
+  // cancelled (empty) envelope and this effect would refire forever.
+  // `ready` also stops refetching for accounts with genuinely zero modules.
+  if (
+    authStatus === "authenticated" &&
+    !mustChangePassword &&
+    !entitlementsReady &&
+    (!entitlements || entitlements.length === 0)
+  ) {
+    store.dispatch(fetchEntitlements() as any);
+  }
+}, [authStatus, entitlements, entitlementsReady, mustChangePassword]);
 
   return (
     <TooltipProvider>
