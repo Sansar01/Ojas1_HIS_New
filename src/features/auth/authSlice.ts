@@ -28,11 +28,11 @@ interface AuthState {
   session: Session | null;
   entitlements: Entitlements | null;
   status:
-    | "idle"
-    | "restoring"
-    | "authenticating"
-    | "authenticated"
-    | "unauthenticated";
+  | "idle"
+  | "restoring"
+  | "authenticating"
+  | "authenticated"
+  | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -200,9 +200,9 @@ export const changePassword = createAsyncThunk(
         error?.message === "Failed to fetch"
           ? "Unable to reach the server. Please try again."
           : error?.message ||
-            (isForcedChange
-              ? "Could not update the password."
-              : "Unable to send reset link.");
+          (isForcedChange
+            ? "Could not update the password."
+            : "Unable to send reset link.");
       dispatch(
         toast.error(
           isForcedChange ? "Password change failed" : "Could not send reset link",
@@ -282,6 +282,7 @@ export const logoutUser = createAsyncThunk(
     try {
       // Backend clears the httpOnly cookie
       await authApi.logout();
+      dispatch(toast.success("Logged out successfully"))
     } catch (error: any) {
       console.warn("Server logout failed, clearing local session");
     } finally {
@@ -404,6 +405,18 @@ export const selectUser = (s: { auth: AuthState }) =>
   s.auth.session?.user ?? null;
 export const selectIsAuthenticated = (s: { auth: AuthState }) =>
   !!s.auth.session;
+
+/**
+ * Single source of truth for "this account must change its password first".
+ * The flag can arrive on the session or on the user (login response), so every
+ * guard / gate reads it from here instead of re-checking both shapes.
+ */
+export const selectMustChangePassword = (s: { auth: AuthState }) => {
+  const session = s.auth.session;
+  return Boolean(
+    session?.forcePasswordChange || session?.user?.forcePasswordChange,
+  );
+};
 
 export function canAccess(
   user: User | null,
