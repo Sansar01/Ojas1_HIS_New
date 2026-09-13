@@ -99,6 +99,7 @@ export function SlotPicker({
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
   );
+
   const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
 
@@ -1298,7 +1299,25 @@ export function AppointmentsPage() {
                   value: detail.reasonForVisit || "—",
                 },
                 { label: "Notes", value: detail.notes || "—" },
-                { label: "Token", value: detail.token ?? "—" },
+             {
+  label: "Token",
+  value: (() => {
+    const t = detail.token as any;
+    if (!t) return "—";
+    
+    // If token is an object from new API
+    if (typeof t === "object") {
+      return (
+        `#${t.tokenNumber ?? "—"}` +
+        (t.status ? ` · ${t.status}` : "") +
+        (t.roomNo ? ` · Room ${t.roomNo}` : "")
+      );
+    }
+    
+    // Fallback if token is still just a string/number
+    return `#${t}`;
+  })(),
+},
                 {
                   label: "Allergies",
                   value: detail.patient?.allergies || "—",

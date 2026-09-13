@@ -178,7 +178,7 @@ export const STATUS_TONE: Record<string, Tone> = {
   inactive: "neutral",
   scheduled: "lagoon",
   confirmed: "brand",
-  checked_in: "amber",
+  "checked in": "amber",
   in_progress: "amber",
   in_queue: "amber",
   completed: "mint",

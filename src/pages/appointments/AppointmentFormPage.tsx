@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { DatePicker, Input, Textarea } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
-import { appointmentsApi, fetchDoctorSlots } from "@/features/slices";
+import {
+  appointmentsApi,
+  fetchDoctorSlots,
+  generateOpdToken,
+} from "@/features/slices";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
@@ -17,14 +21,6 @@ const toMinutes = (t: string) => {
   return (h || 0) * 60 + (m || 0);
 };
 
-/**
- * Build the slot grid from the doctor availability API response, e.g.:
- * { doctorProfileId, slotDurationMins, bufferTimeMins,
- *   schedule: [{ dayOfWeek, isActive, startTime, endTime,
- *                breakStartTime, breakEndTime }] }
- * Slots are generated for the weekday matching the selected date, with the
- * break window marked unavailable and already-booked times marked booked.
- */
 function normalizeSlots(
   data: any,
   date: string,
@@ -166,7 +162,9 @@ export function AppointmentFormModal({
           time: record.time ?? "",
           type: record.raw?.appointmentType ?? record.type ?? "",
           visitType: record.raw?.visitType ?? record.visitType ?? "",
-          priority: String(record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0)),
+          priority: String(
+            record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0),
+          ),
           fee: Number(record.fee ?? 0),
           reasonForVisit: record.reasonForVisit ?? "",
           referredByDoctorName: record.referredByDoctorName ?? "",
@@ -259,41 +257,46 @@ export function AppointmentFormModal({
     };
 
     try {
+      let appointmentId: string | undefined;
+
+      // 1. Create or Update Appointment
       if (isEdit) {
-        // .unwrap() re-throws the rejection from the thunk so failures are
-        // surfaced here instead of being silently ignored
-        await dispatch(
+        const result = await dispatch(
           appointmentsApi.thunks.updateOne({
             id: editing.id,
             data: payload,
             successMessage: "Appointment updated successfully",
           } as any),
         ).unwrap();
+        appointmentId = result?.id ?? editing.id;
       } else {
-        await dispatch(
+        const result = await dispatch(
           appointmentsApi.thunks.createOne({
             data: payload,
             successMessage: "Appointment booked successfully",
           } as any),
         ).unwrap();
+        appointmentId = result?.id;
       }
 
-      // re-sync the list from the API after create/update so the table reflects the change
-      dispatch(appointmentsApi.thunks.fetchAll() as any);
+      // 2. Post-Booking Chain: Trigger Auto-Token Generation if "Walk-In"
+      const isWalkIn =
+        String(values.visitType).toUpperCase() === "WALK_IN" ||
+        String(values.type).toUpperCase() === "WALK_IN";
 
-      setSubmitError(null);
-      form.reset();
-      onOpenChange(false);
-    } catch (error: any) {
-      // failure — thunk already shows an error toast; keep the dialog open,
-      // restore the values, and show an inline banner with the API message
-      const message =
-        error?.data?.message ??
-        error?.data?.detail ??
-        error?.message ??
-        "Something went wrong while saving the appointment. Please try again.";
-      setSubmitError(message);
+      if (isWalkIn && appointmentId) {
+        // Dispatches your newly created async thunk elegantly
+        await dispatch(generateOpdToken({ appointmentId }) as any).unwrap();
+      }
+    } catch (err) {
+      // Caught gracefully; standard alerts are handled by your Redux/Thunk middleware
+      console.error("Booking process chain encountered an error:", err);
     }
+
+    // 3. Re-sync table list and close the form
+    dispatch(appointmentsApi.thunks.fetchAll() as any);
+    form.reset();
+    onOpenChange(false);
   });
 
   return (

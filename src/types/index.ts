@@ -193,6 +193,15 @@ export type AppointmentStatus =
   | "Cancelled"
   | "No Show";
 
+
+
+export interface OpdToken {
+  tokenNumber: string | number;
+  status?: string | null;
+  estimatedTime?: string | null;
+  roomNo?: string | number | null;
+}
+
 export interface Appointment {
   id: ID;
   code: string;
@@ -223,7 +232,7 @@ export interface Appointment {
   cancelReason?: string
   slotStartTime?: string
   visitType: string
-  token?: string
+  token?: OpdToken | string | null
   patient: Patient
   doctor: Doctor
 }
@@ -377,7 +386,7 @@ export interface Session {
   role: Role;
   expiresAt: ISODateTime;
   entitlements: Entitlements;
-   /** true when the backend asks the user to replace a temporary password
-   *  before using the portal (login response: forcePasswordChange) */
+  /** true when the backend asks the user to replace a temporary password
+  *  before using the portal (login response: forcePasswordChange) */
   forcePasswordChange?: boolean;
 }
