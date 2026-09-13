@@ -24,6 +24,20 @@ export const fetchEntitlements = createAsyncThunk(
     try {
       const res = await entitlementApi.getModules();
       const response: any = res;
+      // Session closed mid-flight (logout / forced change) — stay quiet.
+      if (response?.cancelled) {
+        dispatch(hideLoader());
+        return [];
+      }
+      // A 200 with an empty/unreadable body parses to {} — never valid here,
+      // so fail loudly instead of silently showing an empty portal.
+      // (A genuinely empty module list arrives as [], which stays valid.)
+      if (!Array.isArray(response) && (!response || Object.keys(response).length === 0)) {
+        throw new Error("Server returned an empty response (200 with no data).");
+      }
+      if (response?.success === false) {
+        throw new Error(response?.message || "Server refused the modules request.");
+      }
       const data = response?.data ?? response;
       const modules = Array.isArray(data)
         ? data

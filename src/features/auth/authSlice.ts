@@ -71,7 +71,10 @@ export const restoreSession = createAsyncThunk(
         expiresAt: parsed.expiresAt,
         entitlements: parsed.entitlements || null,
         // FIX: keep the flag across reloads so the guard can still divert
-        forcePasswordChange: Boolean(parsed.forcePasswordChange),
+        // (read both shapes, exactly like selectMustChangePassword does)
+        forcePasswordChange: Boolean(
+          parsed.forcePasswordChange || parsed.user?.forcePasswordChange,
+        ),
       };
     } catch (error: any) {
       localStorage.removeItem(TOKEN_KEY);
@@ -170,7 +173,13 @@ export const changePassword = createAsyncThunk(
             const parsed = JSON.parse(stored);
             localStorage.setItem(
               TOKEN_KEY,
-              JSON.stringify({ ...parsed, forcePasswordChange: false }),
+              JSON.stringify({
+                ...parsed,
+                forcePasswordChange: false,
+                user: parsed.user
+                  ? { ...parsed.user, forcePasswordChange: false }
+                  : parsed.user,
+              }),
             );
           } catch {
             /* ignore corrupt storage */
@@ -374,7 +383,13 @@ const authSlice = createSlice({
         // forced change (HospitalChangePasswordDto) → flag satisfied
         if (arg && typeof arg === "object" && "oldPassword" in arg) {
           if (state.session) {
-            state.session = { ...state.session, forcePasswordChange: false };
+            state.session = {
+              ...state.session,
+              forcePasswordChange: false,
+              user: state.session.user
+                ? { ...state.session.user, forcePasswordChange: false }
+                : state.session.user,
+            };
           }
           state.error = null;
           return;
