@@ -28,7 +28,10 @@ export const API_ENDPOINTS = {
     refresh: "/api/hospital/auth/refresh",
     //me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
+    sendResetCode: '/api/hospital/auth/send-reset-code',
+    resetPasswordWithCode: '/api/hospital/auth/reset-password-with-code',
     resetPassword: "/api/hospital/auth/reset-password",
+
   },
 
   // Users
@@ -77,7 +80,7 @@ export const API_ENDPOINTS = {
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
     cancel: (Id: string | number) => `/api/opd/appointments/${Id}/cancel`,
     today: '/api/opd/appointments/today',
-    edit:(Id:string | number)=>`/api/opd/appointments/${Id}/edit`
+    edit: (Id: string | number) => `/api/opd/appointments/${Id}/edit`
   },
 
   // Consultations
