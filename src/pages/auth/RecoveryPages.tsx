@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,34 +9,79 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { useAppDispatch, useAuthStatus, useRootSelector } from "@/hooks";
-import {
-  changePassword,
-  resetPassword,
-  setResetEmail,
-} from "@/features/auth/authSlice";
+import { useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { authApi } from "@/services/apiClient";
 import { Button } from "@/components/ui/primitives";
 import { Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
+import { toast } from "@/features/ui/uiSlice";
+import { useDispatch } from "react-redux";
 
 /* ------------------------------ Change password ----------------------------- */
 
 export function ChangePasswordPage() {
-  const dispatch = useAppDispatch();
-  const status = useAuthStatus();
-  const email = useRootSelector((s) => s.auth.reset.email);
-  const sent = Boolean(email);
-  const resetRef = useRootSelector((s) => s.auth.reset.token);
+  const dispatch = useDispatch();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const timerRef = useRef<number | null>(null);
 
   const form = useForm({
     initialValues: { email: "" },
     schema: { email: [{ required: "Email address is required", email: true }] },
   });
 
+  // Countdown that re-enables the resend button after 60 seconds.
+  const startCountdown = () => {
+    if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    setSecondsLeft(60);
+    timerRef.current = window.setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          if (timerRef.current !== null) window.clearInterval(timerRef.current);
+          timerRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+  };
+
+  // Clear any running timer when the page unmounts.
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    },
+    [],
+  );
+
   const onSubmit = form.handleSubmit(async (values) => {
-    await dispatch(changePassword(values.email));
+    setLoading(true);
+    setError("");
+    try {
+      await authApi.sendResetCode(values.email);
+      setCodeSent(true);
+      startCountdown();
+      dispatch(
+        toast.success(
+          "If an account with that email exists, a verification code has been sent. It expires in 5 minutes.",
+        ),
+      );
+    } catch (e: any) {
+      dispatch(
+        toast.error(e?.message || "Could not send the reset code. Try again."),
+      );
+    } finally {
+      setLoading(false);
+    }
   });
+
+  // The email is locked to the address the code was sent to, so only the
+  // resend button honours the cooldown once a code has been dispatched.
+  const locked = codeSent;
+  const cooldown = secondsLeft > 0;
 
   return (
     <AuthLayout
@@ -59,17 +104,7 @@ export function ChangePasswordPage() {
           send a single-use verification code valid for 15 minutes.
         </p>
 
-        {sent && (
-          <Banner
-            tone="brand"
-            className="mt-5"
-            title={`Reset code dispatched to ${email}`}
-          >
-            <span className="num inline-flex items-center gap-1.5 rounded-md bg-white/70 px-2 py-0.5 font-semibold text-brand-700">
-              <ShieldCheck className="size-3.5" /> {resetRef}
-            </span>
-          </Banner>
-        )}
+        {error && <Banner tone="danger" className="mt-5" title={error} />}
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
           <Input
@@ -77,26 +112,38 @@ export function ChangePasswordPage() {
             type="email"
             label="Work email"
             required
+            readOnly={locked}
+            disabled={locked}
             placeholder="name@meridian.care"
             leadingIcon={<Mail />}
             value={form.values.email}
             onChange={(e) => form.setValue("email", e.target.value)}
             error={form.errors.email}
+            hint={
+              locked
+                ? "This address is locked to the verification code we just sent. Go back to sign in to start over."
+                : undefined
+            }
           />
           <Button
             type="submit"
             size="lg"
             block
-            loading={status === "authenticating" && !sent}
-            iconRight={sent ? <CheckCircle2 /> : <ArrowRight />}
+            loading={loading}
+            disabled={locked && cooldown}
+            iconRight={codeSent ? <CheckCircle2 /> : <ArrowRight />}
           >
-            {sent ? "Resend code" : "Send reset link"}
+            {cooldown
+              ? `Resend code in ${secondsLeft}s`
+              : codeSent
+                ? "Resend code"
+                : "Send reset code"}
           </Button>
         </form>
 
-        {sent && (
+        {codeSent && (
           <Link
-            to="/reset-password"
+            to="/accounts/reset-password"
             className="mt-4 flex items-center justify-center gap-1.5 text-[13px] font-semibold text-brand-600 hover:underline"
           >
             Continue to choose a new password{" "}
@@ -110,7 +157,7 @@ export function ChangePasswordPage() {
 
 /* ------------------------------ Reset password ------------------------------ */
 
-const score = (pw: string) => {
+const score = (pw: string): number => {
   let s = 0;
   if (pw.length >= 8) s++;
   if (/[A-Z]/.test(pw)) s++;
@@ -120,14 +167,26 @@ const score = (pw: string) => {
 };
 
 export function ResetPasswordPage() {
-  const dispatch = useAppDispatch();
+  const dispatch = useDispatch();
   const navigate = useNavigate();
-  const email = useRootSelector((s) => s.auth.reset.email) ?? "";
+  const storeEmail = useRootSelector((s) => s.auth.reset.email) ?? "";
+  const hasResetRef = Boolean(useRootSelector((s) => s.auth.reset.token));
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  
+  // Prefer the email captured on the previous step; fall back to whatever the
+  // user types here when they land on this page directly.
+  const [email, setEmail] = useState(storeEmail);
+  useEffect(() => {
+    if (storeEmail && !email) setEmail(storeEmail);
+  }, [storeEmail, email]);
+
+  // When a reset code was already requested the email is locked — editing it
+  // would invalidate the code that was sent.
+  const lockedEmail = Boolean(storeEmail) || hasResetRef;
 
   const form = useForm({
-    initialValues: { email, code: "", password: "", confirm: "" },
+    initialValues: { email: storeEmail, code: "", password: "", confirm: "" },
     schema: {
       email: [{ required: "Email address is required", email: true }],
       code: [
@@ -158,12 +217,18 @@ export function ResetPasswordPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     setLoading(true);
     try {
-      await dispatch(
-        resetPassword({ email: values.email, password: values.password }),
-      );
-      dispatch(setResetEmail(""));
+      await authApi.resetPasswordWithCode({
+        email: lockedEmail ? storeEmail : values.email,
+        code: values.code,
+        // send the new password only — never the confirmation field
+        newPassword: values.password,
+      });
       setDone(true);
       setTimeout(() => navigate("/accounts/login"), 2200);
+    } catch (e: any) {
+      dispatch(
+        toast.error(e?.message || "Could not reset the password. Try again."),
+      );
     } finally {
       setLoading(false);
     }
@@ -206,9 +271,15 @@ export function ResetPasswordPage() {
                 type="email"
                 label="Work email"
                 required
+                readOnly={lockedEmail}
+                disabled={lockedEmail}
                 leadingIcon={<Mail />}
                 value={form.values.email}
-                onChange={(e) => form.setValue("email", e.target.value)}
+                onChange={(e) => {
+                  if (lockedEmail) return;
+                  setEmail(e.target.value);
+                  form.setValue("email", e.target.value);
+                }}
                 error={form.errors.email}
               />
               <Input

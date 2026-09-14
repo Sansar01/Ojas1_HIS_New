@@ -120,6 +120,8 @@ const ALWAYS_ALLOWED_ENDPOINTS: string[] = [
   API_ENDPOINTS.auth.logout,
   API_ENDPOINTS.auth.changePassword,
   API_ENDPOINTS.auth.resetPassword,
+  API_ENDPOINTS.auth.sendResetCode,
+  API_ENDPOINTS.auth.resetPasswordWithCode,
 ];
 /**
  * true only when ordinary (non-auth) traffic is allowed right now.
@@ -303,7 +305,7 @@ export async function request<T = any>(
 
   // 10 second ka timeout lagayein taaki API kabhi "atak" na sake
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
 
   const fetchInit = (): RequestInit => ({
     method: config.method,
@@ -420,6 +422,28 @@ export const authApi = {
   },
 
 
+
+  async sendResetCode(email: string) {
+    return request({
+      url: API_ENDPOINTS.auth.sendResetCode,
+      method: "POST",
+      body: { email },
+      skipRefresh: true,
+    });
+  },
+
+  async resetPasswordWithCode(payload: {
+    email: string;
+    code: string;
+    newPassword: string;
+  }) {
+    return request({
+      url: API_ENDPOINTS.auth.resetPasswordWithCode,
+      method: "POST",
+      body: payload,
+      skipRefresh: true,
+    });
+  },
 
   async refresh(): Promise<ApiResponse<Session>> {
     const refreshToken = getRefreshToken();
