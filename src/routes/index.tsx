@@ -180,7 +180,7 @@ export function AppRoutes() {
           <Route
             path="/consultation"
             element={
-              <RequireModule module="consultations">
+              <RequireModule module="consultation">
                 <ConsultationsPage />
               </RequireModule>
             }
@@ -188,7 +188,7 @@ export function AppRoutes() {
           <Route
             path="/consultation/:id"
             element={
-              <RequireModule module="consultations">
+              <RequireModule module="consultation">
                 <ConsultationWorkspacePage />
               </RequireModule>
             }
