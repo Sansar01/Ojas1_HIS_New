@@ -8,7 +8,7 @@ import {
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import {
-  ChangePasswordPage,
+  ForgotPasswordPage,
   ResetPasswordPage,
 } from "@/pages/auth/RecoveryPages";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -56,7 +56,7 @@ export function AppRoutes() {
           path="/accounts/forgot-password"
           element={
             <PublicOnly>
-              <ChangePasswordPage />
+              <ForgotPasswordPage />
             </PublicOnly>
           }
         />
