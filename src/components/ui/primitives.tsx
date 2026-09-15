@@ -143,6 +143,28 @@ const TONES: Record<Tone, string> = {
   ink: "bg-ink-900 text-white ring-ink-900",
 };
 
+/** Tinted icon tiles for the Kpi card variant — one accent colour per tone. */
+const KPI_ICON_TONES: Record<Tone, string> = {
+  lagoon: "bg-lagoon-50 text-lagoon-500",
+  brand: "bg-brand-50 text-brand-500",
+  mint: "bg-mint-50 text-mint-500",
+  amber: "bg-amberly-50 text-amberly-500",
+  coral: "bg-coral-50 text-coral-500",
+  neutral: "bg-ink-50 text-ink-500",
+  ink: "bg-ink-100 text-ink-900",
+};
+
+/** Subtitle colour, tinted to match the icon tile. */
+const HINT_TONES: Record<Tone, string> = {
+  lagoon: "text-lagoon-600",
+  brand: "text-brand-600",
+  mint: "text-mint-600",
+  amber: "text-amberly-600",
+  coral: "text-coral-600",
+  neutral: "text-ink-400",
+  ink: "text-ink-400",
+};
+
 export function Badge({
   children,
   tone = "neutral",
@@ -364,25 +386,92 @@ export function Divider({
   );
 }
 
+/* --------------------------------- Kpi Card -------------------------------- */
+
 export function Kpi({
   label,
   value,
   hint,
   tone = "ink",
+  icon,
+  onClick,
+  card,
+  active,
+  className,
+  children,
 }: {
   label: string;
   value: React.ReactNode;
   hint?: React.ReactNode;
   tone?: Tone;
+  /** Optional leading icon — rendered in a tinted tile above the label. */
+  icon?: React.ReactNode;
+  /** Makes the KPI interactive (renders a <button>). */
+  onClick?: () => void;
+  /** Wrap in a bordered card surface. Implied when `icon` or `onClick` is set. */
+  card?: boolean;
+  /** Highlight the card as the current selection. */
+  active?: boolean;
+  className?: string;
+  /** Extra content rendered under the value (e.g. an inline Select). */
+  children?: React.ReactNode;
 }) {
+  const asCard = card ?? (!!icon || !!onClick);
+  const Tag: React.ElementType = onClick ? "button" : "div";
+
+  /* Card variant: title-first layout with a tone-tinted icon tile. */
+  if (asCard) {
+    return (
+      <Tag
+        {...(onClick ? { type: "button", onClick } : {})}
+        className={cn(
+          "flex flex-col items-start rounded-xl border border-ink-100 bg-white p-5 text-left shadow-card",
+          onClick &&
+            "cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
+          active && "border-brand-500 ring-1 ring-brand-500",
+          className,
+        )}
+      >
+        {icon && (
+          <span
+            className={cn(
+              "mb-4 grid size-11 place-items-center rounded-xl [&>svg]:size-[22px] [&>svg]:stroke-[1.75]",
+              KPI_ICON_TONES[tone],
+            )}
+          >
+            {icon}
+          </span>
+        )}
+        <span className="font-display text-[15px] font-bold leading-snug tracking-[-0.011em] text-ink-900">
+          {label}
+        </span>
+        {hint && (
+          <span
+            className={cn(
+              "mt-0.5 text-[12px] font-normal leading-snug",
+              HINT_TONES[tone],
+            )}
+          >
+            {hint}
+          </span>
+        )}
+        <span className="mt-3 font-display text-[14px] font-bold tabular-nums tracking-[-0.008em] text-ink-900">
+          {value}
+        </span>
+        {children}
+      </Tag>
+    );
+  }
+
+  /* Original inline variant — unchanged. */
   return (
-    <div className="flex flex-col gap-1">
+    <div className={cn("flex flex-col gap-1", className)}>
       <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-400">
         {label}
       </span>
       <span
         className={cn(
-          "num text-xl font-semibold",
+          "text-xl font-semibold tabular-nums",
           tone === "coral"
             ? "text-coral-600"
             : tone === "mint"
@@ -393,6 +482,7 @@ export function Kpi({
         {value}
       </span>
       {hint && <span className="text-[12px] text-ink-400">{hint}</span>}
+      {children}
     </div>
   );
 }
