@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Activity,
@@ -11,981 +11,749 @@ import {
   ScrollText,
   Stethoscope,
   Trash2,
+  RefreshCw,
+  AlertTriangle,
+  PhoneCall,
+  Phone,
+  Globe,
+  MapPin,
+  Mail
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
-import { addDays } from "@/data/db";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
+import { addDays, idGen } from "@/data/db";
+import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { appointmentsApi, consultationsApi } from "@/features/slices";
-import { formatDate, formatMoney, formatTime, fullName } from "@/utils";
+import { consultationsApi } from "@/features/slices";
+import { formatDate, formatTime } from "@/utils";
 import { cn } from "@/utils/cn";
-import type { Consultation, PrescriptionLine } from "@/types";
 import {
   Avatar,
   Badge,
   Button,
-  IconButton,
-  Panel,
   StatusBadge,
+  Panel,
 } from "@/components/ui/primitives";
-import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
-import {
-  DataTable,
-  Pagination,
-  RowActions,
-  TableToolbar,
-} from "@/components/ui/table";
-import {
-  DetailGrid,
-  FormDialog,
-  FormSection,
-  PageIntro,
-  SectionPanel,
-} from "@/components/common";
-import { idGen } from "@/data/db";
+import { DataTable, Pagination, RowActions, TableToolbar } from "@/components/ui/table";
+import { PageIntro } from "@/components/common";
+import { buildApiUrl } from "@/config/api";
 
+import { Input, Select, DatePicker, Textarea } from "@/components/ui/fields";
+
+/* ==========================================================================
+   1. AUTH & API HELPERS
+   ========================================================================== */
+const getAuthHeaders = (): Record<string, string> => {
+  try {
+    const stored = JSON.parse(localStorage.getItem("authUserToken") || "null");
+    const token = stored?.accessToken ?? stored?.token ?? null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+};
+
+const apiHeaders = () => ({
+  "Content-Type": "application/json",
+  ...getAuthHeaders(),
+});
+
+async function api<T = any>(
+  path: string,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; status: number; data: T; error?: string }> {
+  try {
+    const res = await fetch(buildApiUrl(path), {
+      ...options,
+      headers: { ...apiHeaders(), ...(options.headers as any) },
+    });
+    const json = await res.json().catch(() => ({}));
+    return {
+      ok: res.ok,
+      status: res.status,
+      data: json.data ?? json,
+      error: json.message || json.error,
+    };
+  } catch (err: any) {
+    return { ok: false, status: 0, data: null as any, error: err.message };
+  }
+}
+
+/* ==========================================================================
+   2. CONSTANTS & FORMAT HELPERS
+   ========================================================================== */
+const TOKEN_STATUSES = {
+  WAITING: "WAITING",
+  IN_PROGRESS: "IN_PROGRESS",
+  COMPLETED: "COMPLETED",
+  SKIPPED: "SKIPPED",
+  CANCELLED: "CANCELLED",
+} as const;
+
+const CONSULT_STATUSES = {
+  IN_PROGRESS: "IN_PROGRESS",
+  COMPLETED: "COMPLETED",
+} as const;
+
+const formatStatusForUI = (status?: string) => {
+  if (!status) return "In Progress";
+  switch (status.toUpperCase()) {
+    case "COMPLETED": return "Completed";
+    case "IN_PROGRESS":
+    case "IN_CONSULTATION": return "In Progress";
+    case "CANCELLED": return "Cancelled";
+    case "WAITING": return "Waiting";
+    case "SKIPPED": return "Skipped";
+    default: return status;
+  }
+};
+
+const toApiStatus = (uiStatus: string) => {
+  if (uiStatus === "In Progress") return "IN_PROGRESS";
+  if (uiStatus === "Completed") return "COMPLETED";
+  return uiStatus.toUpperCase();
+};
+
+const fahrenheitToCelsius = (f: number | null | undefined): string => {
+  if (f == null) return "";
+  return ((f - 32) * (5 / 9)).toFixed(1);
+};
+
+const celsiusToFahrenheit = (c: string): number | null => {
+  const n = parseFloat(c);
+  if (isNaN(n)) return null;
+  return Math.round(n * (9 / 5) + 32);
+};
+
+const parseBpString = (bp: string): { sys: number | null; dia: number | null } => {
+  if (!bp) return { sys: null, dia: null };
+  const parts = bp.split("/").map((s) => parseInt(s.trim(), 10));
+  return {
+    sys: isNaN(parts[0]) ? null : parts[0],
+    dia: isNaN(parts[1]) ? null : parts[1],
+  };
+};
+
+const formatBpFromApi = (sys: number | null | undefined, dia: number | null | undefined): string => {
+  if (sys == null && dia == null) return "";
+  return `${sys ?? "—"}/${dia ?? "—"}`;
+};
+
+const CONSULT_MAP_KEY = "opd_consultation_map";
+const saveConsultationMapping = (appointmentId: string, consultationId: string) => {
+  try {
+    const map = JSON.parse(localStorage.getItem(CONSULT_MAP_KEY) || "{}");
+    map[appointmentId] = consultationId;
+    localStorage.setItem(CONSULT_MAP_KEY, JSON.stringify(map));
+  } catch {}
+};
+const getConsultationIdFromMap = (appointmentId: string): string | null => {
+  try {
+    const map = JSON.parse(localStorage.getItem(CONSULT_MAP_KEY) || "{}");
+    return map[appointmentId] || null;
+  } catch { return null; }
+};
+
+/* ==========================================================================
+   3. SCREEN 1: DOCTOR QUEUE & CONSULTATIONS LIST
+   ========================================================================== */
 export function ConsultationsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { items: consultations, status } = useRootSelector(
-    (s) => s.consultations,
-  );
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const patients = useRootSelector((s) => s.patients.items);
   const doctors = useRootSelector((s) => s.doctors.items);
-  const me = useRootSelector((s) => s.auth.session?.user);
   const { canCreate, canEdit, canDelete } = usePermission();
-  const [filters, setFilters] = useState({
-    doctor: "all",
-    status: "all",
-    from: "",
-    to: "",
-  });
-  const [startFor, setStartFor] = useState<any>(null);
 
-  const doctorMap = useMemo(
-    () => new Map(doctors.map((d: any) => [d.id, d])),
-    [doctors],
-  );
-  const patientMap = useMemo(
-    () => new Map(patients.map((p: any) => [p.id, p])),
-    [patients],
-  );
+  const activeDoctorId = JSON.parse(localStorage.getItem("authUserToken") || "{}")?.user?.doctorProfileId || null;
 
-  useEffect(() => {
-    // if (status === "idle") dispatch(consultationsApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(8);
+  const [totalPages, setTotalPages] = useState(1);
+  const [queueData, setQueueData] = useState<any>(null);
+  const [loadingQueue, setLoadingQueue] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [activeError, setActiveError] = useState<{ patientName: string; message: string } | null>(null);
 
-  const filtered = (consultations as Consultation[]).filter((c) => {
-    if (filters.doctor !== "all" && c.doctorId !== filters.doctor) return false;
-    if (filters.status !== "all" && c.status !== filters.status) return false;
-    if (filters.from && c.date < filters.from) return false;
-    if (filters.to && c.date > filters.to) return false;
-    if (
-      me?.role === "Doctor" &&
-      doctorMap.get(me?.id ?? "")?.id &&
-      c.doctorId !== doctorMap.get(me!.id!)?.id
-    )
-      return false;
-    return true;
-  });
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ doctor: "all", status: "all", from: "", to: "" });
 
-  const table = useTable<Consultation>(filtered, {
-    pageSize: 10,
-    searchFields: [
-      (c) => c.code,
-      (c) => c.diagnosis,
-      (c) => c.chiefComplaint,
-      (c) => fullName(patientMap.get(c.patientId)),
-    ],
-    sortAccessors: {
-      date: (c) => `${c.date}${c.startTime}`,
-      status: (c) => c.status,
-      patient: (c) => fullName(patientMap.get(c.patientId)),
-    },
-  });
+  const currentToken = queueData?.currentToken ?? null;
+  const waitingTokens = queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.WAITING) ?? [];
+  const skippedTokens = queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.SKIPPED) ?? [];
 
-  const pendingAppointments = (appointments as any[]).filter(
-    (a) =>
-      ["Checked In", "In Progress"].includes(a.status) &&
-      !(consultations as any[]).some((c) => c.appointmentId === a.id),
-  );
+  const fetchConsultations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      if (search.trim()) params.set("search", search.trim());
+      if (filters.status !== "all") params.set("status", toApiStatus(filters.status));
+      if (filters.doctor !== "all") params.set("doctorId", filters.doctor);
+      if (filters.from) params.set("from", filters.from);
+      if (filters.to) params.set("to", filters.to);
+
+      const res = await api(`/api/opd/consultations?${params}`);
+      if (res.ok) {
+        setConsultations(res.data || []);
+        setTotalItems(res.data?.meta?.total ?? 0);
+        setTotalPages(res.data?.meta?.totalPages ?? 1);
+      }
+    } finally { setLoading(false); }
+  }, [page, limit, search, filters]);
+
+  const fetchDoctorQueue = useCallback(async () => {
+    if (!activeDoctorId) return;
+    setLoadingQueue(true);
+    try {
+      const today = new Date().toLocaleDateString("en-CA");
+      const res = await api(`/api/opd/queue/doctor/${activeDoctorId}?date=${today}`);
+      if (res.ok) setQueueData(res.data);
+    } finally { setLoadingQueue(false); }
+  }, [activeDoctorId]);
+
+  useEffect(() => { fetchConsultations(); }, [fetchConsultations]);
+  useEffect(() => { fetchDoctorQueue(); }, [fetchDoctorQueue]);
+
+  const callAndOpenConsultation = async (token: any) => {
+    const { id: tokenId, appointmentId, patient } = token;
+    const patientName = patient?.fullName || "Patient";
+    setActionLoadingId(tokenId);
+    setActiveError(null);
+
+    try {
+      if (token.status === TOKEN_STATUSES.WAITING) {
+        const callRes = await api(`/api/opd/queue/${tokenId}/call`, { method: "PATCH" });
+        if (!callRes.ok) {
+          setActiveError({ patientName, message: "TV display par call nahi ho paaya. Network check karein." });
+          setActionLoadingId(null);
+          return;
+        }
+      }
+
+      let consultationId: string | null = null;
+      const postRes = await api("/api/opd/consultations", { method: "POST", body: JSON.stringify({ appointmentId }) });
+      if (postRes.ok && postRes.data?.id) consultationId = postRes.data.id;
+      if (!consultationId) consultationId = token.consultationId;
+      if (!consultationId) consultationId = getConsultationIdFromMap(appointmentId);
+
+      if (consultationId) {
+        saveConsultationMapping(appointmentId, consultationId);
+        navigate(`/consultations/${consultationId}`);
+      } else {
+        setActiveError({ patientName, message: `${patientName} call ho gaye, lekin workspace nahi khula. Sync karein.` });
+        fetchDoctorQueue();
+      }
+    } catch (err: any) {
+      setActiveError({ patientName, message: `Technical error: ${err.message}` });
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleCallNext = async () => {
+    if (!activeDoctorId) return;
+    setActionLoadingId("call-next");
+    setActiveError(null);
+    try {
+      const today = new Date().toLocaleDateString("en-CA");
+      const res = await api(`/api/opd/queue/call-next/${activeDoctorId}?date=${today}`, { method: "PATCH" });
+
+      if (res.ok && res.data?.appointmentId) {
+        const calledToken = res.data;
+        const postRes = await api("/api/opd/consultations", { method: "POST", body: JSON.stringify({ appointmentId: calledToken.appointmentId }) });
+        if (postRes.ok && postRes.data?.id) {
+          saveConsultationMapping(calledToken.appointmentId, postRes.data.id);
+          navigate(`/consultation/${postRes.data.id}`);
+        } else {
+          setActiveError({ patientName: calledToken.patient?.fullName || "Patient", message: "Call successful, par record open nahi hua." });
+          fetchDoctorQueue();
+        }
+      } else {
+        setActiveError({ patientName: "—", message: "Koi patient queue me nahi hai." });
+      }
+    } finally { setActionLoadingId(null); }
+  };
+
+  const handleSkip = async (tokenId: string) => {
+    setActionLoadingId(tokenId);
+    const res = await api(`/api/opd/queue/${tokenId}/skip`, { method: "PATCH" });
+    if (res.ok) fetchDoctorQueue();
+    setActionLoadingId(null);
+  };
+
+  const handleRequeue = async (tokenId: string) => {
+    setActionLoadingId(tokenId);
+    const res = await api(`/api/opd/queue/${tokenId}/requeue`, { method: "PATCH" });
+    if (res.ok) fetchDoctorQueue();
+    setActionLoadingId(null);
+  };
+
+  const openWorkspace = (c: any) => {
+    if (c.appointmentId && c.id) saveConsultationMapping(c.appointmentId, c.id);
+    navigate(`/consultation/${c.id}`);
+  };
 
   return (
     <>
       <PageIntro
-        title="Consultations"
-        description="Clinical encounters linked to appointments — symptoms, diagnosis, vitals, prescription and follow-up in one workspace."
-        module="consultations"
+        title="Consultations" description="Manage OPD queue and clinical records." module="consultations"
         meta={
           <>
-            <Badge tone="amber" dot>
-              {
-                consultations.filter((c: any) => c.status === "In Progress")
-                  .length
-              }{" "}
-              in progress
-            </Badge>
-            <Badge tone="mint">
-              {
-                consultations.filter((c: any) => c.status === "Completed")
-                  .length
-              }{" "}
-              completed
-            </Badge>
-            <Badge tone="lagoon">
-              {pendingAppointments.length} visits awaiting start
-            </Badge>
+            {queueData?.stats && (
+              <>
+                <Badge tone="amber" dot>{queueData.stats.inProgress} in progress</Badge>
+                <Badge tone="mint">{queueData.stats.completed} completed</Badge>
+                <Badge tone="lagoon">{queueData.stats.waiting} waiting</Badge>
+              </>
+            )}
+            <Button size="xs" variant="outline" className="ml-1 h-7" onClick={() => { fetchDoctorQueue(); fetchConsultations(); }} icon={<RefreshCw className={cn("size-3.5", (loading || loadingQueue) && "animate-spin")} />}>Sync</Button>
           </>
         }
       />
 
-      {pendingAppointments.length > 0 && canCreate("consultations") && (
-        <Panel className="mb-4 p-4">
-          <p className="mb-3 flex items-center gap-2 text-[12.5px] font-semibold text-ink-700">
-            <CircleDot className="size-4 animate-pulse-soft text-amberly-500" />{" "}
-            Ready to start
-          </p>
-          <div className="flex gap-2.5 overflow-x-auto pb-1">
-            {pendingAppointments.slice(0, 8).map((a) => (
-              <button
-                key={a.id}
-                onClick={() => setStartFor(a)}
-                className="group flex min-w-[15rem] shrink-0 items-center gap-3 rounded-xl border border-ink-100 bg-white px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card"
-              >
-                <Avatar
-                  name={fullName(patientMap.get(a.patientId))}
-                  size="sm"
-                  color="bg-lagoon-500"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-semibold text-ink-900">
-                    {fullName(patientMap.get(a.patientId))}
-                  </span>
-                  <span className="block truncate text-[11px] text-ink-400">
-                    {a.time} · {a.type}
-                  </span>
-                </span>
-                <span className="rounded-md bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-700 transition-colors group-hover:bg-brand-600 group-hover:text-white">
-                  Start
-                </span>
-              </button>
-            ))}
+      {activeError && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-amberly-300 bg-amberly-50/90 p-3.5 text-ink-900 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amberly-600" />
+            <div><p className="text-[13px] font-semibold text-amberly-950">Action Alert — {activeError.patientName}</p><p className="mt-0.5 text-[12px] text-amberly-800">{activeError.message}</p></div>
           </div>
+          <button onClick={() => setActiveError(null)} className="text-[12px] font-medium text-amberly-700">Dismiss</button>
+        </div>
+      )}
+
+      {queueData && canCreate("consultations") && (
+        <Panel className="mb-4 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="flex items-center gap-2 text-[12.5px] font-semibold text-ink-700"><CircleDot className="size-4 animate-pulse text-amberly-500" /> OPD Queue</p>
+            <Button size="xs" variant="outline" onClick={handleCallNext} disabled={actionLoadingId === "call-next" || queueData.stats.waiting === 0} icon={<PhoneCall className={cn("size-3", actionLoadingId === "call-next" && "animate-pulse")} />}>{actionLoadingId === "call-next" ? "Calling…" : "Call Next"}</Button>
+          </div>
+
+          {currentToken && currentToken.status === TOKEN_STATUSES.IN_PROGRESS && (
+            <div className="mb-3 flex items-center gap-3 rounded-xl border-2 border-brand-300 bg-brand-50/50 p-3">
+              <Avatar name={currentToken.patient?.fullName} size="sm" color="bg-brand-600" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2"><span className="text-[13px] font-bold text-brand-900">[{currentToken.tokenNumber}] {currentToken.patient?.fullName}</span><Badge tone="amber" size="xs" dot>In Consultation</Badge></div>
+              </div>
+              <button onClick={() => callAndOpenConsultation(currentToken)} disabled={actionLoadingId === currentToken.id} className="rounded-lg bg-brand-600 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700">Open Workspace</button>
+            </div>
+          )}
+
+          {waitingTokens.length > 0 && (
+            <div className="mb-2">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase text-ink-400">Waiting ({waitingTokens.length})</p>
+              <div className="flex gap-2.5 overflow-x-auto pb-1">
+                {waitingTokens.map((token: any) => (
+                  <div key={token.id} className="group flex min-w-[17rem] shrink-0 flex-col gap-2 rounded-xl border border-ink-100 bg-white p-3 shadow-sm">
+                    <div className="flex items-center gap-2.5">
+                      <Avatar name={token.patient?.fullName} size="sm" color="bg-lagoon-500" />
+                      <div className="min-w-0 flex-1"><span className="block truncate text-[12.5px] font-semibold text-ink-900">[{token.tokenNumber}] {token.patient?.fullName}</span></div>
+                    </div>
+                    <div className="flex items-center gap-1.5 border-t border-ink-50 pt-2">
+                      <button onClick={() => callAndOpenConsultation(token)} disabled={actionLoadingId === token.id} className="flex-1 rounded-md bg-brand-600 py-1 text-[11px] font-semibold text-white hover:bg-brand-700">Call & Start</button>
+                      <button onClick={() => handleSkip(token.id)} disabled={actionLoadingId === token.id} className="rounded-md border border-ink-200 px-2.5 py-1 text-[11px] font-medium text-ink-500 hover:bg-ink-50">Skip</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {skippedTokens.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase text-coral-500">Skipped ({skippedTokens.length})</p>
+              <div className="flex gap-2.5 overflow-x-auto pb-1">
+                {skippedTokens.map((token: any) => (
+                  <div key={token.id} className="flex min-w-[15rem] shrink-0 items-center gap-2.5 rounded-xl border border-coral-200 bg-coral-50/40 p-2.5">
+                    <Avatar name={token.patient?.fullName} size="xs" color="bg-coral-400" />
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink-700">[{token.tokenNumber}] {token.patient?.fullName}</span>
+                    <button onClick={() => handleRequeue(token.id)} disabled={actionLoadingId === token.id} className="rounded-md bg-ink-100 px-2 py-1 text-[10px] font-semibold text-ink-600 hover:bg-ink-200">Re-queue</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Panel>
       )}
 
       <Panel>
         <TableToolbar
-          search={table.query.search}
-          onSearch={table.setSearch}
-          searchPlaceholder="Search code, diagnosis, patient…"
+          search={search} onSearch={(val) => { setSearch(val); setPage(1); }} searchPlaceholder="Search records..."
           filters={
-            <>
-              <Select
-                size="sm"
-                className="w-[11rem]"
-                name="doc"
-                value={filters.doctor}
-                onChange={(v) => setFilters((f) => ({ ...f, doctor: v }))}
-                options={[
-                  { value: "all", label: "All doctors" },
-                  ...doctors.map((d: any) => ({
-                    value: d.id,
-                    label: `Dr. ${d.lastName}`,
-                  })),
-                ]}
-              />
-              <Select
-                size="sm"
-                className="w-[10rem]"
-                name="status"
-                value={filters.status}
-                onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
-                options={[
-                  { value: "all", label: "Any status" },
-                  ...CONSULTATION_STATUSES.map((s) => ({ value: s, label: s })),
-                ]}
-              />
-              <DatePicker
-                label=""
-                value={filters.from}
-                onChange={(v) => setFilters((f) => ({ ...f, from: v }))}
-                placeholder="From"
-              />
-              <DatePicker
-                label=""
-                value={filters.to}
-                onChange={(v) => setFilters((f) => ({ ...f, to: v }))}
-                placeholder="To"
-              />
-            </>
+            <Select size="sm" className="w-[10rem]" name="status" value={filters.status} onChange={(v) => { setFilters((f) => ({ ...f, status: v })); setPage(1); }} options={[{ value: "all", label: "Any status" }, ...CONSULTATION_STATUSES.map((s) => ({ value: s, label: s }))]} />
           }
         />
         <DataTable
           columns={[
-            {
-              key: "code",
-              header: "Record",
-              render: (c) => (
-                <span className="num text-[12.5px] font-semibold text-ink-800">
-                  {c.code}
-                </span>
-              ),
-            },
-            {
-              key: "patient",
-              header: "Patient",
-              sortable: true,
-              render: (c) => (
-                <div className="flex items-center gap-2.5">
-                  <Avatar
-                    name={fullName(patientMap.get(c.patientId))}
-                    size="xs"
-                    color="bg-brand-600"
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-ink-900">
-                      {fullName(patientMap.get(c.patientId))}
-                    </p>
-                    <p className="truncate text-[11px] text-ink-400">
-                      {patientMap.get(c.patientId)?.mrn}
-                    </p>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: "doctor",
-              header: "Doctor",
-              hideBelow: "md",
-              render: (c) => (
-                <span className="text-[12.5px] text-ink-600">
-                  Dr. {fullName(doctorMap.get(c.doctorId))}
-                </span>
-              ),
-            },
-            {
-              key: "diagnosis",
-              header: "Provisional diagnosis",
-              hideBelow: "lg",
-              render: (c) => (
-                <span className="line-clamp-1 text-[12.5px] text-ink-700">
-                  {c.diagnosis || "—"}
-                </span>
-              ),
-            },
-            {
-              key: "date",
-              header: "Seen",
-              sortable: true,
-              render: (c) => (
-                <span className="text-[12px] text-ink-500">
-                  {formatDate(c.date)} · {formatTime(c.startTime)}
-                </span>
-              ),
-            },
-            {
-              key: "prescriptions",
-              header: "Rx",
-              align: "center",
-              hideBelow: "xl",
-              render: (c) => (
-                <Badge tone="lagoon" size="xs">
-                  {c.prescriptions?.length ?? 0}
-                </Badge>
-              ),
-            },
-            {
-              key: "status",
-              header: "Status",
-              align: "center",
-              sortable: true,
-              render: (c) => <StatusBadge status={c.status} />,
-            },
+            { key: "consultationNo", header: "RECORD", render: (c) => <span className="text-[12.5px] font-semibold text-ink-800">{c.consultationNo || "—"}</span> },
+            { key: "patient", header: "PATIENT", render: (c) => <span className="text-[13px] font-semibold">{c.patient?.fullName || "—"}</span> },
+            { key: "provisionalDiagnosis", header: "DIAGNOSIS", render: (c) => <span className="text-[12.5px]">{c.provisionalDiagnosis || c.finalDiagnosis || "—"}</span> },
+            { key: "status", header: "STATUS", align: "center", render: (c) => <StatusBadge status={formatStatusForUI(c.status)} /> },
           ]}
-          rows={table.rows}
-          status={
-            status === "ready"
-              ? "ready"
-              : status === "error"
-                ? "error"
-                : "loading"
-          }
-          onRetry={() => dispatch(consultationsApi.thunks.fetchAll() as any)}
-          sort={{
-            sortBy: table.query.sortBy,
-            sortDir: table.query.sortDir,
-            onSort: table.toggleSort,
-          }}
-          onRowClick={(c) => navigate(`/consultation/${c.id}`)}
+          rows={consultations} status={loading ? "loading" : "ready"} onRetry={fetchConsultations} onRowClick={openWorkspace}
           actions={(c) => (
             <RowActions
               items={[
-                {
-                  label: "Open workspace",
-                  icon: <Stethoscope />,
-                  onClick: () => navigate(`/consultations/${c.id}`),
-                },
-                {
-                  label:
-                    c.status === "Completed"
-                      ? "Reopen record"
-                      : "Mark completed",
-                  icon: <CheckCheck />,
-                  hidden: !canEdit("consultations"),
-                  onClick: () =>
-                    dispatch(
-                      consultationsApi.thunks.updateOne({
-                        id: c.id,
-                        data: {
-                          status:
-                            c.status === "Completed"
-                              ? "In Progress"
-                              : "Completed",
-                          endTime:
-                            c.status === "Completed"
-                              ? null
-                              : new Date().toTimeString().slice(0, 5),
-                        },
-                        successMessage:
-                          c.status === "Completed"
-                            ? "Record reopened"
-                            : "Consultation completed",
-                      } as any),
-                    ),
-                },
-                {
-                  label: "Delete record",
-                  icon: <Trash2 />,
-                  tone: "danger",
-                  hidden: !canDelete("consultations"),
-                  onClick: () =>
-                    dispatch(
-                      consultationsApi.thunks.removeOne({
-                        id: c.id,
-                        label: c.code,
-                      } as any),
-                    ),
-                },
+                { label: "Open workspace", icon: <Stethoscope />, onClick: () => openWorkspace(c) },
+                { label: "Delete", icon: <Trash2 />, tone: "danger", hidden: !canDelete("consultations"), onClick: async () => { if (confirm("Delete this record?")) { const res = await api(`/api/opd/consultations/${c.id}`, { method: "DELETE" }); if (res.ok) fetchConsultations(); } } }
               ]}
             />
           )}
-          emptyTitle="No consultations recorded"
-          emptyDescription="Start a consultation from a checked-in appointment to create the first clinical note."
-          footer={
-            <Pagination
-              page={table.page}
-              pageCount={table.pageCount}
-              total={table.total}
-              pageSize={table.pageSize}
-              onPage={table.setPage}
-              onPageSize={table.setPageSize}
-              label="consultations"
-            />
-          }
+          emptyTitle="No consultations found"
+          footer={<Pagination page={page} pageCount={totalPages} total={totalItems} pageSize={limit} onPage={setPage} onPageSize={(s) => { setLimit(s); setPage(1); }} label="consultations" />}
         />
       </Panel>
-
-      <FormDialog
-        open={!!startFor}
-        onOpenChange={(v) => !v && setStartFor(null)}
-        size="md"
-        title="Start consultation"
-        description={
-          startFor
-            ? `${fullName(patientMap.get(startFor.patientId))} · ${startFor.type} with Dr. ${fullName(doctorMap.get(startFor.doctorId))}`
-            : ""
-        }
-        submitLabel="Open clinical workspace"
-        onSubmit={async () => {
-          if (!startFor) return;
-          const created: any = await dispatch(
-            consultationsApi.thunks.createOne({
-              data: {
-                code: `CNS-${Math.floor(1000 + Math.random() * 8999)}`,
-                appointmentId: startFor.id,
-                patientId: startFor.patientId,
-                doctorId: startFor.doctorId,
-                date: startFor.date,
-                startTime: new Date().toTimeString().slice(0, 5),
-                endTime: null,
-                chiefComplaint: "",
-                symptoms: "",
-                examination: "",
-                diagnosis: "",
-                notes: "",
-                vitals: { bp: "", pulse: "", temp: "", spo2: "", weight: "" },
-                prescriptions: [],
-                advice: "",
-                followUpDate: null,
-                status: "In Progress",
-              },
-              successMessage: "Consultation started",
-            } as any),
-          );
-          setStartFor(null);
-          const id = (created as any)?.payload?.id;
-          if (id) navigate(`/consultations/${id}`);
-        }}
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Textarea
-            name="complaint"
-            label="Chief complaint"
-            rows={2}
-            placeholder="Presenting concern in the patient's own words"
-          />
-          <Textarea
-            name="history"
-            label="Brief history"
-            rows={2}
-            placeholder="Onset, duration, associated symptoms…"
-          />
-        </div>
-      </FormDialog>
     </>
   );
 }
 
-/* ------------------------------- workspace --------------------------------- */
-
+/* ==========================================================================
+   4. SCREEN 2: PRESCRIPTION WORKSPACE (A4 PAPER UI - Exactly like the image)
+   ========================================================================== */
 export function ConsultationWorkspacePage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const consultations = useRootSelector((s) => s.consultations.items);
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
   const { canEdit } = usePermission();
-  const record = consultations.find((c: any) => c.id === id) as
-    | Consultation
-    | undefined;
-  const [rx, setRx] = useState<PrescriptionLine[]>(record?.prescriptions ?? []);
-  const readOnly = !canEdit("consultations") || record?.status === "Completed";
+
+  const [record, setRecord] = useState<any>(null);
+  const [loadingRecord, setLoadingRecord] = useState(true);
+  const [vitalsId, setVitalsId] = useState<string | null>(null);
+  const [rx, setRx] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [completing, setCompleting] = useState(false);
+
+  const isCompleted = record?.status === CONSULT_STATUSES.COMPLETED;
+  const readOnly = !canEdit("consultations") || isCompleted;
 
   const form = useForm({
-    initialValues: {
-      chiefComplaint: record?.chiefComplaint ?? "",
-      symptoms: record?.symptoms ?? "",
-      examination: record?.examination ?? "",
-      diagnosis: record?.diagnosis ?? "",
-      notes: record?.notes ?? "",
-      advice: record?.advice ?? "",
-      followUpDate: record?.followUpDate ?? "",
-      bp: record?.vitals.bp ?? "",
-      pulse: record?.vitals.pulse ?? "",
-      temp: record?.vitals.temp ?? "",
-      spo2: record?.vitals.spo2 ?? "",
-      weight: record?.vitals.weight ?? "",
-    },
-    schema: {
-      chiefComplaint: [{ required: "Chief complaint is required", min: 5 }],
-      diagnosis: [{ required: "Diagnosis is required to complete", min: 4 }],
-    },
+    initialValues: { chiefComplaint: "", diagnosis: "", advice: "", followUpDate: "", bp: "", pulse: "", temp: "", weight: "" },
+    schema: { chiefComplaint: [{ required: "Required", min: 3 }], diagnosis: [{ required: "Required", min: 3 }] },
   });
 
-  useEffect(() => {
-    if (!record) return;
-    const demo = {
-      chiefComplaint:
-        "Three-week history of exertional chest tightness with mild breathlessness on two flights of stairs.",
-      symptoms:
-        "Retrosternal pressure radiating to the left arm, 5–8 minute episodes, relieved by rest. No syncope or orthopnoea. Smoker, 6 cpd for 8 years.",
-      examination:
-        "Chest clear, S1 S2 normal, no murmurs or gallop. JVP not raised, no pedal oedema, radial pulses 2+ bilaterally.",
-      diagnosis:
-        "Stable angina pectoris (CCS Class II) — stress echocardiography and lipid optimisation planned.",
-      notes:
-        "Counselled on smoking cessation and Mediterranean diet. Aspirin and high-intensity statin started pending reports.",
-      advice:
-        "Avoid strenuous exertion until reviewed. Return immediately for rest pain, sweating or breathlessness. Cardiac rehab referral placed.",
-    };
-    const blank = (v?: string) => (v && v.trim() ? v : undefined);
-    setRx(record.prescriptions?.length ? record.prescriptions : []);
-    form.setValues({
-      chiefComplaint: blank(record.chiefComplaint) ?? demo.chiefComplaint,
-      symptoms: blank(record.symptoms) ?? demo.symptoms,
-      examination: blank(record.examination) ?? demo.examination,
-      diagnosis: blank(record.diagnosis) ?? demo.diagnosis,
-      notes: blank(record.notes) ?? demo.notes,
-      advice: blank(record.advice) ?? demo.advice,
-      followUpDate: record.followUpDate ?? "",
-      bp: record.vitals.bp || "138/86",
-      pulse: record.vitals.pulse || "78",
-      temp: record.vitals.temp || "36.8 °C",
-      spo2: record.vitals.spo2 || "97%",
-      weight: record.vitals.weight || "74 kg",
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [record?.id, record?.status]);
+  const fetchConsultationById = useCallback(async () => {
+    if (!id) return;
+    setLoadingRecord(true);
+    try {
+      const res = await api(`/api/opd/consultations/${id}`);
+      if (!res.ok) throw new Error("Failed");
+      const d = res.data;
+      setRecord(d);
+      form.setValues({
+        chiefComplaint: d.chiefComplaints || "",
+        diagnosis: d.provisionalDiagnosis || d.finalDiagnosis || "",
+        advice: d.specialInstructions || "",
+        followUpDate: d.followUpDate ? String(d.followUpDate).slice(0, 10) : "",
+        bp: "", pulse: "", temp: "", weight: "",
+      });
+      const lines = (d.prescriptions || []).map((p: any) => ({
+        id: p.id || idGen("rx"), medicine: p.medicineName || "", dosage: p.dosage || "",
+        frequency: p.frequency || "", duration: p.durationDays ? `${p.durationDays} days` : p.duration || "",
+        instructions: p.instructions || p.mealRelation || "",
+      }));
+      setRx(lines);
+    } finally { setLoadingRecord(false); }
+  }, [id]);
 
-  const patient = patients.find((p: any) => p.id === record?.patientId) as any;
-  const doctor = doctors.find((d: any) => d.id === record?.doctorId) as any;
-  const appointment = appointments.find(
-    (a: any) => a.id === record?.appointmentId,
-  ) as any;
+  const fetchVitals = useCallback(async (appointmentId: string) => {
+    try {
+      const res = await api(`/api/opd/vitals/appointment/${appointmentId}`);
+      if (!res.ok || !res.data) return;
+      setVitalsId(res.data.id || null);
+      form.setValues((prev) => ({
+        ...prev,
+        bp: formatBpFromApi(res.data.bloodPressureSys, res.data.bloodPressureDia),
+        pulse: res.data.pulseRate != null ? String(res.data.pulseRate) : "",
+        temp: fahrenheitToCelsius(res.data.temperatureF),
+        weight: res.data.weightKg != null ? String(res.data.weightKg) : "",
+      }));
+    } catch {}
+  }, []);
 
-  if (!record) {
-    return (
-      <SectionPanel title="Consultation not found" icon={<ScrollText />}>
-        <p className="py-6 text-center text-[13px] text-ink-400">
-          The record may have been deleted.
-        </p>
-      </SectionPanel>
-    );
-  }
+  useEffect(() => { fetchConsultationById(); }, [fetchConsultationById]);
+  useEffect(() => { if (record?.appointmentId) fetchVitals(record.appointmentId); }, [record?.appointmentId, fetchVitals]);
 
-  const persist = async (statusOverride?: Consultation["status"]) => {
-    await dispatch(
-      consultationsApi.thunks.updateOne({
-        id: record.id,
-        data: {
-          ...form.values,
-          vitals: {
-            bp: form.values.bp,
-            pulse: form.values.pulse,
-            temp: form.values.temp,
-            spo2: form.values.spo2,
-            weight: form.values.weight,
-          },
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSoapChange = (field: string, value: string) => {
+    form.setValue(field as any, value);
+    if (readOnly || !record?.id) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      await api(`/api/opd/consultations/${record.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          chiefComplaints: form.values.chiefComplaint,
+          provisionalDiagnosis: form.values.diagnosis,
+          specialInstructions: form.values.advice,
           followUpDate: form.values.followUpDate || null,
-          prescriptions: rx,
-          status: statusOverride ?? record.status,
-          endTime:
-            statusOverride === "Completed"
-              ? new Date().toTimeString().slice(0, 5)
-              : record.endTime,
-        },
-        successMessage:
-          statusOverride === "Completed"
-            ? "Consultation completed"
-            : "Clinical note saved",
-      } as any),
-    );
-    if (statusOverride === "Completed" && appointment) {
-      dispatch(
-        appointmentsApi.thunks.updateOne({
-          id: appointment.id,
-          data: { status: "Completed" },
-          successMessage: "Linked appointment closed",
-        } as any),
-      );
-    }
+        }),
+      });
+    }, 1500);
   };
 
+  const handleSaveNote = async () => {
+    if (!record?.id) return;
+    setSaving(true);
+    try {
+      await api(`/api/opd/consultations/${record.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          chiefComplaints: form.values.chiefComplaint,
+          provisionalDiagnosis: form.values.diagnosis,
+          specialInstructions: form.values.advice,
+          followUpDate: form.values.followUpDate || null,
+        }),
+      });
+
+      if (record.appointmentId) {
+        const { sys, dia } = parseBpString(form.values.bp);
+        const payload = {
+          appointmentId: record.appointmentId, patientId: record.patient?.id,
+          bloodPressureSys: sys, bloodPressureDia: dia,
+          pulseRate: parseInt(form.values.pulse) || null,
+          temperatureF: celsiusToFahrenheit(form.values.temp),
+          weightKg: parseFloat(form.values.weight) || null,
+        };
+        if (vitalsId) await api(`/api/opd/vitals/${vitalsId}`, { method: "PATCH", body: JSON.stringify(payload) });
+        else await api("/api/opd/vitals", { method: "POST", body: JSON.stringify(payload) });
+      }
+
+      for (const line of rx.filter(r => r.medicine.trim())) {
+        const py = { medicineName: line.medicine, dosage: line.dosage, frequency: line.frequency, durationDays: parseInt(line.duration) || 3, mealRelation: line.instructions || "AFTER_FOOD" };
+        if (!line.id.startsWith("rx_")) await api(`/api/opd/consultations/${record.id}/prescriptions/${line.id}`, { method: "PATCH", body: JSON.stringify(py) });
+        else await api(`/api/opd/consultations/${record.id}/prescriptions`, { method: "POST", body: JSON.stringify(py) });
+      }
+    } finally { setSaving(false); }
+  };
+
+  const handleCompleteConsultation = async () => {
+    const errs = form.validate();
+    if (Object.keys(errs).length > 0 || !record?.id) return;
+    setCompleting(true);
+    try {
+      await handleSaveNote();
+      const res = await api(`/api/opd/consultations/${record.id}/complete`, { method: "PATCH" });
+      if (res.ok) navigate("/consultation");
+    } finally { setCompleting(false); }
+  };
+
+  if (loadingRecord) return <div className="flex h-[60vh] items-center justify-center"><p className="text-[13px] text-ink-400">Loading prescription pad...</p></div>;
+  if (!record) return <div className="flex h-[60vh] items-center justify-center"><Button onClick={() => navigate("/consultation")}>Back to list</Button></div>;
+
+  const patient = record.patient || {};
+  const doctor = record.doctor || {};
+  const patientName = patient.fullName || "Patient";
+
   return (
-    <div className="space-y-4">
-      <PageIntro
-        back
-        title={`Consultation ${record.code}`}
-        description={`${formatDate(record.date, { weekday: "long", day: "2-digit", month: "long" })} · ${formatTime(record.startTime)}${record.endTime ? ` – ${formatTime(record.endTime)}` : " · in progress"}`}
-        meta={<StatusBadge status={record.status} />}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              icon={<Printer />}
-              onClick={() => window.print()}
-            >
-              Print
-            </Button>
-            {!readOnly && (
-              <Button
-                variant="outline"
-                icon={<Save />}
-                onClick={() => persist()}
-              >
-                Save note
-              </Button>
-            )}
-            {!readOnly && (
-              <Button
-                icon={<CheckCheck />}
-                onClick={async () => {
-                  const errs = form.validate();
-                  if (Object.keys(errs).length) return;
-                  await persist("Completed");
-                }}
-              >
-                Complete consultation
-              </Button>
-            )}
-          </>
-        }
-      />
+    <div className="space-y-4 pb-10 bg-ink-50 min-h-screen">
+      
+      {/* APP TOP BAR (Hidden during Print) */}
+      <div className="print:hidden max-w-[210mm] mx-auto pt-4">
+        <PageIntro
+          back title="Prescription Editor"
+          description={record.startedAt ? `Started at ${formatTime(record.startedAt)}` : "In Progress"}
+          meta={<StatusBadge status={formatStatusForUI(record.status)} />}
+          actions={
+            <>
+              <Button variant="outline" icon={<Printer />} onClick={() => window.print()}>Print A4</Button>
+              {!readOnly && <Button variant="outline" icon={<Save />} disabled={saving} onClick={handleSaveNote}>{saving ? "Saving…" : "Save Draft"}</Button>}
+              {!readOnly && <Button icon={<CheckCheck />} disabled={completing} onClick={handleCompleteConsultation} className="bg-sky-600 text-white hover:bg-sky-700 border-transparent">Complete Session</Button>}
+            </>
+          }
+        />
+      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,19rem)_1fr]">
-        {/* left rail: patient + visit context */}
-        <div className="space-y-4 no-print:hidden">
-          <Panel className="p-4">
-            <div className="flex items-center gap-3">
-              <Avatar name={fullName(patient)} size="lg" color="bg-brand-600" />
-              <div className="min-w-0">
-                <p className="font-display text-[16px] font-bold text-ink-900">
-                  {fullName(patient)}
-                </p>
-                <p className="num text-[11.5px] text-ink-400">{patient?.mrn}</p>
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  <Badge tone="coral" size="xs">
-                    {patient?.bloodGroup}
-                  </Badge>
-                  <Badge tone="neutral" size="xs">
-                    {patient?.gender}
-                  </Badge>
-                  <Badge tone="neutral" size="xs">
-                    {patient?.dateOfBirth
-                      ? `${new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear()} yrs`
-                      : "—"}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3.5 space-y-1.5 border-t border-ink-100 pt-3 text-[12.5px]">
-              <Row
-                label="Allergies"
-                value={patient?.allergies || "None recorded"}
-                tone="danger"
-              />
-              <Row
-                label="Chronic"
-                value={patient?.chronicConditions || "None reported"}
-              />
-              <Row
-                label="Emergency"
-                value={`${patient?.emergencyContactName ?? "—"} · ${patient?.emergencyContactNumber ?? ""}`}
-              />
-              <Row label="Contact" value={patient?.mobile} />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-3 w-full"
-              onClick={() => navigate(`/app/patients/${record.patientId}`)}
-            >
-              Open full chart
-            </Button>
-          </Panel>
-
-          <SectionPanel
-            title="Visit context"
-            icon={<Activity />}
-            bodyClass="p-4"
-          >
-            <DetailGrid
-              columns={1}
-              items={[
-                {
-                  label: "Doctor",
-                  value: doctor ? `Dr. ${fullName(doctor)}` : "—",
-                },
-                {
-                  label: "Fee",
-                  value: appointment ? formatMoney(appointment.fee) : "—",
-                },
-                { label: "Appointment", value: appointment?.code ?? "Walk-in" },
-                { label: "Type", value: appointment?.type ?? "Consultation" },
-                {
-                  label: "Follow-up",
-                  value: record.followUpDate
-                    ? formatDate(record.followUpDate)
-                    : "Not scheduled",
-                },
-              ]}
-            />
-          </SectionPanel>
-
-          <SectionPanel title="Vitals" icon={<Heart />} bodyClass="p-3.5">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { key: "bp", label: "Blood pressure", placeholder: "120/80" },
-                { key: "pulse", label: "Pulse /min", placeholder: "72" },
-                { key: "temp", label: "Temp °C", placeholder: "36.8" },
-                { key: "spo2", label: "SpO₂ %", placeholder: "98" },
-                { key: "weight", label: "Weight kg", placeholder: "64" },
-              ].map((f) => (
-                <Input
-                  key={f.key}
-                  name={f.key}
-                  label={f.label}
-                  placeholder={f.placeholder}
-                  disabled={readOnly}
-                  value={(form.values as any)[f.key]}
-                  onChange={(e) =>
-                    (form as any).setValue(f.key, e.target.value)
-                  }
-                  className="num"
-                />
-              ))}
-            </div>
-          </SectionPanel>
+      {/* =========================================================
+          THE A4 PAPER CANVAS (MATCHING THE IMAGE EXACTLY)
+          ========================================================= */}
+      <div className="relative mx-auto min-h-[297mm] w-[210mm] bg-white shadow-xl print:m-0 print:min-h-0 print:w-full print:max-w-none print:shadow-none font-sans overflow-hidden flex flex-col">
+        
+        {/* --- DECORATIVE SHAPES --- */}
+        {/* Top Left Blue Polygon */}
+        <div className="absolute top-0 left-0 w-[45%] h-32 bg-[#00b0f0] z-0 print:bg-[#00b0f0]" style={{ clipPath: 'polygon(0 0, 100% 0, 15% 100%, 0 100%)' }} />
+        
+        {/* Dot Grids (Subtle pattern) */}
+        <div className="absolute top-48 right-6 w-12 h-24 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#00b0f0 2px, transparent 2px)', backgroundSize: '8px 8px' }} />
+        <div className="absolute bottom-48 left-10 w-12 h-24 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#00b0f0 2px, transparent 2px)', backgroundSize: '8px 8px' }} />
+        
+        {/* Center Stethoscope Watermark */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5 z-0">
+          <Stethoscope className="w-[350px] h-[350px] text-[#00b0f0]" />
         </div>
 
-        {/* main clinical form */}
-        <div className="space-y-4">
-          <Panel className="p-4 sm:p-5">
-            <FormSection title="Subjective">
-              <div className="space-y-4">
-                <Textarea
-                  name="chiefComplaint"
-                  label="Chief complaint"
-                  required
-                  rows={2}
-                  disabled={readOnly}
-                  placeholder="Presenting concern, duration, severity…"
-                  value={form.values.chiefComplaint}
-                  onChange={(e) =>
-                    form.setValue("chiefComplaint", e.target.value)
-                  }
-                  error={form.errors.chiefComplaint}
-                />
-                <Textarea
-                  name="symptoms"
-                  label="Symptoms & history"
-                  rows={3}
-                  disabled={readOnly}
-                  placeholder="Onset, aggravating factors, prior treatment, medications…"
-                  value={form.values.symptoms}
-                  onChange={(e) => form.setValue("symptoms", e.target.value)}
-                />
-              </div>
-            </FormSection>
-
-            <FormSection title="Objective">
-              <div className="mt-4 space-y-4">
-                <Textarea
-                  name="examination"
-                  label="Physical examination"
-                  rows={2}
-                  disabled={readOnly}
-                  placeholder="Systemic examination, findings, investigations reviewed…"
-                  value={form.values.examination}
-                  onChange={(e) => form.setValue("examination", e.target.value)}
-                />
-                <Textarea
-                  name="diagnosis"
-                  label="Diagnosis / impression"
-                  required
-                  rows={2}
-                  disabled={readOnly}
-                  placeholder="Provisional or confirmed diagnosis"
-                  value={form.values.diagnosis}
-                  onChange={(e) => form.setValue("diagnosis", e.target.value)}
-                  error={form.errors.diagnosis}
-                />
-              </div>
-            </FormSection>
-
-            <FormSection
-              title="Prescription"
-              description="Add medicines with dosage, frequency and duration"
-            >
-              <div className="mt-3 space-y-2">
-                {rx.length === 0 && (
-                  <p className="rounded-xl border border-dashed border-ink-200 px-4 py-6 text-center text-[12.5px] text-ink-400">
-                    No medicines added yet
-                    {readOnly ? " — this record is locked." : "."}
-                  </p>
-                )}
-                {rx.map((line, index) => (
-                  <div
-                    key={line.id}
-                    className="grid gap-2 rounded-xl border border-ink-100 bg-ink-25/50 p-2.5 lg:grid-cols-[1.4fr_.8fr_1fr_.8fr_1.1fr_auto]"
-                  >
-                    <Input
-                      name={`m${index}`}
-                      label={index === 0 ? "Medicine" : undefined}
-                      placeholder="Paracetamol 650 mg"
-                      disabled={readOnly}
-                      value={line.medicine}
-                      onChange={(e) =>
-                        setRx(
-                          rx.map((r) =>
-                            r.id === line.id
-                              ? { ...r, medicine: e.target.value }
-                              : r,
-                          ),
-                        )
-                      }
-                    />
-                    <Input
-                      name={`d${index}`}
-                      label={index === 0 ? "Dosage" : undefined}
-                      placeholder="1 tablet"
-                      disabled={readOnly}
-                      value={line.dosage}
-                      onChange={(e) =>
-                        setRx(
-                          rx.map((r) =>
-                            r.id === line.id
-                              ? { ...r, dosage: e.target.value }
-                              : r,
-                          ),
-                        )
-                      }
-                    />
-                    <Input
-                      name={`f${index}`}
-                      label={index === 0 ? "Frequency" : undefined}
-                      placeholder="TID × 3 days"
-                      disabled={readOnly}
-                      value={line.frequency}
-                      onChange={(e) =>
-                        setRx(
-                          rx.map((r) =>
-                            r.id === line.id
-                              ? { ...r, frequency: e.target.value }
-                              : r,
-                          ),
-                        )
-                      }
-                    />
-                    <Input
-                      name={`dur${index}`}
-                      label={index === 0 ? "Duration" : undefined}
-                      placeholder="3 days"
-                      disabled={readOnly}
-                      value={line.duration}
-                      onChange={(e) =>
-                        setRx(
-                          rx.map((r) =>
-                            r.id === line.id
-                              ? { ...r, duration: e.target.value }
-                              : r,
-                          ),
-                        )
-                      }
-                    />
-                    <Input
-                      name={`i${index}`}
-                      label={index === 0 ? "Instructions" : undefined}
-                      placeholder="After meals"
-                      disabled={readOnly}
-                      value={line.instructions}
-                      onChange={(e) =>
-                        setRx(
-                          rx.map((r) =>
-                            r.id === line.id
-                              ? { ...r, instructions: e.target.value }
-                              : r,
-                          ),
-                        )
-                      }
-                    />
-                    {!readOnly && (
-                      <div className="flex items-end">
-                        <IconButton
-                          label="Remove medicine"
-                          size="sm"
-                          variant="ghost"
-                          className="mb-1 text-coral-500 hover:bg-coral-50"
-                          onClick={() =>
-                            setRx(rx.filter((r) => r.id !== line.id))
-                          }
-                        >
-                          <Trash2 />
-                        </IconButton>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {!readOnly && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    icon={<Plus />}
-                    onClick={() =>
-                      setRx([
-                        ...rx,
-                        {
-                          id: idGen("rx"),
-                          medicine: "",
-                          dosage: "",
-                          frequency: "",
-                          duration: "",
-                          instructions: "",
-                        },
-                      ])
-                    }
-                  >
-                    Add medicine
-                  </Button>
-                )}
-              </div>
-            </FormSection>
-
-            <FormSection title="Plan & advice">
-              <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_13rem]">
-                <Textarea
-                  name="advice"
-                  label="Advice & lifestyle guidance"
-                  rows={3}
-                  disabled={readOnly}
-                  placeholder="Diet, activity, red-flag symptoms, investigations advised…"
-                  value={form.values.advice}
-                  onChange={(e) => form.setValue("advice", e.target.value)}
-                />
-                <DatePicker
-                  label="Follow-up date"
-                  value={form.values.followUpDate}
-                  onChange={(v) => form.setValue("followUpDate", v)}
-                  disabled={readOnly}
-                  min={addDays(new Date(), 0)}
-                />
-              </div>
-              <Textarea
-                name="notes"
-                label="Internal notes (not printed)"
-                rows={2}
-                className="mt-4"
-                disabled={readOnly}
-                placeholder="Referrals, coding notes, insurance remarks…"
-                value={form.values.notes}
-                onChange={(e) => form.setValue("notes", e.target.value)}
-              />
-            </FormSection>
-          </Panel>
-
-          {record.status === "Completed" && (
-            <div className="flex items-center gap-2.5 rounded-xl border border-mint-500/25 bg-mint-50 px-4 py-3 text-[12.5px] font-medium text-mint-600">
-              <CheckCheck className="size-4" />
-              Signed off{" "}
-              {record.endTime ? `at ${formatTime(record.endTime)}` : ""}.
-              Editing is locked — reopen from the consultations list to amend.
+        {/* --- HEADER --- */}
+        <div className="pt-10 px-12 flex justify-between items-start relative z-10">
+          <div className="mt-2 pl-4">
+            <h1 className="text-3xl text-[#1e1e4a] font-semibold tracking-tight">
+              Dr. {doctor.firstName || "Alex"} {doctor.lastName || "Justin"}
+            </h1>
+            <p className="text-[11px] text-gray-500 font-medium tracking-wide mt-1 uppercase">
+              {doctor.specialization || "Specialist Doctor For Medicine"}
+            </p>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Registration No-{doctor.regNo || "4573847"}
+            </p>
+          </div>
+          <div className="flex flex-col items-center mr-4">
+            <div className="w-12 h-12 bg-white flex items-center justify-center border-2 border-[#00b0f0] rounded-tl-xl rounded-tr-xl rounded-bl-sm rounded-br-sm relative mb-1">
+              <span className="text-[#1e1e4a] font-bold text-2xl">H</span>
+              <span className="absolute top-1 right-1 text-[#00b0f0] text-lg leading-none">+</span>
             </div>
-          )}
+            <h2 className="text-[#00b0f0] font-bold text-[15px] tracking-wide">Healthcare</h2>
+            <p className="text-[8px] text-[#1e1e4a] tracking-widest font-medium uppercase border-t border-[#1e1e4a] pt-0.5 mt-0.5">Medical Clinic</p>
+          </div>
+        </div>
+
+        {/* --- PATIENT INFO (Dotted Lines) --- */}
+        <div className="px-12 mt-10 grid grid-cols-[1fr_200px] gap-x-12 gap-y-4 relative z-10">
+          <DottedInput label="Patient Name:" value={patientName} disabled />
+          <DottedInput label="Age/Sex:" value={`${patient.age || "-"} ${patient.ageUnit || "Y"} / ${patient.gender || "-"}`} disabled />
+          <DottedInput label="Address:" value={patient.address || "-"} disabled />
+          <DottedInput label="Date:" value={formatDate(record.startedAt || new Date())} disabled />
+        </div>
+
+        {/* --- BODY (Rx and Clinical Data) --- */}
+        <div className="px-12 mt-10 flex flex-1 gap-6 relative z-10 pb-32">
+          
+          {/* Left Column (Rx Logo + Vitals/Symptoms) */}
+          <div className="w-[30%] flex flex-col gap-6">
+            <div className="text-[4rem] leading-none font-serif font-bold text-[#1e1e4a] tracking-tighter">
+              R<span className="text-[2.5rem] align-bottom">x</span>
+            </div>
+            
+            <div className="space-y-4 mt-2 pr-4">
+              <div className="space-y-2">
+                <DottedInput label="BP" value={form.values.bp} onChange={(e) => form.setValue("bp", e.target.value)} disabled={readOnly} placeholder="___ / ___" small />
+                <DottedInput label="Pulse" value={form.values.pulse} onChange={(e) => form.setValue("pulse", e.target.value)} disabled={readOnly} placeholder="______" small />
+                <DottedInput label="Temp" value={form.values.temp} onChange={(e) => form.setValue("temp", e.target.value)} disabled={readOnly} placeholder="______" small />
+                <DottedInput label="Weight" value={form.values.weight} onChange={(e) => form.setValue("weight", e.target.value)} disabled={readOnly} placeholder="______" small />
+              </div>
+              
+              <div className="pt-4">
+                <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Symptoms</span>
+                <textarea 
+                  className="w-full mt-1 bg-transparent border-b-2 border-dotted border-gray-300 text-[12px] text-[#1e1e4a] font-medium resize-none focus:outline-none focus:border-[#00b0f0]"
+                  rows={2} value={form.values.chiefComplaint} onChange={(e) => handleSoapChange("chiefComplaint", e.target.value)} disabled={readOnly}
+                />
+              </div>
+
+              <div className="pt-2">
+                <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Diagnosis</span>
+                <textarea 
+                  className="w-full mt-1 bg-transparent border-b-2 border-dotted border-gray-300 text-[12px] text-[#1e1e4a] font-medium resize-none focus:outline-none focus:border-[#00b0f0]"
+                  rows={2} value={form.values.diagnosis} onChange={(e) => handleSoapChange("diagnosis", e.target.value)} disabled={readOnly}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column (Medicines & Advice) */}
+          <div className="flex-1 flex flex-col">
+            <div className="flex-1 space-y-4 pt-12">
+              {rx.map((line, index) => (
+                <div key={line.id} className="relative group flex gap-3 pb-2 border-b border-dotted border-gray-200">
+                  <span className="text-[14px] font-bold text-gray-400 mt-0.5">{index + 1}.</span>
+                  <div className="flex-1">
+                    <input
+                      className="w-full bg-transparent text-[15px] font-bold text-[#1e1e4a] placeholder:font-normal placeholder:text-gray-300 focus:outline-none"
+                      placeholder="Medicine Name & Strength"
+                      value={line.medicine} disabled={readOnly}
+                      onChange={(e) => setRx(p => p.map(r => r.id === line.id ? { ...r, medicine: e.target.value } : r))}
+                    />
+                    <div className="flex flex-wrap items-center gap-x-3 text-[12px] text-gray-500 mt-1">
+                      <input className="w-14 bg-transparent focus:outline-none placeholder:text-gray-300" placeholder="Dosage" value={line.dosage} disabled={readOnly} onChange={(e) => setRx(p => p.map(r => r.id === line.id ? { ...r, dosage: e.target.value } : r))} />
+                      <span>|</span>
+                      <input className="w-20 bg-transparent focus:outline-none placeholder:text-gray-300" placeholder="Frequency" value={line.frequency} disabled={readOnly} onChange={(e) => setRx(p => p.map(r => r.id === line.id ? { ...r, frequency: e.target.value } : r))} />
+                      <span>|</span>
+                      <input className="w-16 bg-transparent focus:outline-none placeholder:text-gray-300" placeholder="Duration" value={line.duration} disabled={readOnly} onChange={(e) => setRx(p => p.map(r => r.id === line.id ? { ...r, duration: e.target.value } : r))} />
+                      <input className="flex-1 min-w-[120px] bg-transparent italic focus:outline-none placeholder:text-gray-300" placeholder="(Instructions)" value={line.instructions} disabled={readOnly} onChange={(e) => setRx(p => p.map(r => r.id === line.id ? { ...r, instructions: e.target.value } : r))} />
+                    </div>
+                  </div>
+                  {!readOnly && <button onClick={() => setRx(p => p.filter(r => r.id !== line.id))} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"><Trash2 className="size-4" /></button>}
+                </div>
+              ))}
+              {!readOnly && <button onClick={() => setRx(p => [...p, { id: idGen("rx"), medicine: "", dosage: "", frequency: "", duration: "", instructions: "" }])} className="text-[12px] font-semibold text-[#00b0f0] hover:text-blue-700 flex items-center gap-1 print:hidden"><Plus className="size-3" /> Add Medicine</button>}
+            </div>
+
+            <div className="mt-8 pt-4">
+               <div className="flex gap-2 items-end border-b-2 border-dotted border-gray-300 pb-1">
+                 <span className="text-[12px] text-gray-600 font-medium whitespace-nowrap">Advice:</span>
+                 <input className="flex-1 bg-transparent text-[13px] text-[#1e1e4a] font-medium focus:outline-none" value={form.values.advice} disabled={readOnly} onChange={(e) => handleSoapChange("advice", e.target.value)} />
+               </div>
+               <div className="flex gap-2 items-end border-b-2 border-dotted border-gray-300 pb-1 mt-4 w-1/2">
+                 <span className="text-[12px] text-gray-600 font-medium whitespace-nowrap">Follow-up:</span>
+                 <input type="date" className="flex-1 bg-transparent text-[13px] text-[#1e1e4a] font-medium focus:outline-none" value={form.values.followUpDate} disabled={readOnly} onChange={(e) => handleSoapChange("followUpDate", e.target.value)} />
+               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* --- FOOTER --- */}
+        <div className="mt-auto relative z-10 w-full">
+          {/* Bottom Right Blue Polygon */}
+          <div className="absolute bottom-0 right-0 w-[50%] h-24 bg-[#00b0f0] z-0 print:bg-[#00b0f0]" style={{ clipPath: 'polygon(15% 35%, 100% 0, 100% 100%, 0 100%)' }} />
+          
+          <div className="px-12 pb-8 flex items-center gap-6 relative z-10">
+             {/* Phone */}
+             <div className="flex items-center gap-2 pr-6 border-r border-gray-300">
+               <div className="bg-[#1e1e4a] p-1.5 rounded-sm print:bg-[#1e1e4a]"><Phone className="size-3 text-white" /></div>
+               <div className="text-[8px] leading-tight text-gray-500 font-medium">
+                 <p>123 456 789</p>
+                 <p>123 456 789</p>
+               </div>
+             </div>
+             {/* Web/Mail */}
+             <div className="flex items-center gap-2 pr-6 border-r border-gray-300">
+               <div className="bg-[#1e1e4a] p-1.5 rounded-sm print:bg-[#1e1e4a]"><Globe className="size-3 text-white" /></div>
+               <div className="text-[8px] leading-tight text-gray-500 font-medium">
+                 <p>yourmail@here</p>
+                 <p>yourwebsite.name</p>
+               </div>
+             </div>
+             {/* Location */}
+             <div className="flex items-center gap-2">
+               <div className="bg-[#1e1e4a] p-1.5 rounded-sm print:bg-[#1e1e4a]"><MapPin className="size-3 text-white" /></div>
+               <div className="text-[8px] leading-tight text-gray-500 font-medium">
+                 <p>Road 7 Hill</p>
+                 <p>By house, Austria</p>
+               </div>
+             </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function Row({
-  label,
-  value,
-  tone,
-}: {
+/* ==========================================================================
+   5. UI HELPER COMPONENTS (The Dotted Line Inputs)
+   ========================================================================== */
+interface DottedInputProps {
   label: string;
   value: string;
-  tone?: "danger";
-}) {
+  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  small?: boolean;
+}
+
+function DottedInput({ label, value, onChange, disabled, placeholder, small }: DottedInputProps) {
   return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="text-ink-400">{label}</span>
-      <span
-        className={cn(
-          "max-w-[62%] text-right font-medium",
-          tone === "danger" ? "text-coral-600" : "text-ink-700",
-        )}
-      >
-        {value}
-      </span>
+    <div className="flex items-end gap-2 w-full">
+      <span className={cn("text-gray-600 font-medium whitespace-nowrap", small ? "text-[11px] w-12" : "text-[12px]")}>{label}</span>
+      <div className="flex-1 relative">
+        <input
+          className={cn(
+            "w-full bg-transparent border-b-2 border-dotted border-gray-300 focus:outline-none focus:border-[#00b0f0] text-[#1e1e4a] font-medium px-1",
+            small ? "text-[12px] pb-0.5" : "text-[13px] pb-1"
+          )}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      </div>
     </div>
   );
 }
