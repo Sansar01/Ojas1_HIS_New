@@ -262,9 +262,9 @@ const TOAST_STYLE: Record<
     bar: "bg-amberly-500",
   },
   info: {
-    ring: "ring-brand-500/25",
-    icon: <Info className="size-5 text-brand-500" />,
-    bar: "bg-brand-500",
+    ring: "ring-lagoon-500/30",
+    icon: <Info className="size-5 text-lagoon-500" />,
+    bar: "bg-lagoon-500",
   },
 };
 
