@@ -12,6 +12,7 @@ import { AuthLayout } from "@/layouts/AuthLayout";
 import { useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { authApi } from "@/services/apiClient";
+import { setResetEmail } from "@/features/auth/authSlice";
 import { Button } from "@/components/ui/primitives";
 import { Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
@@ -20,7 +21,7 @@ import { useDispatch } from "react-redux";
 
 /* ------------------------------ Change password ----------------------------- */
 
-export function ChangePasswordPage() {
+export function ForgotPasswordPage() {
   const dispatch = useDispatch();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -62,6 +63,9 @@ export function ChangePasswordPage() {
     setError("");
     try {
       await authApi.sendResetCode(values.email);
+      // Remember the address the code was sent to so step 2 can show it
+      // read-only and submit against the correct account.
+      dispatch(setResetEmail(values.email));
       setCodeSent(true);
       startCountdown();
       dispatch(
@@ -114,6 +118,7 @@ export function ChangePasswordPage() {
             required
             readOnly={locked}
             disabled={locked}
+            autoComplete="off"
             placeholder="name@meridian.care"
             leadingIcon={<Mail />}
             value={form.values.email}
@@ -170,21 +175,12 @@ export function ResetPasswordPage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const storeEmail = useRootSelector((s) => s.auth.reset.email) ?? "";
-  const hasResetRef = Boolean(useRootSelector((s) => s.auth.reset.token));
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  // Prefer the email captured on the previous step; fall back to whatever the
-  // user types here when they land on this page directly.
-  const [email, setEmail] = useState(storeEmail);
-  useEffect(() => {
-    if (storeEmail && !email) setEmail(storeEmail);
-  }, [storeEmail, email]);
 
-  // When a reset code was already requested the email is locked — editing it
-  // would invalidate the code that was sent.
-  const lockedEmail = Boolean(storeEmail) || hasResetRef;
-
+  // Step 2 of 2: the email was already captured and verified on the previous
+  // step, so it is shown read-only here and must never be editable — editing
+  // it would invalidate the code that was sent.
   const form = useForm({
     initialValues: { email: storeEmail, code: "", password: "", confirm: "" },
     schema: {
@@ -218,7 +214,7 @@ export function ResetPasswordPage() {
     setLoading(true);
     try {
       await authApi.resetPasswordWithCode({
-        email: lockedEmail ? storeEmail : values.email,
+        email: storeEmail,
         code: values.code,
         // send the new password only — never the confirmation field
         newPassword: values.password,
@@ -254,10 +250,7 @@ export function ResetPasswordPage() {
           </div>
         ) : (
           <>
-            <span className="inline-flex items-center gap-2 rounded-lg bg-brand-25 px-2.5 py-1 text-[11.5px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
-              <KeyRound className="size-3.5" /> Step 2 of 2
-            </span>
-            <h1 className="mt-3 font-display text-[24px] font-bold text-ink-900">
+            <h1 className=" font-display text-[24px] font-bold text-ink-900">
               Reset password
             </h1>
             <p className="mt-2 text-[13px] leading-relaxed text-ink-400">
@@ -265,27 +258,26 @@ export function ResetPasswordPage() {
               credentials.
             </p>
 
-            <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
+            <form onSubmit={onSubmit} className="mt-2 space-y-3" noValidate>
               <Input
                 name="email"
                 type="email"
                 label="Work email"
                 required
-                readOnly={lockedEmail}
-                disabled={lockedEmail}
+                readOnly
+                disabled
+                autoComplete="off"
+                className="h-9"
                 leadingIcon={<Mail />}
-                value={form.values.email}
-                onChange={(e) => {
-                  if (lockedEmail) return;
-                  setEmail(e.target.value);
-                  form.setValue("email", e.target.value);
-                }}
+                value={storeEmail}
                 error={form.errors.email}
               />
               <Input
                 name="code"
                 label="Verification code"
                 required
+                autoComplete="one-time-code"
+                className="h-9"
                 placeholder="rst_xxxxxx"
                 leadingIcon={<ShieldCheck />}
                 value={form.values.code}
@@ -299,13 +291,15 @@ export function ResetPasswordPage() {
                   type="password"
                   label="New password"
                   required
+                  autoComplete="new-password"
+                  className="h-9"
                   placeholder="Minimum 8 characters"
                   leadingIcon={<KeyRound />}
                   value={form.values.password}
                   onChange={(e) => form.setValue("password", e.target.value)}
                   error={form.errors.password}
                 />
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-1.5 flex items-center gap-2">
                   <div className="flex h-1.5 flex-1 gap-1">
                     {[0, 1, 2, 3].map((i) => (
                       <span
@@ -328,11 +322,13 @@ export function ResetPasswordPage() {
                 type="password"
                 label="Confirm password"
                 required
+                autoComplete="new-password"
+                className="h-9"
                 value={form.values.confirm}
                 onChange={(e) => form.setValue("confirm", e.target.value)}
                 error={form.errors.confirm}
               />
-              <Button type="submit" size="lg" block loading={loading}>
+              <Button type="submit" size="md" block loading={loading}>
                 Update password
               </Button>
               <Link
