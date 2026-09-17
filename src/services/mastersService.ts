@@ -1,21 +1,38 @@
 import { request } from "@/services/apiClient";
+import { API_ENDPOINTS } from "@/config/api";
 
 /**
  * Generic master-data service.
- * One endpoint convention for every master: /api/hospital/masters/:type
- * The `type` comes from MasterDef.api in masterConfig.data.ts.
+ * The active Global Configuration tab supplies `type` through
+ * MasterDef.api. API_ENDPOINTS resolves it to /api/hospital/masters/:type.
  */
 
-export interface MasterRecord {
-  id: string;
-  code?: string;
+/** A row from the admin-managed DepartmentType master. */
+export interface DepartmentTypeRecord {
+  id: number;
   name: string;
-  isActive: boolean;
+  code: string;
+  description?: string | null;
+  isActive?: boolean;
+  isSystem?: boolean;
+}
+
+export interface MasterRecord {
+  id: number | string;
+  /** Optional — stays NULL when the user leaves it blank. */
+  code?: string | null;
+  name: string;
+  description?: string | null;
+  /** FK to the DepartmentType master. */
+  typeId?: number | null;
+  /** Relation, included by the backend on list/detail responses. */
+  type?: DepartmentTypeRecord | null;
   sortOrder?: number;
+  isActive?: boolean;
   [key: string]: unknown;
 }
 
-const base = (type: string) => `/api/hospital/masters/${type}`;
+const base = (type: string) => API_ENDPOINTS.masters(type);
 
 export const mastersService = {
   list: (type: string) =>
