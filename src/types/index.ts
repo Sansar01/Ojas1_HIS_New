@@ -286,6 +286,7 @@ export type PaymentStatus =
 export interface InvoiceItem {
   id: ID;
   description: string;
+  code: string;
   category:
     | "Consultation"
     | "Procedure"

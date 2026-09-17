@@ -15,6 +15,7 @@ import {
   Trash2,
   UserRound,
   XCircle,
+  Banknote
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/data/db";
@@ -1029,6 +1030,15 @@ export function AppointmentsPage() {
                     onClick: () => setDetailId(a.id),
                   },
                   {
+                    label: "Collect Payment / Bill",
+                    icon: <Banknote />,
+                    hidden: ["Cancelled"].includes(a.status), // Available for active/completed visits
+                    onClick: () => {
+                      const pId = a.patientId ?? a.patient?.id ?? "";
+                      navigate(`/billing?new=1&appointment=${a.id}&patient=${pId}`);
+                    },
+                  },
+                  {
                     label: "Reschedule",
                     icon: <Pencil />,
                     hidden:
@@ -1181,6 +1191,8 @@ export function AppointmentsPage() {
             ? `${formatDate(detail.date, { weekday: "long" })}${detail.time ? ` at ${formatTime(detail.time)}` : " (walk-in)"} · ${String(detail.type ?? "").replace(/_/g, " ")}`
             : undefined
         }
+  
+
         footer={
           detail && (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -1204,6 +1216,19 @@ export function AppointmentsPage() {
                     ))}
               </div>
               <div className="flex gap-2">
+                {/* 🟢 NEW BUTTON IN SHEET FOOTER */}
+                {detail.status !== "Cancelled" && (
+                  <Button
+                    size="sm"
+                    icon={<Banknote />}
+                    onClick={() => {
+                      const pId = detail.patientId ?? detail.patient?.id ?? "";
+                      navigate(`/billing?new=1&appointment=${detail.id}&patient=${pId}`);
+                    }}
+                  >
+                    Collect Payment
+                  </Button>
+                )}
                 {canEdit("appointments") && (
                   <Button
                     size="sm"
@@ -1216,6 +1241,7 @@ export function AppointmentsPage() {
                 )}
                 <Button
                   size="sm"
+                  variant="outline"
                   onClick={() => navigate(`/patients/${detail.patientId}`)}
                 >
                   Open patient chart

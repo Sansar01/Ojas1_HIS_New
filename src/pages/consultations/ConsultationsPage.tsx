@@ -17,7 +17,7 @@ import {
   Phone,
   Globe,
   MapPin,
-  Mail
+  CalendarDays // <-- Added Calendar Icon
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
 import { addDays, idGen } from "@/data/db";
@@ -170,10 +170,14 @@ export function ConsultationsPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(8);
   const [totalPages, setTotalPages] = useState(1);
+  
   const [queueData, setQueueData] = useState<any>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [activeError, setActiveError] = useState<{ patientName: string; message: string } | null>(null);
+
+  // ---> NEW: State for Queue Date (Defaults to Today) <---
+  const [queueDate, setQueueDate] = useState<string>(new Date().toLocaleDateString("en-CA"));
 
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ doctor: "all", status: "all", from: "", to: "" });
@@ -203,15 +207,15 @@ export function ConsultationsPage() {
     } finally { setLoading(false); }
   }, [page, limit, search, filters]);
 
+  // ---> UPDATED: Uses `queueDate` state instead of hardcoded today <---
   const fetchDoctorQueue = useCallback(async () => {
     if (!activeDoctorId) return;
     setLoadingQueue(true);
     try {
-      const today = new Date().toLocaleDateString("en-CA");
-      const res = await api(`/api/opd/queue/doctor/${activeDoctorId}?date=${today}`);
+      const res = await api(`/api/opd/queue/doctor/${activeDoctorId}?date=${queueDate}`);
       if (res.ok) setQueueData(res.data);
     } finally { setLoadingQueue(false); }
-  }, [activeDoctorId]);
+  }, [activeDoctorId, queueDate]);
 
   useEffect(() => { fetchConsultations(); }, [fetchConsultations]);
   useEffect(() => { fetchDoctorQueue(); }, [fetchDoctorQueue]);
@@ -240,7 +244,7 @@ export function ConsultationsPage() {
 
       if (consultationId) {
         saveConsultationMapping(appointmentId, consultationId);
-        navigate(`/consultations/${consultationId}`);
+        navigate(`/consultation/${consultationId}`);
       } else {
         setActiveError({ patientName, message: `${patientName} call ho gaye, lekin workspace nahi khula. Sync karein.` });
         fetchDoctorQueue();
@@ -257,8 +261,8 @@ export function ConsultationsPage() {
     setActionLoadingId("call-next");
     setActiveError(null);
     try {
-      const today = new Date().toLocaleDateString("en-CA");
-      const res = await api(`/api/opd/queue/call-next/${activeDoctorId}?date=${today}`, { method: "PATCH" });
+      // ---> UPDATED: Passing the selected queueDate here as well <---
+      const res = await api(`/api/opd/queue/call-next/${activeDoctorId}?date=${queueDate}`, { method: "PATCH" });
 
       if (res.ok && res.data?.appointmentId) {
         const calledToken = res.data;
@@ -271,7 +275,7 @@ export function ConsultationsPage() {
           fetchDoctorQueue();
         }
       } else {
-        setActiveError({ patientName: "—", message: "Koi patient queue me nahi hai." });
+        setActiveError({ patientName: "—", message: "Is date par koi patient queue me waiting nahi hai." });
       }
     } finally { setActionLoadingId(null); }
   };
@@ -325,9 +329,35 @@ export function ConsultationsPage() {
 
       {queueData && canCreate("consultations") && (
         <Panel className="mb-4 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="flex items-center gap-2 text-[12.5px] font-semibold text-ink-700"><CircleDot className="size-4 animate-pulse text-amberly-500" /> OPD Queue</p>
-            <Button size="xs" variant="outline" onClick={handleCallNext} disabled={actionLoadingId === "call-next" || queueData.stats.waiting === 0} icon={<PhoneCall className={cn("size-3", actionLoadingId === "call-next" && "animate-pulse")} />}>{actionLoadingId === "call-next" ? "Calling…" : "Call Next"}</Button>
+          
+          {/* ---> UPDATED: Header With Date Picker <--- */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-4 border-b border-ink-100 pb-3">
+            <div className="flex items-center gap-4">
+              <p className="flex items-center gap-2 text-[14px] font-semibold text-ink-900">
+                <CircleDot className="size-4 animate-pulse text-amberly-500" /> 
+                OPD Queue
+              </p>
+              
+              {/* Native sleek Date Picker */}
+              <div className="flex items-center gap-2 bg-ink-50 px-2 py-1 rounded-lg border border-ink-200 focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 transition-all">
+                <CalendarDays className="size-3.5 text-ink-500" />
+                <input
+                  type="date"
+                  className="bg-transparent text-[12.5px] font-medium text-ink-700 outline-none cursor-pointer"
+                  value={queueDate}
+                  onChange={(e) => setQueueDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <Button 
+              size="sm" 
+              onClick={handleCallNext} 
+              disabled={actionLoadingId === "call-next" || queueData.stats.waiting === 0} 
+              icon={<PhoneCall className={cn("size-3.5", actionLoadingId === "call-next" && "animate-pulse")} />}
+            >
+              {actionLoadingId === "call-next" ? "Calling…" : "Call Next"}
+            </Button>
           </div>
 
           {currentToken && currentToken.status === TOKEN_STATUSES.IN_PROGRESS && (
@@ -341,18 +371,18 @@ export function ConsultationsPage() {
           )}
 
           {waitingTokens.length > 0 && (
-            <div className="mb-2">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase text-ink-400">Waiting ({waitingTokens.length})</p>
+            <div className="mb-2 mt-4">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Waiting ({waitingTokens.length})</p>
               <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {waitingTokens.map((token: any) => (
-                  <div key={token.id} className="group flex min-w-[17rem] shrink-0 flex-col gap-2 rounded-xl border border-ink-100 bg-white p-3 shadow-sm">
+                  <div key={token.id} className="group flex min-w-[17rem] shrink-0 flex-col gap-2 rounded-xl border border-ink-100 bg-white p-3 shadow-sm hover:border-brand-300 transition-colors">
                     <div className="flex items-center gap-2.5">
                       <Avatar name={token.patient?.fullName} size="sm" color="bg-lagoon-500" />
                       <div className="min-w-0 flex-1"><span className="block truncate text-[12.5px] font-semibold text-ink-900">[{token.tokenNumber}] {token.patient?.fullName}</span></div>
                     </div>
                     <div className="flex items-center gap-1.5 border-t border-ink-50 pt-2">
-                      <button onClick={() => callAndOpenConsultation(token)} disabled={actionLoadingId === token.id} className="flex-1 rounded-md bg-brand-600 py-1 text-[11px] font-semibold text-white hover:bg-brand-700">Call & Start</button>
-                      <button onClick={() => handleSkip(token.id)} disabled={actionLoadingId === token.id} className="rounded-md border border-ink-200 px-2.5 py-1 text-[11px] font-medium text-ink-500 hover:bg-ink-50">Skip</button>
+                      <button onClick={() => callAndOpenConsultation(token)} disabled={actionLoadingId === token.id} className="flex-1 rounded-md bg-brand-600 py-1.5 text-[11px] font-semibold text-white hover:bg-brand-700">Call & Start</button>
+                      <button onClick={() => handleSkip(token.id)} disabled={actionLoadingId === token.id} className="rounded-md border border-ink-200 px-3 py-1.5 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Skip</button>
                     </div>
                   </div>
                 ))}
@@ -361,18 +391,24 @@ export function ConsultationsPage() {
           )}
 
           {skippedTokens.length > 0 && (
-            <div>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase text-coral-500">Skipped ({skippedTokens.length})</p>
+            <div className="mt-4">
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-coral-500">Skipped ({skippedTokens.length})</p>
               <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {skippedTokens.map((token: any) => (
                   <div key={token.id} className="flex min-w-[15rem] shrink-0 items-center gap-2.5 rounded-xl border border-coral-200 bg-coral-50/40 p-2.5">
                     <Avatar name={token.patient?.fullName} size="xs" color="bg-coral-400" />
                     <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink-700">[{token.tokenNumber}] {token.patient?.fullName}</span>
-                    <button onClick={() => handleRequeue(token.id)} disabled={actionLoadingId === token.id} className="rounded-md bg-ink-100 px-2 py-1 text-[10px] font-semibold text-ink-600 hover:bg-ink-200">Re-queue</button>
+                    <button onClick={() => handleRequeue(token.id)} disabled={actionLoadingId === token.id} className="rounded-md bg-white border border-coral-200 px-2.5 py-1 text-[10px] font-semibold text-coral-700 hover:bg-coral-100 shadow-sm">Re-queue</button>
                   </div>
                 ))}
               </div>
             </div>
+          )}
+
+          {waitingTokens.length === 0 && skippedTokens.length === 0 && !currentToken && (
+             <div className="text-center py-8">
+               <p className="text-[13px] text-ink-400 font-medium">No queue found for {formatDate(queueDate)}</p>
+             </div>
           )}
         </Panel>
       )}
@@ -409,7 +445,7 @@ export function ConsultationsPage() {
 }
 
 /* ==========================================================================
-   4. SCREEN 2: PRESCRIPTION WORKSPACE (A4 PAPER UI - Exactly like the image)
+   4. SCREEN 2: PRESCRIPTION WORKSPACE (A4 PAPER UI)
    ========================================================================== */
 export function ConsultationWorkspacePage() {
   const { id = "" } = useParams();
