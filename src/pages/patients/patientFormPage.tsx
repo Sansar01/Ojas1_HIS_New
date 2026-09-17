@@ -120,7 +120,11 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isEdit = Boolean(patient?.id);
-  const departments = useRootSelector((state) => state.departments.items);
+  const departments = useRootSelector(
+    (state) =>
+      state.departments.items &&
+      state.departments.items.filter((x) => x.isActive === true),
+  );
 
   // department options for the dropdown
   useEffect(() => {
