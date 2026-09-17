@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   BadgePercent,
@@ -8,34 +8,19 @@ import {
   Eye,
   FileSpreadsheet,
   Landmark,
-  Pencil,
   Plus,
   Printer,
   Receipt,
   Trash2,
   Wallet,
+  RefreshCw,
 } from "lucide-react";
 import { INVOICE_CATEGORIES, PAYMENT_METHODS } from "@/constants";
-import { addDays, todayISO } from "@/data/db";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
+import { addDays, todayISO, idGen } from "@/data/db";
+import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { invoicesApi } from "@/features/slices";
-import {
-  derivePaymentStatus,
-  downloadText,
-  formatDate,
-  formatMoney,
-  fullName,
-  invoiceTotals,
-  toCSV,
-} from "@/utils";
+import { downloadText, formatDate, formatMoney, toCSV } from "@/utils";
 import { cn } from "@/utils/cn";
-import type { Invoice, InvoiceItem, Payment } from "@/types";
 import {
   Avatar,
   Badge,
@@ -66,148 +51,142 @@ import {
   PageIntro,
   StatStrip,
 } from "@/components/common";
-import { idGen } from "@/data/db";
+import { billingService } from "@/features/billing/billingService";
+
+// Service Master Fallback for frontend quick-selection
+const SERVICE_MASTER = [
+  { code: "CON01", desc: "Consultation - General OPD", cat: "Consultation", price: 500, tax: 0 },
+  { code: "CON02", desc: "Consultation - Specialist", cat: "Consultation", price: 1200, tax: 0 },
+  { code: "LAB01", desc: "Complete Blood Count (CBC)", cat: "Lab", price: 350, tax: 0 },
+  { code: "LAB02", desc: "Lipid Profile", cat: "Lab", price: 950, tax: 0 },
+  { code: "RAD01", desc: "X-Ray Chest PA View", cat: "Procedure", price: 600, tax: 5 },
+  { code: "RAD02", desc: "ECG + 2D Echocardiography", cat: "Procedure", price: 2400, tax: 5 },
+  { code: "PHA01", desc: "Pharmacy Consumables Kit", cat: "Pharmacy", price: 150, tax: 12 },
+];
 
 export function BillingPage() {
-  const dispatch = useAppDispatch();
   const [params, setParams] = useSearchParams();
-  const { items: invoices, status } = useRootSelector((s) => s.invoices);
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const hospital = useRootSelector((s) => s.hospital.data);
   const { canCreate, canEdit, canDelete } = usePermission();
+
   const [tab, setTab] = useState("invoices");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Data states from API
+  const [bills, setBills] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [kpis, setKpis] = useState({ totalAmount: 0, totalCollected: 0, totalDue: 0, totalDiscount: 0 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [payPagination, setPayPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+
+  // Filters
   const [filters, setFilters] = useState({
     paymentStatus: "all",
-    doctor: "all",
-    from: "",
-    to: "",
+    billStatus: "all",
+    date: "",
+    search: "",
   });
-  const [editing, setEditing] = useState<Partial<Invoice> | null>(
-    params.get("new") === "1"
-      ? { patientId: params.get("patient") ?? "" }
-      : null,
-  );
-  const [viewing, setViewing] = useState<Invoice | null>(null);
-  const [paying, setPaying] = useState<Invoice | null>(null);
 
-  const patientMap = useMemo(
-    () => new Map(patients.map((p: any) => [p.id, p])),
-    [patients],
-  );
-  const doctorMap = useMemo(
-    () => new Map(doctors.map((d: any) => [d.id, d])),
-    [doctors],
-  );
+  // Modal / Sheet States
+  const [editing, setEditing] = useState<boolean>(params.get("new") === "1");
+  const [viewing, setViewing] = useState<any | null>(null);
+  const [paying, setPaying] = useState<any | null>(null);
+
+  // ─── API DATA FETCHING ──────────────────────────────────────────
+  const fetchSummary = useCallback(async () => {
+    try {
+      const summary = await billingService.getDailySummary(filters.date || undefined);
+      setKpis({
+        totalAmount: summary.totalAmount || 0,
+        totalCollected: summary.totalCollected || 0,
+        totalDue: summary.totalDue || 0,
+        totalDiscount: summary.totalDiscount || 0,
+      });
+    } catch (e: any) {
+      console.error("Failed to load daily summary", e);
+    }
+  }, [filters.date]);
+
+  const fetchBills = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await billingService.getBills({
+        page: pagination.page,
+        limit: pagination.limit,
+        paymentStatus: filters.paymentStatus,
+        billStatus: filters.billStatus,
+        date: filters.date,
+      });
+      setBills(res.data || []);
+      setPagination((prev) => ({
+        ...prev,
+        total: res.meta?.total || 0,
+        totalPages: res.meta?.totalPages || 1,
+      }));
+    } catch (e: any) {
+      setError(e.message || "Failed to load invoices");
+    } finally {
+      setLoading(false);
+    }
+  }, [pagination.page, pagination.limit, filters]);
+
+  const fetchPayments = useCallback(async () => {
+    try {
+      const res = await billingService.getPayments({
+        page: payPagination.page,
+        limit: payPagination.limit,
+      });
+      setPayments(res.data || []);
+      setPayPagination((prev) => ({
+        ...prev,
+        total: res.meta?.total || 0,
+        totalPages: res.meta?.totalPages || 1,
+      }));
+    } catch (e: any) {
+      console.error("Failed to load payments", e);
+    }
+  }, [payPagination.page, payPagination.limit]);
+
+  const reloadAll = useCallback(() => {
+    fetchSummary();
+    fetchBills();
+    fetchPayments();
+  }, [fetchSummary, fetchBills, fetchPayments]);
 
   useEffect(() => {
-    // if (status === "idle") dispatch(invoicesApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
-
-  const enriched = useMemo(
-    () =>
-      (invoices as Invoice[]).map((inv) => ({
-        ...inv,
-        totals: invoiceTotals(inv),
-      })),
-    [invoices],
-  );
-
-  const kpis = useMemo(() => {
-    const billed = enriched.reduce((s, i) => s + i.totals.total, 0);
-    const collected = enriched.reduce((s, i) => s + i.totals.paid, 0);
-    const outstanding = enriched
-      .filter(
-        (i) =>
-          i.paymentStatus === "Pending" || i.paymentStatus === "Partially Paid",
-      )
-      .reduce((s, i) => s + i.totals.remaining, 0);
-    const refunded = enriched
-      .filter((i) => i.paymentStatus === "Refunded")
-      .reduce((s, i) => s + i.totals.paid, 0);
-    return { billed, collected, outstanding, refunded };
-  }, [enriched]);
-
-  const filtered = enriched.filter((i) => {
-    if (
-      filters.paymentStatus !== "all" &&
-      i.paymentStatus !== filters.paymentStatus
-    )
-      return false;
-    if (filters.doctor !== "all" && i.doctorId !== filters.doctor) return false;
-    if (filters.from && i.date < filters.from) return false;
-    if (filters.to && i.date > filters.to) return false;
-    return true;
-  });
-
-  const table = useTable<any>(filtered, {
-    pageSize: 10,
-    searchFields: [
-      (i) => i.number,
-      (i) => fullName(patientMap.get(i.patientId)),
-      (i) => i.notes,
-      (i) => i.items.map((it: any) => it.description).join(" "),
-    ],
-    sortAccessors: {
-      date: (i) => i.date,
-      total: (i) => i.totals.total,
-      paymentStatus: (i) => i.paymentStatus,
-      patient: (i) => fullName(patientMap.get(i.patientId)),
-    },
-  });
-
-  const payments = useMemo(
-    () =>
-      enriched
-        .flatMap((i) =>
-          i.payments.map((p) => ({
-            ...p,
-            invoice: i.number,
-            patient: fullName(patientMap.get(i.patientId)),
-            invoiceId: i.id,
-          })),
-        )
-        .sort((a, b) => b.date.localeCompare(a.date)),
-    [enriched, patientMap],
-  );
-
-  const clearParams = () => {
-    if (params.get("new") || params.get("invoice")) {
-      params.delete("new");
-      params.delete("invoice");
-      params.delete("patient");
-      setParams(params, { replace: true });
-    }
-  };
-
-  useEffect(() => {
-    const target = params.get("invoice");
-    if (target) {
-      const found = (invoices as Invoice[]).find((i) => i.id === target);
-      if (found) setViewing(found);
-      clearParams();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params, invoices]);
+    reloadAll();
+  }, [reloadAll]);
 
   const exportCsv = () => {
     downloadText(
       `invoices-${todayISO()}.csv`,
       toCSV(
-        filtered.map((i) => ({
-          Invoice: i.number,
-          Patient: fullName(patientMap.get(i.patientId)),
-          Date: i.date,
-          Subtotal: i.totals.subtotal,
-          Discount: i.totals.discount,
-          Tax: i.totals.tax,
-          Total: i.totals.total,
-          Paid: i.totals.paid,
-          Balance: i.totals.remaining,
+        bills.map((i) => ({
+          Invoice: i.billNo,
+          Patient: i.patient ? `${i.patient.firstName} ${i.patient.lastName || ""}` : "—",
+          Date: formatDate(i.billedAt),
+          Subtotal: i.subtotal,
+          Discount: i.discountAmount,
+          Tax: i.taxAmount,
+          Total: i.totalAmount,
+          Paid: i.paidAmount,
+          Balance: i.dueAmount,
           Status: i.paymentStatus,
-        })),
-      ),
+        }))
+      )
     );
+  };
+
+  const handleCancelBill = async (bill: any) => {
+    const reason = prompt(`Enter reason for cancelling bill ${bill.billNo}:`);
+    if (!reason) return;
+    try {
+      await billingService.cancelBill(bill.id, reason);
+      reloadAll();
+    } catch (e: any) {
+      alert(e.message || "Failed to cancel bill");
+    }
   };
 
   return (
@@ -217,17 +196,16 @@ export function BillingPage() {
         description="Charge consultation fees, procedures, labs and pharmacy items. Discounts, taxes, part-payments and refunds are recalculated instantly."
         module="billing"
         createLabel="Create invoice"
-        onCreate={() =>
-          setEditing({ date: todayISO(), dueDate: addDays(new Date(), 7) })
-        }
+        onCreate={() => setEditing(true)}
         actions={
-          <Button
-            variant="outline"
-            icon={<FileSpreadsheet />}
-            onClick={exportCsv}
-          >
-            Export CSV
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" icon={<RefreshCw />} onClick={reloadAll}>
+              Refresh
+            </Button>
+            <Button variant="outline" icon={<FileSpreadsheet />} onClick={exportCsv}>
+              Export CSV
+            </Button>
+          </div>
         }
       />
 
@@ -236,22 +214,22 @@ export function BillingPage() {
           items={[
             {
               label: "Total billed",
-              value: formatMoney(kpis.billed),
+              value: formatMoney(kpis.totalAmount),
               tone: "text-ink-900",
             },
             {
               label: "Collected",
-              value: formatMoney(kpis.collected),
+              value: formatMoney(kpis.totalCollected),
               tone: "text-mint-600",
             },
             {
               label: "Outstanding",
-              value: formatMoney(kpis.outstanding),
+              value: formatMoney(kpis.totalDue),
               tone: "text-coral-600",
             },
             {
-              label: "Refunded",
-              value: formatMoney(kpis.refunded),
+              label: "Total Discount",
+              value: formatMoney(kpis.totalDiscount),
               tone: "text-amberly-600",
             },
           ]}
@@ -265,11 +243,8 @@ export function BillingPage() {
             onValueChange={setTab}
             variant="pill"
             tabs={[
-              { value: "invoices", label: `Invoices (${invoices.length})` },
-              {
-                value: "payments",
-                label: `Payment history (${payments.length})`,
-              },
+              { value: "invoices", label: `Invoices (${pagination.total})` },
+              { value: "payments", label: `Payment history (${payPagination.total})` },
             ]}
           />
         </div>
@@ -277,9 +252,9 @@ export function BillingPage() {
         {tab === "invoices" ? (
           <>
             <TableToolbar
-              search={table.query.search}
-              onSearch={table.setSearch}
-              searchPlaceholder="Search invoice no, patient, item…"
+              search={filters.search}
+              onSearch={(s) => setFilters((f) => ({ ...f, search: s }))}
+              searchPlaceholder="Search invoice no, patient…"
               filters={
                 <>
                   <Select
@@ -287,169 +262,92 @@ export function BillingPage() {
                     className="w-[10.5rem]"
                     name="ps"
                     value={filters.paymentStatus}
-                    onChange={(v) =>
-                      setFilters((f) => ({ ...f, paymentStatus: v }))
-                    }
+                    onChange={(v) => setFilters((f) => ({ ...f, paymentStatus: v }))}
                     options={[
                       { value: "all", label: "Any payment status" },
-                      { value: "Pending", label: "Pending" },
-                      { value: "Partially Paid", label: "Partially paid" },
-                      { value: "Paid", label: "Paid" },
-                      { value: "Refunded", label: "Refunded" },
-                      { value: "Cancelled", label: "Cancelled" },
-                    ]}
-                  />
-                  <Select
-                    size="sm"
-                    className="w-[11rem]"
-                    name="doc"
-                    value={filters.doctor}
-                    onChange={(v) => setFilters((f) => ({ ...f, doctor: v }))}
-                    options={[
-                      { value: "all", label: "All doctors" },
-                      ...doctors.map((d: any) => ({
-                        value: d.id,
-                        label: `Dr. ${d.lastName}`,
-                      })),
+                      { value: "PENDING", label: "Pending" },
+                      { value: "PARTIALLY_PAID", label: "Partially paid" },
+                      { value: "PAID", label: "Paid" },
+                      { value: "REFUNDED", label: "Refunded" },
                     ]}
                   />
                   <DatePicker
                     label=""
-                    value={filters.from}
-                    onChange={(v) => setFilters((f) => ({ ...f, from: v }))}
-                    placeholder="From"
-                  />
-                  <DatePicker
-                    label=""
-                    value={filters.to}
-                    onChange={(v) => setFilters((f) => ({ ...f, to: v }))}
-                    placeholder="To"
+                    value={filters.date}
+                    onChange={(v) => setFilters((f) => ({ ...f, date: v }))}
+                    placeholder="Filter Date"
                   />
                 </>
               }
-              actions={
-                canCreate("billing") ? (
-                  <Button
-                    size="sm"
-                    icon={<Plus />}
-                    onClick={() =>
-                      setEditing({
-                        date: todayISO(),
-                        dueDate: addDays(new Date(), 7),
-                      })
-                    }
-                  >
-                    New invoice
-                  </Button>
-                ) : (
-                  <Badge tone="neutral">View only</Badge>
-                )
-              }
             />
+
             <DataTable
               columns={[
                 {
-                  key: "number",
+                  key: "billNo",
                   header: "Invoice",
                   render: (i) => (
                     <span className="num text-[13px] font-bold text-ink-900">
-                      {i.number}
+                      {i.billNo}
                     </span>
                   ),
                 },
                 {
                   key: "patient",
                   header: "Patient",
-                  sortable: true,
-                  render: (i) => (
-                    <div className="flex items-center gap-2.5">
-                      <Avatar
-                        name={fullName(patientMap.get(i.patientId))}
-                        size="xs"
-                        color="bg-lagoon-500"
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold text-ink-900">
-                          {fullName(patientMap.get(i.patientId))}
-                        </p>
-                        <p className="truncate text-[11px] text-ink-400">
-                          {i.doctorId
-                            ? `Dr. ${fullName(doctorMap.get(i.doctorId))}`
-                            : "Self / walk-in"}
-                        </p>
+                  render: (i) => {
+                    const name = i.patient ? `${i.patient.firstName} ${i.patient.lastName || ""}` : "Walk-in Patient";
+                    return (
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={name} size="xs" color="bg-lagoon-500" />
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-semibold text-ink-900">{name}</p>
+                          <p className="truncate text-[11px] text-ink-400">{i.patient?.uhid || ""}</p>
+                        </div>
                       </div>
-                    </div>
-                  ),
+                    );
+                  },
                 },
                 {
-                  key: "date",
+                  key: "billedAt",
                   header: "Billed",
-                  sortable: true,
-                  hideBelow: "md",
                   render: (i) => (
                     <span className="text-[12.5px] text-ink-600">
-                      {formatDate(i.date)}
+                      {formatDate(i.billedAt)}
                     </span>
                   ),
                 },
                 {
-                  key: "dueDate",
-                  header: "Due",
-                  hideBelow: "lg",
+                  key: "payer",
+                  header: "Payer",
                   render: (i) => (
-                    <span
-                      className={cn(
-                        "text-[12.5px]",
-                        new Date(i.dueDate) < new Date() &&
-                          i.totals.remaining > 0
-                          ? "font-semibold text-coral-600"
-                          : "text-ink-500",
-                      )}
-                    >
-                      {formatDate(i.dueDate)}
-                    </span>
-                  ),
-                },
-                {
-                  key: "items",
-                  header: "Lines",
-                  align: "center",
-                  hideBelow: "xl",
-                  render: (i) => (
-                    <Badge tone="neutral" size="xs">
-                      {i.items.length}
+                    <Badge tone={i.isInsurance ? "lagoon" : "neutral"} size="xs">
+                      {i.isInsurance ? i.insuranceProvider || "Insurance" : "Self Pay"}
                     </Badge>
                   ),
                 },
                 {
-                  key: "total",
+                  key: "totalAmount",
                   header: "Total",
                   align: "right",
-                  sortable: true,
                   render: (i) => (
-                    <span className="num text-[13px] font-bold text-ink-900">
-                      {formatMoney(i.totals.total)}
+                    <span className="num text-[13px] font-semibold text-ink-900">
+                      {formatMoney(i.totalAmount)}
                     </span>
                   ),
                 },
                 {
-                  key: "paid",
-                  header: "Paid / Balance",
+                  key: "dueAmount",
+                  header: "Balance Due",
                   align: "right",
-                  hideBelow: "sm",
                   render: (i) => (
-                    <span className="num text-[12px] text-ink-500">
-                      {formatMoney(i.totals.paid)}{" "}
-                      <span className="text-ink-300">/</span>{" "}
-                      <span
-                        className={
-                          i.totals.remaining > 0
-                            ? "font-semibold text-coral-600"
-                            : "text-mint-600"
-                        }
-                      >
-                        {formatMoney(i.totals.remaining)}
-                      </span>
+                    <span
+                      className={cn(
+                        "num text-[13px] font-bold",
+                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600"
+                      )}
+                    >
+                      {formatMoney(i.dueAmount)}
                     </span>
                   ),
                 },
@@ -457,24 +355,12 @@ export function BillingPage() {
                   key: "paymentStatus",
                   header: "Status",
                   align: "center",
-                  sortable: true,
                   render: (i) => <StatusBadge status={i.paymentStatus} />,
                 },
               ]}
-              rows={table.rows}
-              status={
-                status === "ready"
-                  ? "ready"
-                  : status === "error"
-                    ? "error"
-                    : "loading"
-              }
-              onRetry={() => dispatch(invoicesApi.thunks.fetchAll() as any)}
-              sort={{
-                sortBy: table.query.sortBy,
-                sortDir: table.query.sortDir,
-                onSort: table.toggleSort,
-              }}
+              rows={bills}
+              status={loading ? "loading" : error ? "error" : "ready"}
+              onRetry={fetchBills}
               onRowClick={(i) => setViewing(i)}
               actions={(i) => (
                 <RowActions
@@ -487,54 +373,36 @@ export function BillingPage() {
                     {
                       label: "Record payment",
                       icon: <Banknote />,
-                      hidden:
-                        !canEdit("billing") ||
-                        i.paymentStatus === "Paid" ||
-                        i.paymentStatus === "Cancelled",
+                      hidden: !canEdit("billing") || i.paymentStatus === "PAID" || i.billStatus === "CANCELLED",
                       onClick: () => setPaying(i),
                     },
                     {
-                      label: "Edit invoice",
-                      icon: <Pencil />,
-                      hidden: !canEdit("billing"),
-                      onClick: () => setEditing(i),
-                    },
-                    {
-                      label: "Delete invoice",
+                      label: "Cancel/Void Bill",
                       icon: <Trash2 />,
                       tone: "danger",
-                      hidden: !canDelete("billing"),
-                      onClick: () =>
-                        dispatch(
-                          invoicesApi.thunks.removeOne({
-                            id: i.id,
-                            label: i.number,
-                          } as any),
-                        ),
+                      hidden: !canDelete("billing") || i.paymentStatus === "PAID" || i.billStatus === "CANCELLED",
+                      onClick: () => handleCancelBill(i),
                     },
                   ]}
                 />
               )}
-              emptyTitle="No invoices yet"
-              emptyDescription="Raise an invoice from a completed consultation or create a standalone bill."
+              emptyTitle="No invoices found"
+              emptyDescription="Raise an invoice for an OPD appointment or walk-in patient."
               emptyAction={
                 canCreate("billing") ? (
-                  <Button
-                    size="sm"
-                    onClick={() => setEditing({ date: todayISO() })}
-                  >
+                  <Button size="sm" onClick={() => setEditing(true)}>
                     Create invoice
                   </Button>
                 ) : undefined
               }
               footer={
                 <Pagination
-                  page={table.page}
-                  pageCount={table.pageCount}
-                  total={table.total}
-                  pageSize={table.pageSize}
-                  onPage={table.setPage}
-                  onPageSize={table.setPageSize}
+                  page={pagination.page}
+                  pageCount={pagination.totalPages}
+                  total={pagination.total}
+                  pageSize={pagination.limit}
+                  onPage={(p) => setPagination((prev) => ({ ...prev, page: p }))}
+                  onPageSize={(s) => setPagination((prev) => ({ ...prev, limit: s, page: 1 }))}
                   label="invoices"
                 />
               }
@@ -544,20 +412,20 @@ export function BillingPage() {
           <div className="p-4">
             {payments.length === 0 ? (
               <p className="py-10 text-center text-[13px] text-ink-400">
-                No payments recorded yet.
+                No payment transactions recorded yet.
               </p>
             ) : (
               <ul className="divide-y divide-ink-100 overflow-hidden rounded-xl border border-ink-100">
-                {payments.slice(0, 40).map((p) => (
+                {payments.map((p) => (
                   <li
                     key={p.id}
                     className="flex flex-wrap items-center justify-between gap-3 bg-white px-4 py-3 transition-colors hover:bg-brand-25/40"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-mint-50 text-mint-600 [&>svg]:size-4">
-                        {p.method === "Cash" ? (
+                        {p.paymentMode === "CASH" ? (
                           <Wallet />
-                        ) : p.method === "Insurance" ? (
+                        ) : p.paymentMode === "INSURANCE" ? (
                           <Landmark />
                         ) : (
                           <CreditCard />
@@ -565,25 +433,14 @@ export function BillingPage() {
                       </span>
                       <div className="min-w-0">
                         <p className="truncate text-[13px] font-semibold text-ink-900">
-                          {formatMoney(p.amount)} · {p.patient}
+                          {formatMoney(p.amount)} · {p.patient?.name || "Patient"}
                         </p>
                         <p className="num truncate text-[11.5px] text-ink-400">
-                          {p.invoice} · {formatDate(p.date)} · {p.method} ·{" "}
-                          {p.reference || "no ref"}
+                          Receipt: {p.receiptNo} · Bill: {p.billNo} · {formatDate(p.paidAt)} · Mode: {p.paymentMode}
+                          {p.transactionId ? ` · Txn: ${p.transactionId}` : ""}
                         </p>
                       </div>
                     </div>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() =>
-                        setViewing(
-                          enriched.find((e) => e.id === p.invoiceId) as any,
-                        )
-                      }
-                    >
-                      View invoice
-                    </Button>
                   </li>
                 ))}
               </ul>
@@ -592,115 +449,84 @@ export function BillingPage() {
         )}
       </Panel>
 
+      {/* CREATE INVOICE MODAL */}
       {editing && (
         <InvoiceForm
-          initial={editing}
-          onClose={() => {
-            setEditing(null);
-            clearParams();
+          onClose={() => setEditing(false)}
+          onSuccess={() => {
+            setEditing(false);
+            reloadAll();
           }}
         />
       )}
 
+      {/* RECORD PAYMENT MODAL */}
       {paying && (
-        <PaymentDialog invoice={paying} onClose={() => setPaying(null)} />
+        <PaymentDialog
+          bill={paying}
+          onClose={() => setPaying(null)}
+          onSuccess={() => {
+            setPaying(null);
+            reloadAll();
+          }}
+        />
       )}
 
-      {/* printable invoice view */}
+      {/* VIEW PRINTABLE INVOICE SHEET */}
       <Dialog
         open={!!viewing}
         onOpenChange={(v) => !v && setViewing(null)}
         size="lg"
         title={
           <span className="flex items-center gap-2">
-            <Receipt className="size-4.5 text-brand-600" /> {viewing?.number}
+            <Receipt className="size-4.5 text-brand-600" /> {viewing?.billNo}
           </span>
         }
-        description={
-          viewing ? `Patient statement · ${formatDate(viewing.date)}` : ""
-        }
+        description={viewing ? `Statement · ${formatDate(viewing.billedAt)}` : ""}
         footer={
           <div className="flex w-full items-center justify-between gap-2">
             <StatusBadge status={viewing?.paymentStatus ?? ""} />
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                icon={<Printer />}
-                onClick={() => window.print()}
-              >
+              <Button size="sm" variant="outline" icon={<Printer />} onClick={() => window.print()}>
                 Print / PDF
               </Button>
-              {canEdit("billing") &&
-                viewing &&
-                (viewing as any).totals.remaining > 0 && (
-                  <Button
-                    size="sm"
-                    icon={<Banknote />}
-                    onClick={() => {
-                      setPaying(viewing);
-                      setViewing(null);
-                    }}
-                  >
-                    Record payment
-                  </Button>
-                )}
+              {canEdit("billing") && viewing && viewing.dueAmount > 0 && (
+                <Button
+                  size="sm"
+                  icon={<Banknote />}
+                  onClick={() => {
+                    setPaying(viewing);
+                    setViewing(null);
+                  }}
+                >
+                  Record payment
+                </Button>
+              )}
             </div>
           </div>
         }
       >
-        {viewing && (
-          <InvoiceSheet
-            invoice={viewing}
-            patient={patientMap.get(viewing.patientId)}
-            doctor={viewing.doctorId ? doctorMap.get(viewing.doctorId) : null}
-            hospital={hospital as any}
-          />
-        )}
+        {viewing && <InvoiceSheet invoice={viewing} />}
       </Dialog>
     </>
   );
 }
 
-/* ------------------------------- invoice sheet ------------------------------ */
+/* ------------------------------- INVOICE SHEET ------------------------------ */
 
-export function InvoiceSheet({
-  invoice,
-  patient,
-  doctor,
-  hospital,
-}: {
-  invoice: Invoice;
-  patient?: any;
-  doctor?: any;
-  hospital?: any;
-}) {
-  const t = invoiceTotals(invoice);
-  const currency = hospital?.currencySymbol ?? "₹";
+function InvoiceSheet({ invoice }: { invoice: any }) {
+  const patient = invoice.patient;
   return (
     <div className="rounded-xl border border-ink-100 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink-100 pb-4">
         <div>
-          <p className="font-display text-[17px] font-bold text-ink-900">
-            {hospital?.name ?? "Meridian Care Multispeciality Hospital"}
-          </p>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-400">
-            {hospital?.address} · {hospital?.city}
-            <br />
-            {hospital?.phone} · {hospital?.email} · GST {hospital?.taxId}
-          </p>
+          <p className="font-display text-[17px] font-bold text-ink-900">Hospital Multi-Specialty</p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-400">Main OPD Block</p>
         </div>
         <div className="text-right">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400">
-            Tax invoice
-          </p>
-          <p className="num text-[16px] font-bold text-ink-900">
-            {invoice.number}
-          </p>
-          <p className="text-[11.5px] text-ink-400">
-            Issued {formatDate(invoice.date)} · Due{" "}
-            {formatDate(invoice.dueDate)}
-          </p>
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400">Tax Invoice</p>
+          <p className="num text-[16px] font-bold text-ink-900">{invoice.billNo}</p>
+          <p className="text-[11.5px] text-ink-400">Issued {formatDate(invoice.billedAt)}</p>
           <div className="mt-1.5 flex justify-end">
             <StatusBadge status={invoice.paymentStatus} />
           </div>
@@ -709,34 +535,11 @@ export function InvoiceSheet({
 
       <div className="grid gap-4 py-4 sm:grid-cols-2">
         <div>
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-            Billed to
-          </p>
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Billed to</p>
           <p className="mt-1 text-[13.5px] font-semibold text-ink-900">
-            {fullName(patient)}
+            {patient ? `${patient.firstName} ${patient.lastName || ""}` : "Walk-in"}
           </p>
-          <p className="text-[11.5px] text-ink-400">
-            {patient?.mrn} · {patient?.mobile}
-          </p>
-          <p className="text-[11.5px] text-ink-400">
-            {patient?.address}, {patient?.city}
-          </p>
-        </div>
-        <div className="sm:text-right">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">
-            Attending
-          </p>
-          <p className="mt-1 text-[13.5px] font-semibold text-ink-900">
-            {doctor ? `Dr. ${fullName(doctor)}` : "—"}
-          </p>
-          <p className="text-[11.5px] text-ink-400">
-            {doctor?.registrationNumber ?? ""}
-          </p>
-          {invoice.insurance && (
-            <Badge tone="lagoon" size="xs">
-              Insurance · {invoice.insurance}
-            </Badge>
-          )}
+          <p className="text-[11.5px] text-ink-400">{patient?.uhid} · {patient?.mobile}</p>
         </div>
       </div>
 
@@ -751,19 +554,13 @@ export function InvoiceSheet({
           </tr>
         </thead>
         <tbody className="divide-y divide-ink-100">
-          {invoice.items.map((it) => (
+          {(invoice.items || []).map((it: any) => (
             <tr key={it.id}>
-              <td className="px-2 py-2 font-medium text-ink-800">
-                {it.description || "—"}
-              </td>
+              <td className="px-2 py-2 font-medium text-ink-800">{it.itemName || it.description}</td>
               <td className="px-2 py-2 text-ink-500">{it.category}</td>
               <td className="num px-2 py-2 text-center">{it.quantity}</td>
-              <td className="num px-2 py-2 text-right">
-                {formatMoney(it.unitPrice, currency)}
-              </td>
-              <td className="num px-2 py-2 text-right font-semibold">
-                {formatMoney(it.quantity * it.unitPrice, currency)}
-              </td>
+              <td className="num px-2 py-2 text-right">{formatMoney(it.unitPrice)}</td>
+              <td className="num px-2 py-2 text-right font-semibold">{formatMoney(it.totalAmount || it.quantity * it.unitPrice)}</td>
             </tr>
           ))}
         </tbody>
@@ -771,256 +568,271 @@ export function InvoiceSheet({
 
       <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_15rem]">
         <div className="space-y-2 text-[11.5px] leading-relaxed text-ink-400">
-          {invoice.notes && (
-            <p className="rounded-lg bg-ink-25 px-3 py-2 text-ink-600">
-              <span className="font-semibold text-ink-700">Notes · </span>
-              {invoice.notes}
-            </p>
-          )}
           <p>
-            <span className="font-semibold text-ink-700">
-              Payments received ·{" "}
-            </span>
-            {invoice.payments.length === 0 && "None"}
-            {invoice.payments.map((p) => (
+            <span className="font-semibold text-ink-700">Payments received · </span>
+            {invoice.payments?.length === 0 && "None"}
+            {invoice.payments?.map((p: any) => (
               <span key={p.id} className="num">
-                {formatMoney(p.amount, currency)} ({p.method}
-                {p.reference ? ` · ${p.reference}` : ""} on {formatDate(p.date)}
-                ){" "}
+                {formatMoney(p.amount)} ({p.paymentMode}) on {formatDate(p.paidAt)}{" "}
               </span>
             ))}
           </p>
         </div>
         <dl className="space-y-1.5 rounded-xl border border-ink-100 bg-ink-25/60 p-3 text-[12.5px]">
-          <Line label="Subtotal" value={formatMoney(t.subtotal, currency)} />
-          {t.discount > 0 && (
-            <Line
-              label={`Discount${invoice.discountType === "Percent" ? ` (${invoice.discountValue}%)` : ""}`}
-              value={`− ${formatMoney(t.discount, currency)}`}
-              tone="mint"
-            />
-          )}
-          <Line
-            label={`Tax (${invoice.taxRate}%)`}
-            value={formatMoney(t.tax, currency)}
-          />
+          <Line label="Subtotal" value={formatMoney(invoice.subtotal)} />
+          <Line label="Discount" value={`− ${formatMoney(invoice.discountAmount)}`} tone="mint" />
+          <Line label="Tax" value={formatMoney(invoice.taxAmount)} />
           <div className="my-1.5 h-px bg-ink-200" />
-          <Line
-            label="Total payable"
-            value={formatMoney(t.total, currency)}
-            strong
-          />
-          <Line label="Paid" value={formatMoney(t.paid, currency)} />
+          <Line label="Total payable" value={formatMoney(invoice.totalAmount)} strong />
+          <Line label="Paid" value={formatMoney(invoice.paidAmount)} />
           <Line
             label="Balance due"
-            value={formatMoney(t.remaining, currency)}
-            tone={t.remaining > 0 ? "coral" : "mint"}
+            value={formatMoney(invoice.dueAmount)}
+            tone={invoice.dueAmount > 0 ? "coral" : "mint"}
             strong
           />
         </dl>
       </div>
-      <p className="mt-4 border-t border-ink-100 pt-3 text-center text-[10.5px] text-ink-400">
-        This is a computer generated invoice ·{" "}
-        {hospital?.name ?? "Meridian Care"} · License{" "}
-        {hospital?.licenseNo ?? "—"}
-      </p>
     </div>
   );
 }
 
-const Line = ({
-  label,
-  value,
-  strong,
-  tone,
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-  tone?: "mint" | "coral";
-}) => (
+const Line = ({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: "mint" | "coral" }) => (
   <div className="flex items-center justify-between gap-3">
-    <dt className={cn("text-ink-500", strong && "font-semibold text-ink-700")}>
-      {label}
-    </dt>
-    <dd
-      className={cn(
-        "num font-semibold",
-        tone === "coral"
-          ? "text-coral-600"
-          : tone === "mint"
-            ? "text-mint-600"
-            : "text-ink-900",
-        strong && "text-[14px]",
-      )}
-    >
+    <dt className={cn("text-ink-500", strong && "font-semibold text-ink-700")}>{label}</dt>
+    <dd className={cn("num font-semibold", tone === "coral" ? "text-coral-600" : tone === "mint" ? "text-mint-600" : "text-ink-900", strong && "text-[14px]")}>
       {value}
     </dd>
   </div>
 );
 
-/* ------------------------------- invoice form ------------------------------- */
+/* ------------------------------- INVOICE FORM (CREATE) ------------------------------- */
 
-function InvoiceForm({
-  initial,
-  onClose,
-}: {
-  initial: Partial<Invoice>;
-  onClose: () => void;
-}) {
-  const dispatch = useAppDispatch();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const consultations = useRootSelector((s) => s.consultations.items);
-  const isEdit = Boolean(initial.id);
+/* ------------------------------- INVOICE FORM (CREATE) ------------------------------- */
 
-  const newItem = (): InvoiceItem => ({
+function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [searchParams] = useSearchParams();
+  
+  // 🟢 1. Read URL Parameters
+  const urlAppointmentId = searchParams.get("appointment");
+  const urlPatientId = searchParams.get("patient");
+
+  const [patients, setPatients] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [mastersLoading, setMastersLoading] = useState(true);
+
+  const newItem = () => ({
     id: idGen("it"),
+    code: "",
     description: "",
     category: "Consultation",
     quantity: 1,
     unitPrice: 0,
+    taxRate: 0,
   });
 
   const form = useForm({
     initialValues: {
-      patientId: initial.patientId ?? patients[0]?.id ?? "",
-      doctorId:
-        initial.doctorId ??
-        doctors.find((d: any) => d.status === "active")?.id ??
-        "",
-      consultationId: initial.consultationId ?? "",
-      date: initial.date ?? todayISO(),
-      dueDate: initial.dueDate ?? addDays(new Date(), 7),
-      items: initial.items?.length
-        ? initial.items
-        : ([
-            {
-              id: idGen("it"),
-              description: "Consultation — specialist OPD review",
-              category: "Consultation",
-              quantity: 1,
-              unitPrice: 1200,
-            },
-            {
-              id: idGen("it"),
-              description: "ECG + 2D echocardiography",
-              category: "Procedure",
-              quantity: 1,
-              unitPrice: 2400,
-            },
-            {
-              id: idGen("it"),
-              description: "Lipid profile, HbA1c, renal panel",
-              category: "Lab",
-              quantity: 1,
-              unitPrice: 950,
-            },
-          ] as InvoiceItem[]),
-      discountType: (initial.discountType ?? "Flat") as Invoice["discountType"],
-      discountValue: initial.discountValue ?? 0,
-      taxRate: initial.taxRate ?? 5,
-      notes: initial.notes ?? "",
-      insurance: initial.insurance ?? "",
+      patientId: urlPatientId || "",
+      doctorId: "",
+      appointmentId: urlAppointmentId || "",
+      date: todayISO(),
+      dueDate: addDays(new Date(), 7),
+      items: [newItem()],
+      discountType: "Flat" as "Flat" | "Percent",
+      discountValue: 0,
+      notes: "",
+      insurance: "",
       amountPaid: 0,
-      paymentMethod: "Card" as Payment["method"],
+      paymentMethod: "UPI",
     },
     schema: {
       patientId: [{ required: "Select a patient" }],
       date: [{ required: "Billing date is required" }],
-      dueDate: [{ required: "Due date is required" }],
     },
   });
 
-  const totals = invoiceTotals({
-    items: form.values.items,
-    discountType: form.values.discountType,
-    discountValue: form.values.discountValue,
-    taxRate: form.values.taxRate,
-    payments:
-      form.values.amountPaid > 0
-        ? [{ amount: form.values.amountPaid } as any]
-        : [],
-  });
+  // Load Patients, Doctors, and ALL Appointments (No filter constraint)
+  useEffect(() => {
+    async function loadMasters() {
+      try {
+        setMastersLoading(true);
+        const [patRes, docRes, aptRes] = await Promise.all([
+          billingService.getPatients({ limit: 100 }),
+          billingService.getDoctors(),
+          billingService.getAppointments({}), // Fetches all recent appointments
+        ]);
 
-  const patchItem = (id: string, patch: Partial<InvoiceItem>) =>
+        const rawPatients = patRes.data || [];
+        const rawDoctors = docRes.data || [];
+        const rawAppointments = aptRes.data || [];
+
+        // Find appointment passed in URL
+        let matchedApt = rawAppointments.find((a: any) => a.id === urlAppointmentId);
+
+        // Ensure Patient from matchedApt is present in patient options
+        if (matchedApt?.patient && !rawPatients.some((p: any) => p.id === matchedApt.patient.id)) {
+          rawPatients.unshift(matchedApt.patient);
+        }
+
+        const patList = rawPatients.map((p: any) => ({
+          value: p.id,
+          label: `${p.firstName} ${p.lastName || ""}`.trim(),
+          description: `UHID: ${p.uhid} | Mob: ${p.mobile || "N/A"}`,
+          raw: p,
+        }));
+        setPatients(patList);
+
+        setDoctors(
+          rawDoctors.map((d: any) => ({
+            value: d.id,
+            label: `Dr. ${d.fullName || `${d.firstName} ${d.lastName || ""}`}`.trim(),
+            fee: Number(d.consultationFee || 0),
+          }))
+        );
+
+        const aptList = rawAppointments.map((a: any) => ({
+          value: a.id,
+          label: `${a.appointmentNo} · ${a.patient ? `${a.patient.firstName} ${a.patient.lastName || ""}` : "Patient"} (${a.status})`,
+          description: `Date: ${a.appointmentDate} | Fee: ₹${a.consultationFee}`,
+          raw: a,
+        }));
+        setAppointments(aptList);
+
+        // 🟢 2. AUTO-FILL FORM STATE EXPLICITLY
+        if (matchedApt) {
+          const pId = matchedApt.patient?.id || urlPatientId || "";
+          const fee = Number(matchedApt.consultationFee || 500);
+          const docName = matchedApt.doctor
+            ? `Dr. ${matchedApt.doctor.firstName} ${matchedApt.doctor.lastName || ""}`.trim()
+            : "OPD";
+
+          form.setValue("patientId", pId);
+          form.setValue("appointmentId", urlAppointmentId!);
+          form.setValue("items", [
+            {
+              id: idGen("it"),
+              code: "CON",
+              description: `Consultation - ${docName}`,
+              category: "Consultation",
+              quantity: 1,
+              unitPrice: fee,
+              taxRate: 0,
+            },
+          ]);
+          form.setValue("amountPaid", fee);
+        } else if (urlPatientId) {
+          form.setValue("patientId", urlPatientId);
+        }
+
+      } catch (e) {
+        console.error("Failed loading billing masters", e);
+      } finally {
+        setMastersLoading(false);
+      }
+    }
+    loadMasters();
+  }, [urlAppointmentId, urlPatientId]);
+
+  // Handle manual appointment selection in dropdown
+  const handleAppointmentChange = (aptId: string) => {
+    form.setValue("appointmentId", aptId);
+    const apt = appointments.find((a) => a.value === aptId)?.raw;
+    if (!apt) return;
+
+    if (apt.patient?.id) form.setValue("patientId", apt.patient.id);
+
+    const fee = Number(apt.consultationFee || 500);
+
+    form.setValue("items", [
+      {
+        id: idGen("it"),
+        code: "CON",
+        description: `Consultation - ${apt.doctor ? `Dr. ${apt.doctor.firstName} ${apt.doctor.lastName || ""}` : "OPD"}`,
+        category: "Consultation",
+        quantity: 1,
+        unitPrice: fee,
+        taxRate: 0,
+      },
+    ]);
+
+    form.setValue("amountPaid", fee);
+  };
+
+  // Calculate totals dynamically
+  const totals = useMemo(() => {
+    let subtotal = 0;
+    let itemizedTax = 0;
+
+    form.values.items.forEach((it: any) => {
+      const lineTotal = Number(it.quantity || 1) * Number(it.unitPrice || 0);
+      subtotal += lineTotal;
+      itemizedTax += lineTotal * ((it.taxRate || 0) / 100);
+    });
+
+    let discount = 0;
+    if (form.values.discountType === "Percent") {
+      discount = subtotal * (Number(form.values.discountValue || 0) / 100);
+    } else {
+      discount = Number(form.values.discountValue || 0);
+    }
+
+    const total = subtotal - discount + itemizedTax;
+    const remaining = total - Number(form.values.amountPaid || 0);
+
+    return { subtotal, discount, tax: itemizedTax, total, remaining };
+  }, [form.values.items, form.values.discountType, form.values.discountValue, form.values.amountPaid]);
+
+  const patchItem = (id: string, patch: any) =>
     form.setValue(
       "items",
-      form.values.items.map((it) => (it.id === id ? { ...it, ...patch } : it)),
+      form.values.items.map((it: any) => (it.id === id ? { ...it, ...patch } : it))
     );
 
   const save = form.handleSubmit(async (values) => {
-    const data: any = {
+    const payload: any = {
       patientId: values.patientId,
-      doctorId: values.doctorId || null,
-      consultationId: values.consultationId || null,
-      date: values.date,
-      dueDate: values.dueDate,
-      items: values.items.filter((i) => i.description.trim()),
-      discountType: values.discountType,
-      discountValue: Number(values.discountValue),
-      taxRate: Number(values.taxRate),
-      notes: values.notes,
-      insurance: values.insurance || undefined,
-      payments:
-        values.amountPaid > 0
-          ? [
-              {
-                id: idGen("pay"),
-                date: values.date,
-                amount: Number(values.amountPaid),
-                method: values.paymentMethod,
-                reference: "",
-                note: "Payment at invoice creation",
-              },
-            ]
-          : [],
+      appointmentId: values.appointmentId || undefined,
+      items: values.items
+        .filter((i: any) => i.description.trim())
+        .map((i: any) => ({
+          code: i.code || undefined,
+          description: i.description,
+          category: i.category,
+          quantity: Number(i.quantity),
+          unitPrice: Number(i.unitPrice),
+          taxRate: Number(i.taxRate || 0),
+        })),
+      discountPercent: values.discountType === "Percent" ? Number(values.discountValue) : undefined,
+      discountAmount: values.discountType === "Flat" ? Number(values.discountValue) : undefined,
+      isInsurance: Boolean(values.insurance) && values.insurance !== "Self pay",
+      insuranceProvider: values.insurance !== "Self pay" ? values.insurance : undefined,
     };
-    data.paymentStatus = derivePaymentStatus(
-      invoiceTotals({ ...data, payments: data.payments }).total,
-      data.payments.reduce((s: number, p: any) => s + p.amount, 0),
-    );
-    if (isEdit)
-      await dispatch(
-        invoicesApi.thunks.updateOne({
-          id: initial.id!,
-          data,
-          successMessage: "Invoice updated",
-        } as any),
-      );
-    else
-      await dispatch(
-        invoicesApi.thunks.createOne({
-          data: {
-            ...data,
-            number: `${hospitalPrefix()}${Math.floor(2500 + Math.random() * 499)}`,
-          },
-          successMessage: "Invoice created",
-        } as any),
-      );
-    onClose();
-  });
 
-  const hospital = useRootSelector((s) => s.hospital.data);
-  const hospitalPrefix = () => `${hospital?.invoicePrefix ?? "MCH"}-`;
+    if (Number(values.amountPaid) > 0) {
+      payload.paymentAmount = Number(values.amountPaid);
+      payload.paymentMode = values.paymentMethod;
+    }
+
+    try {
+      await billingService.createBill(payload);
+      onSuccess();
+    } catch (e: any) {
+      alert(e.message || "Failed to create invoice");
+    }
+  });
 
   return (
     <FormDialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="xl"
-      title={isEdit ? `Edit invoice ${initial.number}` : "Create invoice"}
-      description="Line items, discounts and taxes recalculate the payable amount as you type."
+      title="Create invoice"
+      description="Line items, discounts and taxes recalculate as you type."
       onSubmit={save}
-      loading={form.submitting}
-      submitLabel={isEdit ? "Save invoice" : "Raise invoice"}
-      footerNote={
-        <span>
-          Subtotal {formatMoney(totals.subtotal)} · Tax{" "}
-          {formatMoney(totals.tax)} · Payable{" "}
-          <strong className="text-ink-700">{formatMoney(totals.total)}</strong>
-        </span>
-      }
+      loading={form.submitting || mastersLoading}
+      submitLabel="Save & Print Bill"
     >
       <FormSection title="Bill details">
         <FormRow className="lg:grid-cols-4">
@@ -1031,119 +843,93 @@ function InvoiceForm({
             value={form.values.patientId}
             onChange={(v) => form.setValue("patientId", v)}
             error={form.errors.patientId}
-            options={patients.map((p: any) => ({
-              value: p.id,
-              label: fullName(p),
-              description: p.mrn,
-            }))}
+            options={patients}
           />
+
           <Select
-            name="doctorId"
-            label="Attending doctor"
-            clearable
-            value={form.values.doctorId}
-            onChange={(v) => form.setValue("doctorId", v)}
-            options={doctors.map((d: any) => ({
-              value: d.id,
-              label: `Dr. ${fullName(d)}`,
-            }))}
-          />
-          <Select
-            name="consultationId"
+            name="appointmentId"
             label="Link consultation"
             clearable
-            value={form.values.consultationId}
-            onChange={(v) => {
-              const con = consultations.find((c: any) => c.id === v) as any;
-              form.setValues({
-                ...form.values,
-                consultationId: v,
-                patientId: con?.patientId ?? form.values.patientId,
-                doctorId: con?.doctorId ?? form.values.doctorId,
-              });
-            }}
-            options={consultations
-              .filter((c: any) => c.status === "Completed")
-              .map((c: any) => ({
-                value: c.id,
-                label: c.code,
-                description: c.diagnosis,
-              }))}
-            hint="Auto-fills patient & doctor from a completed visit"
+            value={form.values.appointmentId}
+            onChange={handleAppointmentChange}
+            options={appointments}
+            hint="Auto-fills patient & doctor from visit"
           />
+
           <Select
             name="insurance"
             label="Insurance / payer"
             clearable
-            value={form.values.insurance ?? ""}
+            value={form.values.insurance}
             onChange={(v) => form.setValue("insurance", v)}
-            options={[
-              "Star Health",
-              "HDFC Ergo",
-              "ICICI Lombard",
-              "CGHS",
-              "Self pay",
-            ].map((i) => ({ value: i, label: i }))}
+            options={["Star Health", "HDFC Ergo", "ICICI Lombard", "CGHS", "Self pay"].map((i) => ({ value: i, label: i }))}
           />
+
           <DatePicker
             label="Billing date"
             required
             value={form.values.date}
             onChange={(v) => form.setValue("date", v)}
-            error={form.errors.date}
-          />
-          <DatePicker
-            label="Due date"
-            required
-            value={form.values.dueDate}
-            onChange={(v) => form.setValue("dueDate", v)}
-            error={form.errors.dueDate}
-            min={form.values.date}
           />
         </FormRow>
       </FormSection>
 
       <FormSection title="Chargeable items">
         <div className="mt-3 space-y-2">
-          {form.values.items.map((it, index) => (
+          {form.values.items.map((it: any, index: number) => (
             <div
               key={it.id}
-              className="grid gap-2 rounded-xl border border-ink-100 bg-ink-25/40 p-2.5 lg:grid-cols-[1.8fr_.9fr_.5fr_.8fr_auto_auto]"
+              className="grid gap-2 rounded-xl border border-ink-100 bg-ink-25/40 p-2.5 lg:grid-cols-[2fr_1fr_0.5fr_0.8fr_0.5fr_auto_auto]"
             >
-              <Input
-                name={`d${it.id}`}
-                label={index === 0 ? "Description" : undefined}
-                placeholder="Consultation — Dr. Rao"
-                value={it.description}
-                onChange={(e) =>
-                  patchItem(it.id, { description: e.target.value })
-                }
-              />
               <Select
-                size="sm"
+                name={`s${it.id}`}
+                label={index === 0 ? "Service / Item" : undefined}
+                value={it.code || ""}
+                onChange={(v) => {
+                  const service = SERVICE_MASTER.find((s) => s.code === v);
+                  if (service) {
+                    patchItem(it.id, {
+                      code: service.code,
+                      description: service.desc,
+                      category: service.cat,
+                      unitPrice: service.price,
+                      taxRate: service.tax,
+                    });
+                  }
+                }}
+                options={SERVICE_MASTER.map((s) => ({
+                  value: s.code,
+                  label: s.desc,
+                  description: `${s.cat} | Base: ${formatMoney(s.price)}`,
+                }))}
+              />
+              <Input
                 name={`c${it.id}`}
                 label={index === 0 ? "Category" : undefined}
                 value={it.category}
-                onChange={(v) => patchItem(it.id, { category: v as any })}
-                options={INVOICE_CATEGORIES.map((c) => ({
-                  value: c,
-                  label: c,
-                }))}
+                readOnly
+                className="bg-ink-50 text-ink-500"
               />
               <NumberInput
                 label={index === 0 ? "Qty" : undefined}
                 value={it.quantity}
                 onValueChange={(v) => patchItem(it.id, { quantity: v })}
                 min={1}
-                max={99}
               />
               <NumberInput
                 label={index === 0 ? "Unit price" : undefined}
                 value={it.unitPrice}
                 onValueChange={(v) => patchItem(it.id, { unitPrice: v })}
                 min={0}
-                step={50}
                 suffix="₹"
+              />
+              <NumberInput
+                label={index === 0 ? "Tax %" : undefined}
+                value={it.taxRate}
+                onValueChange={(v) => patchItem(it.id, { taxRate: v })}
+                min={0}
+                max={40}
+                suffix="%"
               />
               <div className="flex flex-col justify-end px-1 text-right">
                 <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">
@@ -1159,49 +945,16 @@ function InvoiceForm({
                   size="sm"
                   variant="ghost"
                   className="mb-1 text-coral-500 hover:bg-coral-50"
-                  onClick={() =>
-                    form.setValue(
-                      "items",
-                      form.values.items.filter((x) => x.id !== it.id),
-                    )
-                  }
+                  onClick={() => form.setValue("items", form.values.items.filter((x: any) => x.id !== it.id))}
                 >
                   <Trash2 />
                 </IconButton>
               </div>
             </div>
           ))}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<Plus />}
-              onClick={() =>
-                form.setValue("items", [...form.values.items, newItem()])
-              }
-            >
-              Add line item
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={<BadgePercent />}
-              onClick={() =>
-                form.setValue("items", [
-                  ...form.values.items,
-                  {
-                    ...newItem(),
-                    description: "Session discount",
-                    category: "Service",
-                    quantity: 1,
-                    unitPrice: 0,
-                  },
-                ])
-              }
-            >
-              Add concession line
-            </Button>
-          </div>
+          <Button size="sm" variant="outline" icon={<Plus />} onClick={() => form.setValue("items", [...form.values.items, newItem()])}>
+            Add line item
+          </Button>
         </div>
       </FormSection>
 
@@ -1209,7 +962,7 @@ function InvoiceForm({
         <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_1fr_17rem]">
           <div className="space-y-3">
             <RadioGroup
-              label="Discount basis"
+              label="Global Discount"
               value={form.values.discountType}
               onChange={(v) => form.setValue("discountType", v)}
               options={[
@@ -1218,37 +971,20 @@ function InvoiceForm({
               ]}
             />
             <NumberInput
-              label={
-                form.values.discountType === "Percent"
-                  ? "Discount %"
-                  : "Discount amount"
-              }
+              label="Discount Value"
               value={form.values.discountValue}
               onValueChange={(v) => form.setValue("discountValue", v)}
               min={0}
-              max={form.values.discountType === "Percent" ? 100 : 1000000}
               suffix={form.values.discountType === "Percent" ? "%" : "₹"}
             />
           </div>
           <div className="space-y-3">
             <NumberInput
-              label="Tax rate"
-              value={form.values.taxRate}
-              onValueChange={(v) => form.setValue("taxRate", v)}
-              min={0}
-              max={40}
-              step={0.5}
-              suffix="%"
-            />
-            <NumberInput
               label="Payment received now"
               value={form.values.amountPaid}
-              onValueChange={(v) =>
-                form.setValue("amountPaid", Math.min(v, totals.total))
-              }
+              onValueChange={(v) => form.setValue("amountPaid", Math.min(v, totals.total))}
               min={0}
               max={totals.total}
-              step={100}
               suffix="₹"
             />
             <Select
@@ -1256,110 +992,55 @@ function InvoiceForm({
               label="Method"
               value={form.values.paymentMethod}
               onChange={(v) => form.setValue("paymentMethod", v)}
-              options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))}
+              options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map((m) => ({ value: m, label: m }))}
             />
           </div>
           <dl className="space-y-1.5 self-start rounded-xl border border-brand-100 bg-brand-25 p-3.5 text-[12.5px]">
             <Line label="Subtotal" value={formatMoney(totals.subtotal)} />
-            <Line
-              label="Discount"
-              value={`− ${formatMoney(totals.discount)}`}
-            />
-            <Line
-              label={`Tax ${form.values.taxRate}%`}
-              value={formatMoney(totals.tax)}
-            />
+            <Line label="Discount" value={`− ${formatMoney(totals.discount)}`} />
+            <Line label="Itemized Tax" value={formatMoney(totals.tax)} />
             <div className="my-1.5 h-px bg-brand-200" />
-            <Line
-              label="Total payable"
-              value={formatMoney(totals.total)}
-              strong
-            />
-            <Line
-              label="Balance"
-              value={formatMoney(totals.remaining)}
-              tone={totals.remaining > 0 ? "coral" : "mint"}
-              strong
-            />
+            <Line label="Total payable" value={formatMoney(totals.total)} strong />
+            <Line label="Balance" value={formatMoney(totals.remaining)} tone={totals.remaining > 0 ? "coral" : "mint"} strong />
           </dl>
         </div>
-        <Textarea
-          name="notes"
-          label="Invoice notes"
-          rows={2}
-          className="mt-4"
-          placeholder="Payment terms, corporate package rates, claim references…"
-          value={form.values.notes}
-          onChange={(e) => form.setValue("notes", e.target.value)}
-        />
       </FormSection>
     </FormDialog>
   );
 }
 
-/* ------------------------------ payment dialog ------------------------------ */
+/* ------------------------------ PAYMENT DIALOG ------------------------------ */
 
-function PaymentDialog({
-  invoice,
-  onClose,
-}: {
-  invoice: Invoice;
-  onClose: () => void;
-}) {
-  const dispatch = useAppDispatch();
-  const totals = invoiceTotals(invoice);
-
+function PaymentDialog({ bill, onClose, onSuccess }: { bill: any; onClose: () => void; onSuccess: () => void }) {
   const form = useForm({
     initialValues: {
-      amount: totals.remaining,
-      method: "UPI" as Payment["method"],
+      amount: bill.dueAmount,
+      method: "UPI",
       reference: "",
-      note: "",
-      date: todayISO(),
+      notes: "",
     },
     schema: {
       amount: [
         {
           required: "Amount is required",
-          validate: (v: number) =>
-            Number(v) > 0 && Number(v) <= totals.remaining
-              ? true
-              : `Enter between 1 and ${totals.remaining}`,
+          validate: (v: number) => (Number(v) > 0 && Number(v) <= bill.dueAmount ? true : `Max ${bill.dueAmount}`),
         },
       ],
-      date: [{ required: "Payment date is required" }],
     },
   });
 
   const save = form.handleSubmit(async (values) => {
-    const payments = [
-      ...invoice.payments,
-      {
-        id: idGen("pay"),
-        date: values.date,
+    try {
+      await billingService.collectPayment(bill.id, {
         amount: Number(values.amount),
-        method: values.method,
-        reference: values.reference,
-        note: values.note,
-      },
-    ];
-    const nextTotal = invoiceTotals({ ...invoice, payments }).total;
-    const paid = payments.reduce((s, p) => s + p.amount, 0);
-    await dispatch(
-      invoicesApi.thunks.updateOne({
-        id: invoice.id,
-        data: {
-          payments,
-          paymentStatus: derivePaymentStatus(
-            nextTotal,
-            paid,
-            invoice.paymentStatus,
-          ),
-        },
-        successMessage: `${formatMoney(values.amount)} received on ${invoice.number}`,
-      } as any),
-    );
-    onClose();
+        paymentMode: values.method,
+        transactionId: values.reference || undefined,
+        notes: values.notes || undefined,
+      });
+      onSuccess();
+    } catch (e: any) {
+      alert(e.message || "Failed to record payment");
+    }
   });
 
   return (
@@ -1372,16 +1053,10 @@ function PaymentDialog({
           <CircleDollarSign className="size-4.5 text-mint-600" /> Record payment
         </span>
       }
-      description={`${invoice.number} · balance ${formatMoney(totals.remaining)}`}
+      description={`${bill.billNo} · balance ${formatMoney(bill.dueAmount)}`}
       onSubmit={save}
       loading={form.submitting}
       submitLabel="Save payment"
-      footerNote={
-        <span>
-          Payments are added to the invoice ledger and update the status
-          automatically.
-        </span>
-      }
     >
       <div className="space-y-4">
         <NumberInput
@@ -1390,40 +1065,29 @@ function PaymentDialog({
           value={form.values.amount}
           onValueChange={(v) => form.setValue("amount", v)}
           min={1}
-          max={totals.remaining}
-          step={100}
+          max={bill.dueAmount}
           suffix="₹"
-          error={form.errors.amount}
         />
         <Select
           name="method"
           label="Payment method"
           value={form.values.method}
           onChange={(v) => form.setValue("method", v)}
-          options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))}
+          options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map((m) => ({ value: m, label: m }))}
         />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            name="reference"
-            label="Reference / txn id"
-            placeholder="UTR-4812…"
-            value={form.values.reference}
-            onChange={(e) => form.setValue("reference", e.target.value)}
-          />
-          <DatePicker
-            label="Value date"
-            required
-            value={form.values.date}
-            onChange={(v) => form.setValue("date", v)}
-            error={form.errors.date}
-          />
-        </div>
         <Input
-          name="note"
+          name="reference"
+          label="Reference / Transaction ID"
+          placeholder="UTR-4812…"
+          value={form.values.reference}
+          onChange={(e) => form.setValue("reference", e.target.value)}
+        />
+        <Input
+          name="notes"
           label="Remark"
-          placeholder="Final settlement, advance, part payment…"
-          value={form.values.note}
-          onChange={(e) => form.setValue("note", e.target.value)}
+          placeholder="Part payment, final settlement…"
+          value={form.values.notes}
+          onChange={(e) => form.setValue("notes", e.target.value)}
         />
       </div>
     </FormDialog>
