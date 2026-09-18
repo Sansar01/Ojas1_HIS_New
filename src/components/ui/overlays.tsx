@@ -54,7 +54,7 @@ export function Dialog({
         >
           <DialogPrimitive.Content
             className={cn(
-              "print-sheet relative w-full rounded-2xl border border-ink-100 bg-white shadow-pop",
+              "print-sheet relative z-10 w-full rounded-2xl border border-ink-100 bg-white shadow-pop",
               "data-[state=open]:animate-fade-up",
               widths,
               className,

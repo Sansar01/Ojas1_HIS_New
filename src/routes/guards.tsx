@@ -3,7 +3,6 @@ import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
 import {
-  canAccess,
   selectMustChangePassword,
   selectUser,
 } from "@/features/auth/authSlice";

@@ -81,6 +81,16 @@
   100% { transform: translateX(320%); }
 }
 
+/* Keep interaction feedback immediate for users who request reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @layer base {
   html { -webkit-text-size-adjust: 100%; }
   html, body, #root { height: 100%; overflow: hidden; }
