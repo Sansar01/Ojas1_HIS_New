@@ -12,10 +12,11 @@
 export const API_BASE_URL: string =
   (import.meta.env as any).VITE_API_BASE_URL || "https://cloud-his-backend.onrender.com";
 
+
+
 // Application environment
 export const APP_ENV: string =
   (import.meta.env as any).VITE_APP_ENV || "development";
-
 // Debug mode flag
 export const DEBUG: boolean = (import.meta.env as any).VITE_DEBUG === "true";
 
@@ -28,7 +29,10 @@ export const API_ENDPOINTS = {
     refresh: "/api/hospital/auth/refresh",
     //me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
+    sendResetCode: '/api/hospital/auth/send-reset-code',
+    resetPasswordWithCode: '/api/hospital/auth/reset-password-with-code',
     resetPassword: "/api/hospital/auth/reset-password",
+
   },
 
   // Users
@@ -63,8 +67,12 @@ export const API_ENDPOINTS = {
   doctorLeaves: (doctorId: string | number) =>
     `/api/opd/doctors/${doctorId}/leaves`,
 
-  // Departments
+  // Departments (used by the organisation module)
   departments: "/api/hospital/masters/departments",
+
+  // Global Configuration masters. The selected tab supplies its master slug
+  // (for example, "departments"), so each live tab resolves to its own URL.
+  masters: (type: string) => `/api/hospital/masters/${type}`,
 
   // Specializations
   specializations: "/specializations",
@@ -76,7 +84,8 @@ export const API_ENDPOINTS = {
     slot: "/api/opd/appointments/slot",
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
     cancel: (Id: string | number) => `/api/opd/appointments/${Id}/cancel`,
-    today: '/api/opd/appointments/today'
+    today: '/api/opd/appointments/today',
+    edit: (Id: string | number) => `/api/opd/appointments/${Id}/edit`
   },
 
   // Consultations

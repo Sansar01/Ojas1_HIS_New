@@ -22,7 +22,7 @@ export type ModuleKey =
   | "consultations"
   | "billing"
   | "settings"
-    "opd";
+"opd";
 
 export interface ModuleDef {
   key: ModuleKey;
@@ -40,12 +40,12 @@ export interface Role {
   id: ID;
   name: string;
   slug:
-    | "SUPER_ADMIN"
-    | "ADMIN"
-    | "DOCTOR"
-    | "RECEPTIONIST"
-    | "BILLING"
-    | string;
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "DOCTOR"
+  | "RECEPTIONIST"
+  | "BILLING"
+  | string;
   description: string;
   system: boolean;
   userCount?: number;
@@ -72,12 +72,15 @@ export interface User {
   createdAt: ISODateTime;
   color: string;
   userType:
-    | "SUPER_ADMIN"
-    | "ADMIN"
-    | "DOCTOR"
-    | "RECEPTIONIST"
-    | "BILLING_STAFF"
-    | string;
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "DOCTOR"
+  | "RECEPTIONIST"
+  | "BILLING_STAFF"
+  | string;
+  /** set by the login response when the account must replace a temporary
+ *  password before using the portal */
+  forcePasswordChange?: boolean;
 }
 
 export interface Department {
@@ -139,7 +142,7 @@ export interface Doctor {
   registrationNumber: string;
   consultationFee: number;
   slotDuration: number; // minutes
-  specialization:string
+  specialization: string
   bufferTime: number; // minutes
   maxPatientsPerDay: number;
   schedule: ScheduleDay[];
@@ -157,7 +160,7 @@ export interface Doctor {
 
 export interface Patient {
   id: ID;
-  uhid:ID;
+  uhid: ID;
   mrn: string;
   firstName: string;
   lastName: string;
@@ -193,7 +196,7 @@ export type AppointmentStatus =
 
 
 export interface OpdToken {
-  tokenNumber: string |  number;
+  tokenNumber: string | number;
   status?: string | null;
   estimatedTime?: string | null;
   roomNo?: string | number | null;
@@ -211,27 +214,27 @@ export interface Appointment {
   time: string; // "10:30"
   duration: number;
   type:
-    | "Consultation"
-    | "Follow-up"
-    | "Procedure"
-    | "Emergency"
-    | "Telemedicine";
+  | "Consultation"
+  | "Follow-up"
+  | "Procedure"
+  | "Emergency"
+  | "Telemedicine";
   fee: number;
   priority: "Routine" | "Urgent";
   status: AppointmentStatus;
   notes: string;
   createdAt: ISODateTime;
-  bookedAt:ISODateTime;
+  bookedAt: ISODateTime;
   cancelledReason?: string;
-  reasonForVisit?:string
-  slotEndTime?:string
-  referredByDoctorName?:string
-  cancelReason?:string
-  slotStartTime?:string
-  visitType:string
-  token?:OpdToken | string | null
-  patient:Patient
-  doctor:Doctor
+  reasonForVisit?: string
+  slotEndTime?: string
+  referredByDoctorName?: string
+  cancelReason?: string
+  slotStartTime?: string
+  visitType: string
+  token?: OpdToken | string | null
+  patient: Patient
+  doctor: Doctor
 }
 
 export type ConsultationStatus =
@@ -286,14 +289,15 @@ export type PaymentStatus =
 export interface InvoiceItem {
   id: ID;
   description: string;
+  code: string;
   category:
-    | "Consultation"
-    | "Procedure"
-    | "Lab"
-    | "Pharmacy"
-    | "Room & Board"
-    | "Service"
-    | "Other";
+  | "Consultation"
+  | "Procedure"
+  | "Lab"
+  | "Pharmacy"
+  | "Room & Board"
+  | "Service"
+  | "Other";
   quantity: number;
   unitPrice: number;
 }
@@ -359,6 +363,9 @@ export interface ApiResponse<T> {
   success: boolean;
   data: T;
   message: string;
+  /** true when the client dropped the call locally — signed out, or the
+  *  session is waiting on a forced password change (no request was sent) */
+  cancelled?: boolean;
 }
 
 export interface ListQuery {
@@ -383,4 +390,7 @@ export interface Session {
   role: Role;
   expiresAt: ISODateTime;
   entitlements: Entitlements;
+  /** true when the backend asks the user to replace a temporary password
+  *  before using the portal (login response: forcePasswordChange) */
+  forcePasswordChange?: boolean;
 }

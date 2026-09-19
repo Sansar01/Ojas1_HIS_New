@@ -1,9 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { RequireAuth, RequireModule, PublicOnly } from "@/routes/guards";
+import {
+  RequireAuth,
+  RequireModule,
+  PublicOnly,
+  RequirePasswordChange,
+} from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import {
-  ChangePasswordPage,
+  ForgotPasswordPage,
   ResetPasswordPage,
 } from "@/pages/auth/RecoveryPages";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -25,9 +30,9 @@ import {
 } from "@/pages/admin/AdminPages";
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
-
-import {OpdExaminationRoom } from "@/pages/opd/Opd";
-import {MasterConfigurationPage}  from "@/pages/masterConfiguration/MasterConfigurationPage"
+import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
+import { OpdExaminationRoom } from "@/pages/opd/Opd";
+import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
@@ -51,8 +56,17 @@ export function AppRoutes() {
           path="/accounts/forgot-password"
           element={
             <PublicOnly>
-              <ChangePasswordPage />
+              <ForgotPasswordPage />
             </PublicOnly>
+          }
+        />
+        {/* shown only when the login response carried forcePasswordChange: true */}
+        <Route
+          path="/accounts/force-password-change"
+          element={
+            <RequirePasswordChange>
+              <ForcePasswordChange />
+            </RequirePasswordChange>
           }
         />
         <Route
@@ -90,14 +104,12 @@ export function AppRoutes() {
             }
           />
 
-
           <Route
             path="/opd"
             element={
               <RequireModule module="patients">
-
-                <OpdExaminationRoom/>
-                </RequireModule>
+                <OpdExaminationRoom />
+              </RequireModule>
             }
           />
           <Route
@@ -164,7 +176,7 @@ export function AppRoutes() {
               </RequireModule>
             }
           />
-    
+
           <Route
             path="/consultation"
             element={
@@ -225,10 +237,9 @@ export function AppRoutes() {
           <Route
             path="/master-config"
             element={
-              <RequireModule  module='settings'>
-
-                <MasterConfigurationPage/>
-                </RequireModule>
+              <RequireModule module="settings">
+                <MasterConfigurationPage />
+              </RequireModule>
             }
           />
           <Route path="*" element={<NotFoundPage />} />

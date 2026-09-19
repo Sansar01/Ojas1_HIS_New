@@ -15,6 +15,7 @@ import {
   Trash2,
   UserRound,
   XCircle,
+  Banknote
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/data/db";
@@ -94,19 +95,15 @@ export function SlotPicker({
   remoteSlots?: SlotOption[] | null;
 }) {
   const doctors = useRootSelector((s) => s.doctors.items);
-  console.log("doctors" , doctors)
   const doctor = doctors.find((d: any) => d.id === doctorId) as any;
   const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
   );
 
-  console.log("genererate sloe" , generated)
   const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
 
-
-  console.log('slots' , slots)
   if (loading)
     return (
       <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500">
@@ -1029,6 +1026,15 @@ export function AppointmentsPage() {
                     onClick: () => setDetailId(a.id),
                   },
                   {
+                    label: "Collect Payment / Bill",
+                    icon: <Banknote />,
+                    hidden: ["Cancelled"].includes(a.status), // Available for active/completed visits
+                    onClick: () => {
+                      const pId = a.patientId ?? a.patient?.id ?? "";
+                      navigate(`/billing?new=1&appointment=${a.id}&patient=${pId}`);
+                    },
+                  },
+                  {
                     label: "Reschedule",
                     icon: <Pencil />,
                     hidden:
@@ -1181,6 +1187,8 @@ export function AppointmentsPage() {
             ? `${formatDate(detail.date, { weekday: "long" })}${detail.time ? ` at ${formatTime(detail.time)}` : " (walk-in)"} · ${String(detail.type ?? "").replace(/_/g, " ")}`
             : undefined
         }
+  
+
         footer={
           detail && (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -1204,6 +1212,19 @@ export function AppointmentsPage() {
                     ))}
               </div>
               <div className="flex gap-2">
+                {/* 🟢 NEW BUTTON IN SHEET FOOTER */}
+                {detail.status !== "Cancelled" && (
+                  <Button
+                    size="sm"
+                    icon={<Banknote />}
+                    onClick={() => {
+                      const pId = detail.patientId ?? detail.patient?.id ?? "";
+                      navigate(`/billing?new=1&appointment=${detail.id}&patient=${pId}`);
+                    }}
+                  >
+                    Collect Payment
+                  </Button>
+                )}
                 {canEdit("appointments") && (
                   <Button
                     size="sm"
@@ -1216,6 +1237,7 @@ export function AppointmentsPage() {
                 )}
                 <Button
                   size="sm"
+                  variant="outline"
                   onClick={() => navigate(`/patients/${detail.patientId}`)}
                 >
                   Open patient chart
