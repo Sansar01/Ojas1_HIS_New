@@ -10,6 +10,7 @@ import { FORM_INVALID } from "@/features/ui/uiSlice";
 import { formRegistry } from "@/hooks/useForm";
 import type { ModuleKey } from "@/types";
 export { Emptyish } from "./Emptyish";
+export { PrescriptionPrintPreview } from "./PrescriptionPrintPreview";
 
 /* ------------------------------- page header ------------------------------- */
 

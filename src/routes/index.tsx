@@ -20,7 +20,7 @@ import {
   ConsultationWorkspacePage,
 } from "@/pages/consultations/ConsultationsPage";
 import { BillingPage } from "@/pages/billing/BillingPage";
-import { DepartmentsPage, SpecializationsPage } from "@/pages/org/OrgPages";
+import { SpecializationsPage } from "@/pages/org/OrgPages";
 import { UsersPage } from "@/pages/users/UsersPage";
 import { UsersNewPage } from "@/pages/users/UsersNewPage";
 import {
@@ -33,6 +33,7 @@ import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
 import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 import { OpdExaminationRoom } from "@/pages/opd/Opd";
 import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
+import DepartmentsPage from "@/pages/Departments/DepartmentsPage";
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
@@ -239,6 +240,15 @@ export function AppRoutes() {
             element={
               <RequireModule module="settings">
                 <MasterConfigurationPage />
+              </RequireModule>
+            }
+          />
+
+          <Route
+            path="/departments"
+            element={
+              <RequireModule module="departments">
+                <DepartmentsPage />
               </RequireModule>
             }
           />

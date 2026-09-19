@@ -10,9 +10,8 @@
 
 // Get the API base URL from Vite environment variables
 export const API_BASE_URL: string =
-  (import.meta.env as any).VITE_API_BASE_URL || "https://cloud-his-backend.onrender.com";
-
-
+  (import.meta.env as any).VITE_API_BASE_URL ||
+  "https://cloud-his-backend.onrender.com";
 
 // Application environment
 export const APP_ENV: string =
@@ -29,10 +28,9 @@ export const API_ENDPOINTS = {
     refresh: "/api/hospital/auth/refresh",
     //me: "/api/hospital/auth/me",
     changePassword: "/api/hospital/auth/change-password",
-    sendResetCode: '/api/hospital/auth/send-reset-code',
-    resetPasswordWithCode: '/api/hospital/auth/reset-password-with-code',
+    sendResetCode: "/api/hospital/auth/send-reset-code",
+    resetPasswordWithCode: "/api/hospital/auth/reset-password-with-code",
     resetPassword: "/api/hospital/auth/reset-password",
-
   },
 
   // Users
@@ -56,12 +54,11 @@ export const API_ENDPOINTS = {
     create: "/api/opd/doctors/create",
     list: "/api/opd/doctors/list",
     getSlotById: (Id: string | number) => `/api/opd/doctors/${Id}/availability`,
-    cancel: (Id: string | number) => `/api/opd/doctors/${Id}/cancel`
+    cancel: (Id: string | number) => `/api/opd/doctors/${Id}/cancel`,
   },
   // Doctors / OPD Module
   createDoctor: "/api/opd/doctors/create",
-  doctorDetail: (doctorId: string | number) =>
-    `/api/opd/doctors/${doctorId}`,
+  doctorDetail: (doctorId: string | number) => `/api/opd/doctors/${doctorId}`,
   doctorAvailability: (doctorId: string | number) =>
     `/api/opd/doctors/${doctorId}/availability`,
   doctorLeaves: (doctorId: string | number) =>
@@ -84,12 +81,14 @@ export const API_ENDPOINTS = {
     slot: "/api/opd/appointments/slot",
     getById: (Id: string | number) => `/api/opd/appointments/${Id}`,
     cancel: (Id: string | number) => `/api/opd/appointments/${Id}/cancel`,
-    today: '/api/opd/appointments/today',
-    edit: (Id: string | number) => `/api/opd/appointments/${Id}/edit`
+    today: "/api/opd/appointments/today",
+    edit: (Id: string | number) => `/api/opd/appointments/${Id}/edit`,
   },
 
   // Consultations
-  consultations: "/consultations",
+  consultations: {
+    getDatabyParms: (params:string | number) => `/api/opd/consultations?${params}`,
+  },
 
   // Invoices / Billing
   invoices: "/invoices",

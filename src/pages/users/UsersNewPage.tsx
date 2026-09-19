@@ -32,6 +32,9 @@ import {
 } from "@/components/ui/fields";
 import { toast } from "@/features/ui/uiSlice";
 import { cn } from "@/utils/cn";
+import { useDispatch } from "react-redux";
+import { departmentsApi } from "@/features/slices";
+import { Stepper } from "@/components/ui/Stepper";
 
 /* ---------------------------------------------------------------------------
  * Add user — two-step wizard.
@@ -88,139 +91,22 @@ function passwordScore(value: string) {
   };
 }
 
-/* --------------------------------- stepper -------------------------------- */
-
-function Stepper({
-  current,
-  completed,
-  isLocked,
-  onSelect,
-}: {
-  current: number;
-  completed: number[];
-  isLocked: (id: number) => boolean;
-  onSelect: (step: (typeof STEPS)[number]) => void;
-}) {
-  const progress = Math.round((completed.length / STEPS.length) * 100);
-
-  return (
-    <Panel className="overflow-hidden">
-      <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:gap-3">
-        {STEPS.map((step, index) => {
-          const Icon = step.icon;
-          const isActive = current === step.id;
-          const isCompleted = completed.includes(step.id);
-          const locked = isLocked(step.id);
-
-          const circle = cn(
-            "grid size-10 shrink-0 place-items-center rounded-full border transition-all duration-200",
-            isCompleted
-              ? "border-mint-500 bg-mint-500 text-white"
-              : isActive
-                ? "border-brand-600 bg-brand-600 text-white ring-4 ring-brand-500/20"
-                : locked
-                  ? "border-dashed border-ink-200 bg-ink-50 text-ink-300"
-                  : "border-ink-200 bg-white text-ink-500",
-            locked &&
-              "group-hover:border-coral-300 group-hover:bg-coral-50 group-hover:text-coral-500",
-          );
-
-          return (
-            <div
-              key={step.id}
-              className="flex min-w-0 items-center gap-2 sm:flex-1 sm:last:flex-none"
-            >
-              <button
-                type="button"
-                onClick={() => onSelect(step)}
-                aria-current={isActive ? "step" : undefined}
-                aria-disabled={locked || undefined}
-                title={locked ? "Complete step 1 to unlock" : step.hint}
-                className={cn(
-                  "group flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all duration-150 sm:flex-none",
-                  "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20",
-                  locked
-                    ? "cursor-not-allowed"
-                    : isActive
-                      ? "bg-brand-25 ring-1 ring-inset ring-brand-200"
-                      : "cursor-pointer hover:bg-ink-25",
-                )}
-              >
-                <span className={circle}>
-                  {isCompleted ? (
-                    <Check className="size-5" strokeWidth={2.6} />
-                  ) : locked ? (
-                    <>
-                      <Icon className="size-4.5 group-hover:hidden" />
-                      <Ban className="hidden size-4.5 group-hover:block" />
-                    </>
-                  ) : (
-                    <Icon className="size-4.5" />
-                  )}
-                </span>
-
-                <span className="min-w-0">
-                  <span
-                    className={cn(
-                      "flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[0.13em]",
-                      locked
-                        ? "text-ink-300"
-                        : isActive
-                          ? "text-brand-600"
-                          : "text-ink-400",
-                    )}
-                  >
-                    Step {step.id}
-                    {locked && (
-                      <>
-                        <Lock className="size-3 group-hover:hidden" />
-                        <Ban className="hidden size-3 group-hover:block" />
-                      </>
-                    )}
-                  </span>
-                  <span
-                    className={cn(
-                      "block truncate text-[13.5px] font-semibold",
-                      locked
-                        ? "text-ink-400"
-                        : isActive
-                          ? "text-ink-900"
-                          : "text-ink-600",
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                  <span className="hidden truncate text-[11px] text-ink-400 sm:block">
-                    {locked ? "Locked — finish step 1" : step.hint}
-                  </span>
-                </span>
-              </button>
-
-              {index < STEPS.length - 1 && (
-                <span className="hidden h-0.5 flex-1 overflow-hidden rounded-full bg-ink-100 sm:block">
-                  <span
-                    className={cn(
-                      "block h-full rounded-full bg-mint-500 transition-all duration-500",
-                      isCompleted ? "w-full" : "w-0",
-                    )}
-                  />
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
 /* ---------------------------------- page ---------------------------------- */
 
 export function UsersNewPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { items: roles, status: rolesStatus } = useRootSelector((s) => s.roles);
-  const departments = useRootSelector((s: any) => s.departments?.items ?? []);
+  const departments = useRootSelector(
+    (state) =>
+      state.departments.items &&
+      state.departments.items.filter((x) => x.isActive === true),
+  );
+
+  // department options for the dropdown
+  useEffect(() => {
+    dispatch(departmentsApi.thunks.fetchAll() as any);
+  }, [dispatch]);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
@@ -451,6 +337,7 @@ export function UsersNewPage() {
       />
 
       <Stepper
+        STEPS={STEPS}
         current={currentStep}
         completed={completedSteps}
         isLocked={isLocked}
@@ -633,10 +520,7 @@ export function UsersNewPage() {
             {/* ================ STEP 2 — CREDENTIALS & ROLES ================ */}
             {currentStep === 2 && (
               <>
-                <FormSection
-                  title="Role assignment"
-                  description="Primary role decides the module menu; extra roles are additive"
-                >
+                <FormSection title="Role assignment">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Select
                       name="primaryRoleId"
@@ -690,10 +574,7 @@ export function UsersNewPage() {
                   </div>
                 </FormSection>
 
-                <FormSection
-                  title="Login credentials"
-                  description="Shared with the user depending on the options below"
-                >
+                <FormSection title="Login credentials">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Input
                       name="username"
@@ -818,10 +699,7 @@ export function UsersNewPage() {
                   </div>
                 </FormSection>
 
-                <FormSection
-                  title="Send credentials via"
-                  description="Pick at least one delivery channel"
-                >
+                <FormSection title="Send credentials via">
                   <div className="grid gap-3 rounded-xl border border-ink-100 bg-ink-25/60 p-4 sm:grid-cols-2">
                     <Checkbox
                       checked={form.values.sendCredentialsViaEmail}

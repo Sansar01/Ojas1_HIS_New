@@ -24,12 +24,14 @@ const findModule = (modules: EntitlementModule[] = [], requested: string) => {
     const itemCode = normalize(item.code ?? "");
     const itemRoute = normalize(item.route ?? "");
     const itemName = normalize(item.name ?? "");
+    const itemRouteModule = itemRoute.split("_")[0];
 
     // 1. Direct match
     if (
       itemCode === reqClean ||
       itemRoute === reqClean ||
-      itemName === reqClean
+      itemName === reqClean ||
+      itemRouteModule === reqClean
     ) {
       return true;
     }
@@ -38,7 +40,8 @@ const findModule = (modules: EntitlementModule[] = [], requested: string) => {
     if (
       singularize(itemCode) === reqSingular ||
       singularize(itemRoute) === reqSingular ||
-      singularize(itemName) === reqSingular
+      singularize(itemName) === reqSingular ||
+      singularize(itemRouteModule) === reqSingular
     ) {
       return true;
     }

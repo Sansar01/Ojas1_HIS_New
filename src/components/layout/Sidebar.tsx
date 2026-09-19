@@ -122,7 +122,14 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         )}
       >
         <button
-          onClick={() => dispatch(toggleSidebar())}
+          type="button"
+          onClick={() => {
+            // The collapse control itself is inside the hover area. Resetting the
+            // hover preview here lets the collapsed state take effect immediately
+            // instead of waiting for the pointer to leave the sidebar.
+            setIsHovered(false);
+            dispatch(toggleSidebar());
+          }}
           className={cn(
             "mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] font-medium text-white/55 transition-colors hover:bg-white/8 hover:text-white",
             isSidebarCollapsed && "justify-center px-0",

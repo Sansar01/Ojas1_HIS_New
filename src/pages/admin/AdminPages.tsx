@@ -534,7 +534,15 @@ function RoleForm({
       if (createdRoleId && entitlementModules.length) {
         const moduleFeatures = Object.entries(values.permissions).flatMap(
           ([moduleCode, actions]) => {
-            const module = entitlementModules.find((item) => item.code === moduleCode);
+            const requestedModule = moduleCode.toUpperCase().replace(/S$/, "");
+            const module = entitlementModules.find((item) =>
+              item.code.toUpperCase().replace(/S$/, "") === requestedModule ||
+              String(item.route ?? "")
+                .replace(/^\/+/, "")
+                .split("/")[0]
+                .toUpperCase()
+                .replace(/S$/, "") === requestedModule,
+            );
             if (!module) return [];
             return (actions ?? []).flatMap((action) => {
               const feature = module.features?.find((item) =>
