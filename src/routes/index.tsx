@@ -242,6 +242,15 @@ export function AppRoutes() {
               </RequireModule>
             }
           />
+
+           <Route
+            path="/departments"
+            element={
+              <RequireModule module="departments">
+                <MasterConfigurationPage />
+              </RequireModule>
+            }
+          />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
 

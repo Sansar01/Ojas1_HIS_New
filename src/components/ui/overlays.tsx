@@ -21,6 +21,7 @@ export function Dialog({
   size = "md",
   trigger,
   className,
+  height,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -31,6 +32,8 @@ export function Dialog({
   size?: "sm" | "md" | "lg" | "xl" | "full";
   trigger?: React.ReactNode;
   className?: string;
+  /** Optional body height, e.g. "36rem" or "calc(100vh - 12rem)". Defaults to the standard dialog height. */
+  height?: string;
 }) {
   const widths = {
     sm: "max-w-md",
@@ -45,10 +48,10 @@ export function Dialog({
         <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger>
       )}
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-ink-950/45 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="no-print fixed inset-0 z-[60] bg-ink-950/45 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
         <div
           className={cn(
-            "fixed inset-0 z-[61] flex items-start justify-center overflow-y-auto p-4 sm:p-6",
+            "print-dialog-shell fixed inset-0 z-[61] flex items-start justify-center overflow-y-auto p-4 sm:p-6",
             "items-center",
           )}
         >
@@ -56,11 +59,13 @@ export function Dialog({
             className={cn(
               "print-sheet relative z-10 w-full rounded-2xl border border-ink-100 bg-white shadow-pop",
               "data-[state=open]:animate-fade-up",
+              height &&
+                "flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden sm:max-h-[calc(100vh-3rem)]",
               widths,
               className,
             )}
           >
-            <header className="flex items-start justify-between gap-4 border-b border-ink-100 px-5 py-4 no-print">
+            <header className="flex shrink-0 items-start justify-between gap-4 border-b border-ink-100 px-5 py-4 no-print">
               <div className="min-w-0">
                 <DialogPrimitive.Title className="text-[17px] font-semibold tracking-tight text-ink-900">
                   {title}
@@ -77,11 +82,18 @@ export function Dialog({
                 </IconButton>
               </DialogPrimitive.Close>
             </header>
-            <div className="max-h-[calc(100vh-13rem)] overflow-y-auto px-5 py-4">
+            <div
+              className={cn(
+                "px-5 py-4",
+                height ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[calc(100vh-13rem)] overflow-y-auto",
+              )}
+              style={height ? { height } : undefined}
+              data-height={height ? "custom" : undefined}
+            >
               {children}
             </div>
             {footer && (
-              <footer className="no-print flex flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-ink-25/60 px-5 py-3.5">
+              <footer className="no-print flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-ink-25/60 px-5 py-3.5">
                 {footer}
               </footer>
             )}
