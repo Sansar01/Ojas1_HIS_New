@@ -16,6 +16,7 @@ import {
   ArrowLeft,
   ClipboardList,
   HeartPulse,
+  History,
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
 import { idGen } from "@/data/db";
@@ -37,6 +38,7 @@ import {
   TableToolbar,
 } from "@/components/ui/table";
 import { PageIntro, PrescriptionPrintPreview } from "@/components/common";
+import { EmptyState } from "@/components/ui/feedback";
 import { hospitalSeed } from "@/data/db";
 import { buildApiUrl } from "@/config/api";
 
@@ -734,6 +736,7 @@ export function ConsultationWorkspacePage() {
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+  const [cardTab, setCardTab] = useState<"details" | "history">("details");
   const hospital =
     useRootSelector((state) => state.hospital.data) || hospitalSeed;
 
@@ -1049,36 +1052,67 @@ export function ConsultationWorkspacePage() {
               </div>
             </div>
 
-            <div className="space-y-3 text-[12px]">
-              <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
-                <span className="text-ink-500 font-medium">Allergies</span>
-                <span className="text-coral-600 font-semibold text-right">
-                  {allergies}
-                </span>
-              </div>
-              <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
-                <span className="text-ink-500 font-medium">Chronic</span>
-                <span className="text-ink-900 font-medium text-right">
-                  {chronic}
-                </span>
-              </div>
-              <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
-                <span className="text-ink-500 font-medium">Emergency</span>
-                <span className="text-ink-900 font-medium text-right text-[11px] whitespace-pre-line">
-                  {emergencyContact}
-                </span>
-              </div>
-              <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
-                <span className="text-ink-500 font-medium">Contact</span>
-                <span className="text-ink-900 font-medium text-right">
-                  {patient.phone || "+91 982708 66766"}
-                </span>
-              </div>
+            {/* Tab strip — Patient details / Patient history */}
+            <div className="flex gap-1 rounded-lg bg-ink-100 p-1">
+              {([
+                { key: "details", label: "Patient details" },
+                { key: "history", label: "Patient history" },
+              ] as const).map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setCardTab(t.key)}
+                  className={cn(
+                    "flex-1 rounded-md py-1.5 text-[11.5px] font-semibold transition-colors",
+                    cardTab === t.key
+                      ? "bg-white text-[#1D6C63] shadow-sm"
+                      : "text-ink-500 hover:text-ink-800",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
 
-            <button className="w-full mt-5 py-2 border border-ink-200 rounded-lg text-[12px] font-semibold text-ink-700 hover:bg-ink-50 transition-colors">
-              Open full chart
-            </button>
+            {/* Tab body — renders inline, no modal or drawer */}
+            <div className="mt-4">
+              {cardTab === "details" ? (
+                <div className="space-y-3 text-[12px]">
+                  <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
+                    <span className="text-ink-500 font-medium">Allergies</span>
+                    <span className="text-coral-600 font-semibold text-right">
+                      {allergies}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
+                    <span className="text-ink-500 font-medium">Chronic</span>
+                    <span className="text-ink-900 font-medium text-right">
+                      {chronic}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
+                    <span className="text-ink-500 font-medium">Emergency</span>
+                    <span className="text-ink-900 font-medium text-right text-[11px] whitespace-pre-line">
+                      {emergencyContact}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
+                    <span className="text-ink-500 font-medium">Contact</span>
+                    <span className="text-ink-900 font-medium text-right">
+                      {patient.phone || "+91 982708 66766"}
+                    </span>
+                  </div>
+
+                  <button className="w-full mt-2 py-2 border border-ink-200 rounded-lg text-[12px] font-semibold text-ink-700 hover:bg-ink-50 transition-colors">
+                    Open full chart
+                  </button>
+                </div>
+              ) : (
+                <PatientHistoryPanel
+                  patientKey={patient.id}
+                  currentId={record?.id}
+                />
+              )}
+            </div>
           </div>
 
           {/* Visit Context */}
@@ -1468,6 +1502,173 @@ export function ConsultationWorkspacePage() {
         advice={form.values.advice}
         followUpDate={form.values.followUpDate}
       />
+    </div>
+  );
+}
+
+/* ==========================================================================
+   Patient history — past consultations, rendered inline inside the patient
+   card's "Patient history" tab. No modal, no drawer.
+   ========================================================================== */
+
+function PatientHistoryPanel({
+  patientKey,
+  currentId,
+}: {
+  patientKey?: string;
+  currentId?: string;
+}) {
+  const navigate = useNavigate();
+  const [rows, setRows] = useState<any[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!patientKey) {
+      setStatus("ready");
+      return;
+    }
+    let cancelled = false;
+    setStatus("loading");
+    (async () => {
+      const res = await api(`/api/opd/consultations?patientId=${patientKey}`);
+      if (cancelled) return;
+      if (!res.ok) {
+        setStatus("error");
+        return;
+      }
+      const list = Array.isArray(res.data) ? res.data : ((res.data as any)?.data ?? []);
+      setRows(
+        list
+          .filter((c: any) => String(c.id) !== String(currentId))
+          .sort(
+            (a: any, b: any) =>
+              new Date(b.consultationDate || b.createdAt || 0).getTime() -
+              new Date(a.consultationDate || a.createdAt || 0).getTime(),
+          ),
+      );
+      setStatus("ready");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientKey, currentId]);
+
+  if (status === "loading")
+    return (
+      <div className="space-y-2">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-16 animate-pulse rounded-lg bg-ink-100" />
+        ))}
+      </div>
+    );
+
+  if (status === "error")
+    return (
+      <EmptyState
+        compact
+        icon={<AlertTriangle className="size-4" />}
+        title="Could not load history"
+      />
+    );
+
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        compact
+        icon={<History className="size-4" />}
+        title="No previous visits"
+        description="This is the patient's first consultation."
+      />
+    );
+
+  return (
+    <div className="space-y-2">
+      {rows.map((c: any) => {
+        const isOpen = expanded === String(c.id);
+        const meds = c.prescriptions || [];
+        return (
+          <div
+            key={c.id}
+            className={cn(
+              "rounded-lg border transition-colors",
+              isOpen ? "border-[#1D6C63]/30 bg-teal-50/30" : "border-ink-200 bg-white",
+            )}
+          >
+            <button
+              onClick={() => setExpanded(isOpen ? null : String(c.id))}
+              className="w-full p-3 text-left"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11.5px] font-bold text-ink-900">
+                  {formatDate(c.consultationDate || c.createdAt)}
+                </span>
+                <span className="text-[10px] font-semibold text-[#1D6C63]">
+                  {isOpen ? "Hide" : "View"}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px] font-medium text-ink-900 leading-snug">
+                {c.provisionalDiagnosis || c.finalDiagnosis || "—"}
+              </p>
+              <p className="mt-0.5 text-[10.5px] text-ink-500">
+                Dr. {c.doctor?.firstName || ""} {c.doctor?.lastName || ""}
+                {meds.length > 0 && ` · ${meds.length} med${meds.length > 1 ? "s" : ""}`}
+              </p>
+            </button>
+
+            {isOpen && (
+              <div className="border-t border-ink-200/70 p-3 space-y-2.5 text-[11.5px]">
+                <HistoryField label="Chief complaint" value={c.chiefComplaints} />
+                <HistoryField label="History" value={c.history} />
+                <HistoryField label="Examination" value={c.examination} />
+                <HistoryField label="Advice" value={c.specialInstructions} />
+
+                {meds.length > 0 && (
+                  <div>
+                    <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-1">
+                      Prescription
+                    </p>
+                    <div className="space-y-1">
+                      {meds.map((m: any, i: number) => (
+                        <div
+                          key={m.id ?? i}
+                          className="rounded-md border border-ink-100 bg-white px-2 py-1.5"
+                        >
+                          <p className="font-medium text-ink-900">{m.medicineName}</p>
+                          <p className="text-[10.5px] text-ink-500">
+                            {[m.dosage, m.frequency, m.durationDays && `${m.durationDays} days`]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => navigate(`/consultations/${c.id}`)}
+                  className="w-full py-1.5 border border-ink-200 rounded-md text-[11px] font-semibold text-ink-700 hover:bg-white transition-colors"
+                >
+                  Open this consultation
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HistoryField({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <div>
+      <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-0.5">
+        {label}
+      </p>
+      <p className="text-ink-800 leading-snug whitespace-pre-line">{value}</p>
     </div>
   );
 }
