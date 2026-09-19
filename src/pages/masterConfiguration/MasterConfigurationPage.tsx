@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ClipboardList,
   Percent,
@@ -6,6 +6,7 @@ import {
   Settings,
   Shield,
   UserCog,
+  Building2,
 } from "lucide-react";
 import { PageIntro } from "@/components/common";
 import {
@@ -20,16 +21,25 @@ import { DataTable, type Column } from "@/components/ui/table";
 import { useAppDispatch } from "@/hooks";
 import { toast } from "@/features/ui/uiSlice";
 import { cn } from "@/utils/cn";
+
+// Modals
 import { GlobalConfiguration } from "@/pages/masterConfiguration/GlobalConfiguration";
 import { PanelMaster } from "@/pages/masterConfiguration/PanelMaster";
 import { InvestigationMaster } from "@/pages/masterConfiguration/InvestigationMaster";
+import { TariffMaster } from "./TariffMaster";
+import { ServiceMaster } from "./ServiceMaster";
+
+// Live Panel API
+import {
+  panelService,
+  type PanelMasterItem,
+} from "@/features/masters/panelService";
+
 import {
   LAB_ITEMS,
-  PANELS,
   type ItemType,
   type LabItem,
   type ModalType,
-  type PanelItem,
 } from "@/types/masterConfig.data";
 
 const ITEM_TYPES = [
@@ -67,62 +77,90 @@ const LAB_COLUMNS: Column<LabItem>[] = [
   },
 ];
 
-const PANEL_COLUMNS: Column<PanelItem>[] = [
+// ─── LIVE PANEL COLUMNS (matches API response) ───────────────────
+const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
   {
-    key: "name",
-    header: "Panel",
-    render: (r) => <span className="font-medium text-ink-900">{r.name}</span>,
+    key: "panelCode",
+    header: "Code",
+    width: "w-32",
+    render: (r) => (
+      <span className="font-mono text-[12px] font-semibold text-brand-600">
+        {r.panelCode}
+      </span>
+    ),
   },
-  { key: "type", header: "Type" },
-  { key: "insurer", header: "Insurer", hideBelow: "md" },
+  {
+    key: "panelName",
+    header: "Panel",
+    render: (r) => (
+      <div>
+        <span className="font-medium text-ink-900">{r.panelName}</span>
+        {r.groupType?.value && (
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-400">
+            <Building2 className="h-3 w-3" />
+            {r.groupType.value}
+          </p>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: "panelType",
+    header: "Type",
+    hideBelow: "md",
+    render: (r) => (
+      <span className="rounded bg-ink-100 px-2 py-0.5 text-[11px] font-semibold text-ink-700">
+        {r.panelType?.value ?? "—"}
+      </span>
+    ),
+  },
+  {
+    key: "creditLimit",
+    header: "Credit Limit",
+    hideBelow: "lg",
+    align: "right",
+    render: (r) => (
+      <span className="font-medium text-ink-700">
+        ₹{Number(r.creditLimit || 0).toLocaleString("en-IN")}
+      </span>
+    ),
+  },
   {
     key: "active",
     header: "Status",
-    render: (r) => <StatusBadge status={r.active ? "Active" : "Inactive"} />,
+    render: (r) => (
+      <StatusBadge status={r.isActive ? "Active" : "Inactive"} />
+    ),
   },
 ];
 
-/** Local card — Kpi has no icon/click affordance, so wrap the shared Panel. */
-function MasterCard({
-  icon,
-  title,
-  subtitle,
-  count,
-  onClick,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  count: string;
-  onClick?: () => void;
-  children?: React.ReactNode;
-}) {
-  return (
-    <Panel
-      as={onClick ? "button" : "div"}
-      className={cn(
-        "p-5 text-left transition-all",
-        onClick &&
-          "cursor-pointer hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop",
-      )}
-      {...(onClick ? { onClick, type: "button" } : {})}
-    >
-      <span className="mb-3 grid size-10 place-items-center rounded-lg bg-brand-50 text-brand-600 [&>svg]:size-5">
-        {icon}
-      </span>
-      <p className="text-[13px] font-semibold text-ink-900">{title}</p>
-      <p className="text-[11.5px] text-ink-400">{subtitle}</p>
-      <p className="mt-2 text-[15px] font-semibold text-ink-900">{count}</p>
-      {children}
-    </Panel>
-  );
-}
-
 export function MasterConfigurationPage() {
   const dispatch = useAppDispatch();
-  const [activeModal, setActiveModal] = useState<ModalType>("");
-  const [itemType, setItemType] = useState<ItemType>("");
+  const [activeModal, setActiveModal] = useState<ModalType | "service-master" | "rate-managment" | "">("");
+  const [itemType, setItemType] = useState<ItemType | "">("");
+
+  // ─── LIVE PANEL STATE ──────────────────────────────────────────
+  const [panels, setPanels] = useState<PanelMasterItem[]>([]);
+  const [panelsLoading, setPanelsLoading] = useState(false);
+  const [panelCount, setPanelCount] = useState(0);
+
+  const fetchPanels = useCallback(async () => {
+    setPanelsLoading(true);
+    try {
+      const res = await panelService.list({ limit: 50 });
+      setPanels(res.data ?? []);
+      setPanelCount(res.meta?.total ?? res.data?.length ?? 0);
+    } catch (error: any) {
+      dispatch(toast.error("Failed to load panels", error?.message));
+    } finally {
+      setPanelsLoading(false);
+    }
+  }, [dispatch]);
+
+  // Load panels on page mount
+  useEffect(() => {
+    fetchPanels();
+  }, [fetchPanels]);
 
   const openItemModal = (type: string) => {
     if (!type) return;
@@ -135,6 +173,14 @@ export function MasterConfigurationPage() {
     setItemType("");
   };
 
+  // When Panel dialog closes → refresh list
+  const handlePanelModalChange = (open: boolean) => {
+    if (!open) {
+      closeModal();
+      fetchPanels(); // 👈 refresh after add/edit
+    }
+  };
+
   const comingSoon = (title: string) => () =>
     dispatch(toast.info(title, "Coming soon"));
 
@@ -145,6 +191,7 @@ export function MasterConfigurationPage() {
         description="Manage all master data and system configuration."
       />
 
+      {/* ─── KPI CARDS ─────────────────────────────────────────────── */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi
           icon={<UserCog />}
@@ -154,15 +201,18 @@ export function MasterConfigurationPage() {
           hint="Manage doctors & slots"
           onClick={comingSoon("Doctor Management")}
         />
+
+        {/* 👇 LIVE PANEL COUNT */}
         <Kpi
           icon={<Shield />}
           label="Panel Management"
           tone="brand"
-          value="16 Panels"
+          value={`${panelCount} Panels`}
           hint="Insurance & Corporate"
           active={activeModal === "panel"}
           onClick={() => setActiveModal("panel")}
         />
+
         <Kpi
           icon={<ClipboardList />}
           label="Item Management"
@@ -181,14 +231,27 @@ export function MasterConfigurationPage() {
             className="mt-3"
           />
         </Kpi>
+
+        <Kpi
+          icon={<Percent />}
+          label="Service Management"
+          tone="amber"
+          value="Services"
+          hint="Hospital service catalog"
+          active={activeModal === "service-master"}
+          onClick={() => setActiveModal("service-master")}
+        />
+
         <Kpi
           icon={<Percent />}
           label="Rate Management"
           tone="amber"
-          value="563 Rate Plans"
+          value="Tariffs"
           hint="Insurance & Corporate Rates"
-          onClick={comingSoon("Rate Management")}
+          active={activeModal === "rate-managment"}
+          onClick={() => setActiveModal("rate-managment")}
         />
+
         <Kpi
           icon={<Settings />}
           label="Configuration"
@@ -200,8 +263,10 @@ export function MasterConfigurationPage() {
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <DataTable<LabItem>
+      {/* ─── TWO TABLES ────────────────────────────────────────────── */}
+      <div className="grid lg:grid-cols-1">
+        {/* Lab Items (still demo data for now) */}
+        {/* <DataTable<LabItem>
           columns={LAB_COLUMNS}
           rows={LAB_ITEMS}
           dense
@@ -222,14 +287,18 @@ export function MasterConfigurationPage() {
               }
             />
           }
-        />
+        /> */}
 
-        <DataTable<PanelItem>
+        {/* 👇 LIVE PANEL TABLE */}
+        <DataTable<PanelMasterItem>
           columns={PANEL_COLUMNS}
-          rows={PANELS}
+          rows={panels}
+          status={panelsLoading ? "loading" : "ready"}
           dense
-          rowKey={(r) => r.name}
+          rowKey={(r) => r.id}
           clickRowHint={false}
+          emptyTitle="No panels registered"
+          emptyDescription="Click 'Add Panel' to register your first insurance or corporate panel."
           header={
             <PanelHeader
               title="Panel / Insurance Registration"
@@ -248,17 +317,26 @@ export function MasterConfigurationPage() {
         />
       </div>
 
+      {/* ─── MODALS ────────────────────────────────────────────────── */}
       <PanelMaster
         open={activeModal === "panel"}
-        onOpenChange={(v) => !v && closeModal()}
+        onOpenChange={handlePanelModalChange}
       />
       <InvestigationMaster
         open={activeModal === "investigation"}
-        itemType={itemType}
+        itemType={itemType as ItemType}
         onOpenChange={(v) => !v && closeModal()}
       />
       <GlobalConfiguration
         open={activeModal === "global"}
+        onOpenChange={(v) => !v && closeModal()}
+      />
+      <TariffMaster
+        open={activeModal === "rate-managment"}
+        onOpenChange={(v) => !v && closeModal()}
+      />
+      <ServiceMaster
+        open={activeModal === "service-master"}
         onOpenChange={(v) => !v && closeModal()}
       />
     </div>

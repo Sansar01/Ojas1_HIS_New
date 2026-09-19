@@ -4,7 +4,7 @@
  */
 
 export type ItemType = "" | "laboratory" | "radiology" | "medical" | "others";
-export type ModalType = "" | "panel" | "investigation" | "global";
+export type ModalType = "" | "panel" | "investigation" | "global" |"rate-managment"|"service-master";
 
 export interface LabItem {
     code: string;
