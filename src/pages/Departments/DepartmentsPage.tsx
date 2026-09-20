@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  Ban,
-  CheckCircle2,
   Eye,
   Layers,
   Pencil,
@@ -15,10 +13,9 @@ import {
   useRootSelector,
   useTable,
 } from "@/hooks";
-import { useForm } from "@/hooks/useForm";
 import { departmentsApi } from "@/features/slices";
 import { formatDate, fullName } from "@/utils";
-import type { Department, Status } from "@/types";
+import type { Department } from "@/types";
 import {
   Avatar,
   Badge,
@@ -26,20 +23,15 @@ import {
   Panel,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
+import { Select } from "@/components/ui/fields";
 import {
   DataTable,
   Pagination,
   RowActions,
   TableToolbar,
 } from "@/components/ui/table";
-import { Dialog, Sheet } from "@/components/ui/overlays";
-import {
-  DetailGrid,
-  FormRow,
-  PageIntro,
-  SectionPanel,
-} from "@/components/common";
+import { Sheet } from "@/components/ui/overlays";
+import { DetailGrid, PageIntro, SectionPanel } from "@/components/common";
 import { DepartmentFormDialog } from "./DepartmentsFormPage";
 
 /* -------------------------------- Departments ------------------------------- */
@@ -73,18 +65,6 @@ export function DepartmentsPage() {
     searchFields: [(d) => `${d.name} ${d.code} ${d.description} ${d.floor}`],
     sortAccessors: { name: (d) => d.name, status: (d) => d.status },
   });
-
-  /** Flip a department between active and inactive. */
-  const toggleStatus = (d: Department) =>
-    dispatch(
-      departmentsApi.thunks.toggleActive({
-        id: d.id,
-        status: (d.status === "active" ? "inactive" : "active") as Status,
-        // API expects the boolean flag.
-        isActive: d.status !== "active",
-        label: d.name,
-      } as any),
-    );
 
   const stats = (id: string) => ({
     doctors: doctors.filter((d: any) => d.departmentId === id).length,
@@ -240,17 +220,11 @@ export function DepartmentsPage() {
               key: "status",
               header: "Status",
               align: "center",
-              render: (d) =>
-                canEdit("departments") ? (
-                  // Inline toggle — flip active/inactive straight from the list.
-                  <Switch
-                    checked={d.status === "active"}
-                    onCheckedChange={() => toggleStatus(d)}
-                    label={d.status === "active" ? "Active" : "Inactive"}
-                  />
-                ) : (
-                  <StatusBadge status={d.status} />
-                ),
+              // Read-only badge: green Active when the API's isActive is true,
+              // grey Inactive otherwise. Toggling lives in the form dialog.
+              render: (d) => (
+                <StatusBadge status={d.isActive ? "Active" : "InActive"} />
+              ),
             },
           ]}
           rows={table.rows}
@@ -279,12 +253,6 @@ export function DepartmentsPage() {
                   icon: <Pencil />,
                   hidden: !canEdit("departments"),
                   onClick: () => setEditing(d),
-                },
-                {
-                  label: d.status === "active" ? "Deactivate" : "Activate",
-                  icon: d.status === "active" ? <Ban /> : <CheckCircle2 />,
-                  hidden: !canEdit("departments"),
-                  onClick: () => toggleStatus(d),
                 },
                 {
                   label: "Delete",

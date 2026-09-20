@@ -1,11 +1,11 @@
-import { FormRow } from "@/components/common";
-import { Input, Select, Textarea } from "@/components/ui/fields";
+﻿﻿import { FormRow } from "@/components/common";
+import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlays";
 import { Button } from "@/components/ui/primitives";
 import { departmentsApi } from "@/features/slices";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { Department, Status } from "@/types";
+import { Department } from "@/types";
 import { fullName } from "@/utils";
 
 export function DepartmentFormDialog({
@@ -24,6 +24,9 @@ export function DepartmentFormDialog({
       description: initial.description ?? "",
       floor: initial.floor ?? "",
       headDoctorId: initial.headDoctorId ?? "",
+      // Edited from this dialog via the switch below; new departments default
+      // to active.
+      isActive: (initial.id ? initial.status === "active" : true) as boolean,
     },
     schema: {
       name: [{ required: "Department name is required", min: 3 }],
@@ -31,15 +34,12 @@ export function DepartmentFormDialog({
   });
 
   const save = form.handleSubmit(async (values) => {
-    // Status is not edited here — it is toggled from the table. New departments
-    // start active; edits keep whatever the row already had.
-    const status = (initial.status ?? "active") as Status;
     // The departments endpoint is a master resource: it accepts name, code,
     // description and the isActive flag (see mastersService / MasterRecord).
     const data = {
       name: values.name,
       // Mirror the backend DTO transform so the value we show/persist locally
-      // matches what the API stores: trim, upper-case, non-alphanumerics → "_".
+      // matches what the API stores: trim, upper-case, non-alphanumerics -> "_".
       code: values.code
         ? values.code
             .trim()
@@ -47,7 +47,8 @@ export function DepartmentFormDialog({
             .replace(/[^A-Z0-9]+/g, "_")
         : undefined,
       description: values.description,
-      isActive: status === "active",
+      // Switch below drives the API's isActive flag.
+      isActive: values.isActive,
     };
     if (initial.id)
       await dispatch(
@@ -99,7 +100,7 @@ export function DepartmentFormDialog({
             name="code"
             label="Code"
             placeholder="CARDIAC_SCIENCES"
-            hint="Optional · up to 50 characters"
+            hint="Optional - up to 50 characters"
             value={form.values.code}
             onChange={(e) => form.setValue("code", e.target.value)}
             error={form.errors.code}
@@ -108,7 +109,7 @@ export function DepartmentFormDialog({
           <Input
             name="floor"
             label="Location / floor"
-            placeholder="Block A · 4th"
+            placeholder="Block A - 4th"
             value={form.values.floor}
             onChange={(e) => form.setValue("floor", e.target.value)}
           />
@@ -128,10 +129,16 @@ export function DepartmentFormDialog({
           name="description"
           label="Scope"
           rows={3}
-          placeholder="Services, units and programs run by this department…"
+          placeholder="Services, units and programs run by this department..."
           value={form.values.description}
           onChange={(e) => form.setValue("description", e.target.value)}
           error={form.errors.description}
+        />
+        <Switch
+          checked={form.values.isActive}
+          onCheckedChange={(v) => form.setValue("isActive", v)}
+          label={form.values.isActive ? "Active" : "Inactive"}
+          description="Turn off to mark this department inactive."
         />
       </form>
     </Dialog>

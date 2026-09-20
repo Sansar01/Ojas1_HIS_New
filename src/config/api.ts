@@ -64,7 +64,12 @@ export const API_ENDPOINTS = {
     `/api/opd/doctors/${doctorId}/leaves`,
 
   // Departments (used by the organisation module)
-  departments: "/api/hospital/masters/departments",
+  departments: {
+    list: "/api/hospital/masters/departments",
+    create: "/api/hospital/masters/departments",
+    update: (id: string | number) => `/api/hospital/masters/departments/${id}`,
+  },
+  updateDepartmentById:(id:string | number)=>`/api/hospital/masters/departments/${id}`,
 
   // Global Configuration masters. The selected tab supplies its master slug
   // (for example, "departments"), so each live tab resolves to its own URL.

@@ -91,6 +91,7 @@ export interface Department {
   headDoctorId: ID | null;
   floor: string;
   status: Status;
+  isActive?:boolean;
   createdAt: ISODateTime;
 }
 
