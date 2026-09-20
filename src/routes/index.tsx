@@ -20,7 +20,6 @@ import {
   ConsultationWorkspacePage,
 } from "@/pages/consultations/ConsultationsPage";
 import { BillingPage } from "@/pages/billing/BillingPage";
-import { DepartmentsPage } from "@/pages/org/OrgPages";
 import { UsersPage } from "@/pages/users/UsersPage";
 import { UsersNewPage } from "@/pages/users/UsersNewPage";
 import {
@@ -34,6 +33,7 @@ import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 import { OpdExaminationRoom } from "@/pages/opd/Opd";
 import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
 import { SpecializationsPage } from "@/pages/Specializations/SpecializationPage";
+import { DepartmentsPage } from "@/pages/Departments/DepartmentsPage";
 //import DepartmentsPage from "@/pages/Departments/DepartmentsPage";
 // import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 

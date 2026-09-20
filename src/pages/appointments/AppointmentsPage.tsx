@@ -15,7 +15,7 @@ import {
   Trash2,
   UserRound,
   XCircle,
-  Banknote
+  Banknote,
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/data/db";
@@ -779,9 +779,7 @@ export function AppointmentsPage() {
                           </span>
                           <button
                             className="min-w-0 flex-1 text-left"
-                            onClick={() =>
-                              navigate(`/patients/${a.patientId}`)
-                            }
+                            onClick={() => navigate(`/patients/${a.patientId}`)}
                           >
                             <span className="block truncate text-[12.5px] font-medium text-ink-800">
                               {fullName(patientMap.get(a.patientId))}
@@ -1031,7 +1029,9 @@ export function AppointmentsPage() {
                     hidden: ["Cancelled"].includes(a.status), // Available for active/completed visits
                     onClick: () => {
                       const pId = a.patientId ?? a.patient?.id ?? "";
-                      navigate(`/billing?new=1&appointment=${a.id}&patient=${pId}`);
+                      navigate(
+                        `/billing?new=1&appointment=${a.id}&patient=${pId}`,
+                      );
                     },
                   },
                   {
@@ -1187,8 +1187,6 @@ export function AppointmentsPage() {
             ? `${formatDate(detail.date, { weekday: "long" })}${detail.time ? ` at ${formatTime(detail.time)}` : " (walk-in)"} · ${String(detail.type ?? "").replace(/_/g, " ")}`
             : undefined
         }
-  
-
         footer={
           detail && (
             <div className="flex w-full flex-wrap items-center justify-between gap-2">
@@ -1219,7 +1217,9 @@ export function AppointmentsPage() {
                     icon={<Banknote />}
                     onClick={() => {
                       const pId = detail.patientId ?? detail.patient?.id ?? "";
-                      navigate(`/billing?new=1&appointment=${detail.id}&patient=${pId}`);
+                      navigate(
+                        `/billing?new=1&appointment=${detail.id}&patient=${pId}`,
+                      );
                     }}
                   >
                     Collect Payment
@@ -1325,25 +1325,25 @@ export function AppointmentsPage() {
                   value: detail.reasonForVisit || "—",
                 },
                 { label: "Notes", value: detail.notes || "—" },
-             {
-  label: "Token",
-  value: (() => {
-    const t = detail.token as any;
-    if (!t) return "—";
-    
-    // If token is an object from new API
-    if (typeof t === "object") {
-      return (
-        `#${t.tokenNumber ?? "—"}` +
-        (t.status ? ` · ${t.status}` : "") +
-        (t.roomNo ? ` · Room ${t.roomNo}` : "")
-      );
-    }
-    
-    // Fallback if token is still just a string/number
-    return `#${t}`;
-  })(),
-},
+                {
+                  label: "Token",
+                  value: (() => {
+                    const t = detail.token as any;
+                    if (!t) return "—";
+
+                    // If token is an object from new API
+                    if (typeof t === "object") {
+                      return (
+                        `#${t.tokenNumber ?? "—"}` +
+                        (t.status ? ` · ${t.status}` : "") +
+                        (t.roomNo ? ` · Room ${t.roomNo}` : "")
+                      );
+                    }
+
+                    // Fallback if token is still just a string/number
+                    return `#${t}`;
+                  })(),
+                },
                 {
                   label: "Allergies",
                   value: detail.patient?.allergies || "—",
