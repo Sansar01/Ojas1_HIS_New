@@ -1,5 +1,28 @@
 /* ------------------------------- Specializations ------------------------------ */
 
+import { PageIntro, FormDialog, FormRow } from "@/components/common";
+import { Input, Textarea } from "@/components/ui/fields";
+import { Panel, Button, StatusBadge } from "@/components/ui/primitives";
+import {
+  TableToolbar,
+  DataTable,
+  RowActions,
+  Pagination,
+} from "@/components/ui/table";
+import { specializationsApi } from "@/features/slices";
+import {
+  useAppDispatch,
+  useRootSelector,
+  usePermission,
+  useTable,
+} from "@/hooks";
+import { useForm } from "@/hooks/useForm";
+import { Specialization, Status } from "@/types";
+import { cn } from "@/utils/cn";
+import { Select } from "@radix-ui/react-select";
+import { Layers, Badge, Pencil, Ban, CheckCircle2, Trash2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+
 export function SpecializationsPage() {
   const dispatch = useAppDispatch();
   const { items: specializations, status } = useRootSelector(
