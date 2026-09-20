@@ -1,460 +1,377 @@
-import { useCallback, useMemo, useState } from "react";
-import { Layers, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { Badge, Button, Panel } from "@/components/ui/primitives";
-import { Select, Switch, fieldClasses } from "@/components/ui/fields";
+import { useEffect, useState } from "react";
+import {
+  Eye,
+  Layers,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  UserRound,
+} from "lucide-react";
+import {
+  useAppDispatch,
+  usePermission,
+  useRootSelector,
+  useTable,
+} from "@/hooks";
+import { departmentsApi } from "@/features/slices";
+import { formatDate, fullName } from "@/utils";
+import type { Department } from "@/types";
+import {
+  Avatar,
+  Badge,
+  Button,
+  Panel,
+  StatusBadge,
+} from "@/components/ui/primitives";
+import { Select } from "@/components/ui/fields";
 import {
   DataTable,
+  Pagination,
   RowActions,
   TableToolbar,
-  type Column,
 } from "@/components/ui/table";
-import { Tabs } from "@/components/ui/overlays";
-import { PageIntro } from "@/components/common";
-import { useAppDispatch } from "@/hooks";
-import { useMasterData } from "@/hooks/useMasterData";
-import { mastersService, type MasterRecord } from "@/services/mastersService";
-import { toast } from "@/features/ui/uiSlice";
-import { cn } from "@/utils/cn";
+import { Sheet } from "@/components/ui/overlays";
+import { DetailGrid, PageIntro, SectionPanel } from "@/components/common";
+import { DepartmentFormDialog } from "./DepartmentsFormPage";
 
-/**
- * Departments admin page.
- *
- * Every tab is the same generic master CRUD, so they all run through the
- * existing `useMasterData` hook + `mastersService`. The only thing that
- * differs per tab is the API slug and whether rows carry a parent.
- */
+/* -------------------------------- Departments ------------------------------- */
 
-type TabKey = "departments" | "department-types" | "sub-departments";
+export function DepartmentsPage() {
+  const dispatch = useAppDispatch();
+  const { items: departments, status } = useRootSelector((s) => s.departments);
+  const doctors = useRootSelector((s) => s.doctors.items);
+  const specializations = useRootSelector((s) => s.specializations.items);
+  const appointments = useRootSelector((s) => s.appointments.items);
+  const { canCreate, canEdit, canDelete } = usePermission();
+  const [editing, setEditing] = useState<Partial<Department> | null>(null);
+  const [detail, setDetail] = useState<Department | null>(null);
+  const [filters, setFilters] = useState({ status: "all" });
+  const [refreshing, setRefreshing] = useState(false);
 
-const TABS: {
-  key: TabKey;
-  label: string;
-  singular: string;
-  /** Parent tab whose rows populate this tab's parent dropdown. */
-  parent?: TabKey;
-  parentLabel?: string;
-}[] = [
-  {
-    key: "departments",
-    label: "Departments",
-    singular: "Department",
-    parent: "department-types",
-    parentLabel: "Type",
-  },
-  {
-    key: "department-types",
-    label: "Department Types",
-    singular: "Department Type",
-  },
-  {
-    key: "sub-departments",
-    label: "Sub Departments",
-    singular: "Sub Department",
-    parent: "departments",
-    parentLabel: "Department",
-  },
-];
+  useEffect(() => {
+    if (status === "idle") dispatch(departmentsApi.thunks.fetchAll() as any);
+  }, [status, dispatch]);
 
-const EMPTY_FORM = { name: "", code: "", description: "", parentId: "" };
-type FormState = typeof EMPTY_FORM;
+  /** re-run the department list API (e.g. after a write) without the full loader flash */
+  const refreshList = async () => {
+    setRefreshing(true);
+    await dispatch(departmentsApi.thunks.fetchAll() as any);
+    setRefreshing(false);
+  };
 
-/** "Gynecology & Obstetrics" -> "GYNECOLOGY_OBSTETRICS". Suggestion only; editable. */
-const suggestCode = (name: string) =>
-  name
-    .trim()
-    .toUpperCase()
-    .replace(/&/g, " ")
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 50);
+  const table = useTable<Department>(departments as Department[], {
+    pageSize: 8,
+    filters,
+    searchFields: [(d) => `${d.name} ${d.code} ${d.description} ${d.floor}`],
+    sortAccessors: { name: (d) => d.name, status: (d) => d.status },
+  });
 
-const inputClass = cn(fieldClasses(false), "h-10 w-full px-3");
-
-export default function DepartmentsPage() {
-  const [tab, setTab] = useState<TabKey>("departments");
-  const active = TABS.find((t) => t.key === tab)!;
-
-  // The parent tab's rows feed this tab's dropdown (types for departments,
-  // departments for sub-departments). Both are plain master lists.
-  const parentData = useMasterData(
-    active.parent
-      ? { key: active.parent, label: "", api: active.parent }
-      : undefined,
-  );
+  const stats = (id: string) => ({
+    doctors: doctors.filter((d: any) => d.departmentId === id).length,
+    specializations: specializations.filter((s: any) => s.departmentId === id)
+      .length,
+    visits: appointments.filter((a: any) => a.departmentId === id).length,
+  });
 
   return (
     <>
       <PageIntro
         title="Departments"
-        description="Create departments, classify them by type, and break them down into sub-departments."
+        description="Clinical and support departments that group doctors, specializations and reporting lines."
+        module="departments"
+        createLabel="Add department"
+        onCreate={() =>
+          setEditing({
+            name: "",
+            code: "",
+            description: "",
+            floor: "",
+            status: "active",
+            headDoctorId: null,
+          })
+        }
         meta={
           <>
             <Badge tone="brand" dot>
-              {active.label}
+              {departments.filter((d: any) => d.status === "active").length}{" "}
+              operational
             </Badge>
-            <Badge tone="lagoon">Synced with /api/hospital/masters/{tab}</Badge>
+            <Badge tone="lagoon">{doctors.length} doctors mapped</Badge>
           </>
         }
-      />
-
-      <Tabs
-        value={tab}
-        onValueChange={(v) => setTab(v as TabKey)}
-        tabs={TABS.map((t) => ({ value: t.key, label: t.label }))}
-        content={
-          <div className="pt-4">
-            <MasterTab
-              key={active.key}
-              api={active.key}
-              singular={active.singular}
-              parentLabel={active.parentLabel}
-              parentRows={active.parent ? parentData.rows : undefined}
-              onParentChanged={
-                active.key === "department-types"
-                  ? parentData.reload
-                  : undefined
-              }
-            />
-          </div>
-        }
-      />
-    </>
-  );
-}
-
-/** One tab: add form + searchable list, for a single master slug. */
-function MasterTab({
-  api,
-  singular,
-  parentLabel,
-  parentRows,
-  onParentChanged,
-}: {
-  api: string;
-  singular: string;
-  parentLabel?: string;
-  parentRows?: MasterRecord[];
-  onParentChanged?: () => void;
-}) {
-  const dispatch = useAppDispatch();
-  const { rows, status, error, reload } = useMasterData({
-    key: api,
-    label: singular,
-    api,
-  });
-
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  /** True once the user edits Code themselves — stops auto-suggest overwriting it. */
-  const [codeTouched, setCodeTouched] = useState(false);
-  const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [togglingId, setTogglingId] = useState<number | string | null>(null);
-
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
-    setForm((f) => ({ ...f, [key]: value }));
-
-  const resetForm = useCallback(() => {
-    setForm(EMPTY_FORM);
-    setCodeTouched(false);
-  }, []);
-
-  const parentOptions = useMemo(
-    () =>
-      (parentRows ?? []).map((r) => ({ value: String(r.id), label: r.name })),
-    [parentRows],
-  );
-
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows
-      .filter((r) => showInactive || r.isActive !== false)
-      .filter(
-        (r) =>
-          !q ||
-          r.name?.toLowerCase().includes(q) ||
-          r.code?.toLowerCase().includes(q) ||
-          r.description?.toLowerCase().includes(q),
-      );
-  }, [rows, search, showInactive]);
-
-  const handleAdd = async () => {
-    const name = form.name.trim();
-    if (!name) {
-      dispatch(toast.warning("Name is required"));
-      return;
-    }
-
-    const code = form.code.trim().toUpperCase();
-    const description = form.description.trim();
-
-    // Send only the keys the user filled in — the API runs with
-    // forbidNonWhitelisted, so any stray key is a 400.
-    const payload: Partial<MasterRecord> = {
-      name,
-      ...(code ? { code } : {}),
-      ...(description ? { description } : {}),
-      ...(form.parentId ? { typeId: Number(form.parentId) } : {}),
-    };
-
-    setSaving(true);
-    try {
-      await mastersService.create(api, payload);
-      await reload();
-      onParentChanged?.();
-      dispatch(toast.success(`${singular} added`, name));
-      resetForm();
-    } catch (e: any) {
-      dispatch(toast.error("Could not save", e?.message));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleToggle = async (row: MasterRecord) => {
-    const isActive = row.isActive !== false;
-    setTogglingId(row.id);
-    try {
-      await mastersService.setActive(api, String(row.id), !isActive);
-      await reload();
-      dispatch(
-        isActive
-          ? toast.info("Deactivated", row.name)
-          : toast.success("Activated", row.name),
-      );
-    } catch (e: any) {
-      dispatch(toast.error("Update failed", e?.message));
-    } finally {
-      setTogglingId(null);
-    }
-  };
-
-  const columns: Column<MasterRecord>[] = [
-    {
-      key: "idx",
-      header: "#",
-      width: "w-12",
-      render: (_r, i) => <span className="text-ink-400">{i + 1}</span>,
-    },
-    {
-      key: "code",
-      header: "Code",
-      width: "w-36",
-      render: (r) => (
-        <span className="font-mono text-[12px] text-ink-500">
-          {r.code ?? "—"}
-        </span>
-      ),
-    },
-    {
-      key: "name",
-      header: "Name",
-      render: (r) => (
-        <span className="flex items-center gap-2.5">
-          <span className="grid size-8 place-items-center rounded-lg bg-brand-25 text-brand-600 ring-1 ring-inset ring-brand-100">
-            <Layers className="size-3.5" />
-          </span>
-          <span className="font-medium text-ink-900">{r.name}</span>
-        </span>
-      ),
-    },
-    {
-      key: "description",
-      header: "Description",
-      hideBelow: "lg",
-      render: (r) => (
-        <span className="line-clamp-1 text-[12.5px] text-ink-500">
-          {r.description || "—"}
-        </span>
-      ),
-    },
-    ...(parentLabel
-      ? [
-          {
-            key: "parent",
-            header: parentLabel,
-            width: "w-36",
-            hideBelow: "md" as const,
-            render: (r: MasterRecord) =>
-              r.type?.name ? (
-                <Badge tone="brand" size="xs">
-                  {r.type.name}
-                </Badge>
-              ) : (
-                <span className="text-[12px] text-ink-300">—</span>
-              ),
-          },
-        ]
-      : []),
-    {
-      key: "status",
-      header: "Status",
-      width: "w-40",
-      render: (r) => (
-        // Inline switch: flip active/inactive straight from the list.
-        <Switch
-          checked={r.isActive !== false}
-          disabled={togglingId === r.id}
-          onCheckedChange={() => handleToggle(r)}
-          label={r.isActive !== false ? "Active" : "Inactive"}
-        />
-      ),
-    },
-  ];
-
-  return (
-    <Panel>
-      {/* ── Add form ───────────────────────────────────────────────── */}
-      <div className="border-b border-ink-100 bg-ink-25/40 p-4">
-        <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.08em] text-ink-500">
-          Add {singular}
-        </p>
-
-        <div
-          className={cn(
-            "grid items-end gap-3 sm:grid-cols-2",
-            parentLabel
-              ? "lg:grid-cols-[1fr_1fr_1.3fr_1fr_auto]"
-              : "lg:grid-cols-[1fr_1fr_1.4fr_auto]",
-          )}
-        >
-          <div>
-            <label
-              htmlFor="dep-name"
-              className="mb-1 block text-[12px] font-medium text-ink-600"
-            >
-              Name <span className="text-coral-500">*</span>
-            </label>
-            <input
-              id="dep-name"
-              value={form.name}
-              maxLength={120}
-              onChange={(e) => {
-                set("name", e.target.value);
-                if (!codeTouched) set("code", suggestCode(e.target.value));
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              placeholder={`e.g. ${singular === "Sub Department" ? "Biochemistry" : "Nephrology"}`}
-              className={inputClass}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="dep-code"
-              className="mb-1 flex items-baseline justify-between gap-2 text-[12px] font-medium text-ink-600"
-            >
-              <span>Code</span>
-              {codeTouched && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCodeTouched(false);
-                    set("code", suggestCode(form.name));
-                  }}
-                  className="text-[11px] font-medium text-brand-600 hover:underline"
-                >
-                  reset
-                </button>
-              )}
-            </label>
-            <input
-              id="dep-code"
-              value={form.code}
-              maxLength={50}
-              onChange={(e) => {
-                setCodeTouched(true);
-                set("code", e.target.value.toUpperCase());
-              }}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              placeholder="AUTO"
-              className={cn(inputClass, "font-mono text-[13px] uppercase")}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="dep-desc"
-              className="mb-1 block text-[12px] font-medium text-ink-600"
-            >
-              Description
-            </label>
-            <input
-              id="dep-desc"
-              value={form.description}
-              maxLength={255}
-              onChange={(e) => set("description", e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              placeholder="Short note (optional)"
-              className={inputClass}
-            />
-          </div>
-
-          {parentLabel && (
-            <div>
-              <label className="mb-1 block text-[12px] font-medium text-ink-600">
-                {parentLabel}
-              </label>
-              <Select
-                value={form.parentId}
-                onChange={(v) => set("parentId", v)}
-                options={parentOptions}
-                placeholder="Select…"
-                clearable
-              />
-            </div>
-          )}
-
-          <Button icon={<Plus />} loading={saving} onClick={handleAdd}>
-            Add
-          </Button>
-        </div>
-
-        {parentLabel && parentOptions.length === 0 && (
-          <p className="mt-2 text-[11.5px] text-amberly-600">
-            No active {parentLabel.toLowerCase()} found — create one in its tab
-            first.
-          </p>
-        )}
-      </div>
-
-      {/* ── List ───────────────────────────────────────────────────── */}
-      <TableToolbar
-        search={search}
-        onSearch={setSearch}
-        searchPlaceholder={`Search ${singular.toLowerCase()}…`}
         actions={
-          <Switch
-            checked={showInactive}
-            onCheckedChange={setShowInactive}
-            label="Show inactive"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            {canCreate("departments") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<RefreshCw />}
+                loading={refreshing}
+                onClick={refreshList}
+              >
+                Refresh
+              </Button>
+            ) : undefined}
+          </div>
         }
       />
-
-      <DataTable<MasterRecord>
-        columns={columns}
-        rows={visible}
-        status={status}
-        error={error}
-        onRetry={reload}
-        dense
-        rowKey={(r) => String(r.id)}
-        emptyTitle={`No ${singular.toLowerCase()} yet`}
-        emptyDescription={`Add the first ${singular.toLowerCase()} using the form above.`}
-        actions={(row) => (
-          <RowActions
-            items={[
-              {
-                label: row.isActive !== false ? "Deactivate" : "Activate",
-                icon: row.isActive !== false ? <Trash2 /> : <RotateCcw />,
-                tone: row.isActive !== false ? "danger" : "brand",
-                onClick: () => handleToggle(row),
+      <Panel>
+        <TableToolbar
+          search={table.query.search}
+          onSearch={table.setSearch}
+          searchPlaceholder="Search department…"
+          filters={
+            <Select
+              size="sm"
+              className="w-[9rem]"
+              name="st"
+              value={filters.status}
+              onChange={(v) => setFilters({ status: v })}
+              options={[
+                { value: "all", label: "Any status" },
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+              ]}
+            />
+          }
+        />
+        <DataTable
+          columns={[
+            {
+              key: "name",
+              header: "Department",
+              sortable: true,
+              render: (d) => (
+                <button
+                  className="flex items-center gap-3 text-left"
+                  onClick={() => setDetail(d)}
+                >
+                  <span className="grid size-9 place-items-center rounded-lg bg-brand-25 text-brand-600 ring-1 ring-inset ring-brand-100">
+                    <Layers className="size-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13.5px] font-semibold text-ink-900">
+                      {d.name}
+                    </span>
+                    <span className="num block truncate text-[11.5px] text-ink-400">
+                      {d.code} · {d.floor || "—"}
+                    </span>
+                  </span>
+                </button>
+              ),
+            },
+            {
+              key: "description",
+              header: "Scope",
+              hideBelow: "lg",
+              render: (d) => (
+                <span className="line-clamp-1 text-[12.5px] text-ink-500">
+                  {d.description}
+                </span>
+              ),
+            },
+            {
+              key: "head",
+              header: "Head of department",
+              hideBelow: "md",
+              render: (d) => {
+                const doc = doctors.find((x: any) => x.id === d.headDoctorId);
+                return doc ? (
+                  <span className="flex items-center gap-2 text-[12.5px]">
+                    <Avatar name={fullName(doc)} size="xs" color="bg-ink-600" />
+                    Dr. {fullName(doc)}
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-ink-300">Vacant</span>
+                );
               },
-            ]}
-          />
+            },
+            {
+              key: "doctors",
+              header: "Doctors",
+              align: "center",
+              render: (d) => (
+                <span className="num font-semibold text-ink-700">
+                  {stats(d.id).doctors}
+                </span>
+              ),
+            },
+            {
+              key: "specializations",
+              header: "Spec.",
+              align: "center",
+              hideBelow: "sm",
+              render: (d) => (
+                <span className="num text-ink-600">
+                  {stats(d.id).specializations}
+                </span>
+              ),
+            },
+            {
+              key: "visits",
+              header: "Visits (30d)",
+              align: "right",
+              hideBelow: "xl",
+              render: (d) => (
+                <span className="num text-ink-600">{stats(d.id).visits}</span>
+              ),
+            },
+            {
+              key: "status",
+              header: "Status",
+              align: "center",
+              // Read-only badge: green Active when the API's isActive is true,
+              // grey Inactive otherwise. Toggling lives in the form dialog.
+              render: (d) => (
+                <StatusBadge status={d.isActive ? "Active" : "InActive"} />
+              ),
+            },
+          ]}
+          rows={table.rows}
+          status={
+            status === "ready"
+              ? "ready"
+              : status === "error"
+                ? "error"
+                : "loading"
+          }
+          sort={{
+            sortBy: table.query.sortBy,
+            sortDir: table.query.sortDir,
+            onSort: table.toggleSort,
+          }}
+          actions={(d) => (
+            <RowActions
+              items={[
+                {
+                  label: "View department",
+                  icon: <Eye />,
+                  onClick: () => setDetail(d),
+                },
+                {
+                  label: "Edit",
+                  icon: <Pencil />,
+                  hidden: !canEdit("departments"),
+                  onClick: () => setEditing(d),
+                },
+                {
+                  label: "Delete",
+                  icon: <Trash2 />,
+                  tone: "danger",
+                  hidden: !canDelete("departments"),
+                  onClick: () =>
+                    dispatch(
+                      departmentsApi.thunks.removeOne({
+                        id: d.id,
+                        label: d.name,
+                      } as any),
+                    ),
+                },
+              ]}
+            />
+          )}
+          emptyTitle="No departments configured"
+          footer={
+            <Pagination
+              page={table.page}
+              pageCount={table.pageCount}
+              total={table.total}
+              pageSize={table.pageSize}
+              onPage={table.setPage}
+              onPageSize={table.setPageSize}
+              label="departments"
+            />
+          }
+        />
+      </Panel>
+
+      {editing && (
+        <DepartmentFormDialog
+          initial={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
+      <Sheet
+        open={!!detail}
+        onOpenChange={(v) => !v && setDetail(null)}
+        title={detail?.name ?? ""}
+        description={
+          detail ? `Established ${formatDate(detail.createdAt)}` : ""
+        }
+      >
+        {detail && (
+          <div className="space-y-4">
+            <DetailGrid
+              columns={2}
+              items={[
+                {
+                  label: "Code",
+                  value: <span className="num">{detail.code}</span>,
+                },
+                { label: "Location", value: detail.floor || "—" },
+                {
+                  label: "Status",
+                  value: <StatusBadge status={detail.status} />,
+                },
+                {
+                  label: "Head of department",
+                  value:
+                    fullName(
+                      doctors.find((x: any) => x.id === detail.headDoctorId),
+                    ) || "Vacant",
+                },
+              ]}
+            />
+            <p className="rounded-xl bg-ink-25 p-3 text-[13px] leading-relaxed text-ink-600">
+              {detail.description || "No scope description provided."}
+            </p>
+            <SectionPanel
+              title="Doctors in this department"
+              icon={<UserRound />}
+              bodyClass="p-0"
+            >
+              <ul className="divide-y divide-ink-100">
+                {doctors
+                  .filter((d: any) => d.departmentId === detail.id)
+                  .map((d: any) => (
+                    <li
+                      key={d.id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Avatar
+                          name={fullName(d)}
+                          size="xs"
+                          color="bg-brand-600"
+                        />
+                        <span>
+                          <span className="block text-[13px] font-medium text-ink-800">
+                            Dr. {fullName(d)}
+                          </span>
+                          <span className="block text-[11px] text-ink-400">
+                            {
+                              specializations.find(
+                                (s: any) => s.id === d.specializationId,
+                              )?.name
+                            }
+                          </span>
+                        </span>
+                      </span>
+                      <StatusBadge status={d.status} />
+                    </li>
+                  ))}
+                {doctors.filter((d: any) => d.departmentId === detail.id)
+                  .length === 0 && (
+                  <li className="px-4 py-6 text-center text-[12.5px] text-ink-400">
+                    No doctors mapped yet.
+                  </li>
+                )}
+              </ul>
+            </SectionPanel>
+          </div>
         )}
-      />
-    </Panel>
+      </Sheet>
+    </>
   );
 }
