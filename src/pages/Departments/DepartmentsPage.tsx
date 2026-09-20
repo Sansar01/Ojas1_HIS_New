@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   Ban,
-  Building2,
   CheckCircle2,
   Eye,
   Layers,
@@ -41,6 +40,7 @@ import {
   PageIntro,
   SectionPanel,
 } from "@/components/common";
+import { DepartmentFormDialog } from "./DepartmentsFormPage";
 
 /* -------------------------------- Departments ------------------------------- */
 
@@ -154,19 +154,6 @@ export function DepartmentsPage() {
               ]}
             />
           }
-          // actions={
-          //   canCreate("departments") ? (
-          //     <Button
-          //       size="sm"
-          //       icon={<Building2 />}
-          //       onClick={() => setEditing({ status: "active" })}
-          //     >
-          //       Add department
-          //     </Button>
-          //   ) : (
-          //     <Badge tone="neutral">Read only</Badge>
-          //   )
-          // }
         />
         <DataTable
           columns={[
@@ -418,134 +405,5 @@ export function DepartmentsPage() {
         )}
       </Sheet>
     </>
-  );
-}
-
-function DepartmentFormDialog({
-  initial,
-  onClose,
-}: {
-  initial: Partial<Department>;
-  onClose: () => void;
-}) {
-  const dispatch = useAppDispatch();
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const form = useForm({
-    initialValues: {
-      name: initial.name ?? "",
-      code: initial.code ?? "",
-      description: initial.description ?? "",
-      floor: initial.floor ?? "",
-      headDoctorId: initial.headDoctorId ?? "",
-    },
-    schema: {
-      name: [{ required: "Department name is required", min: 3 }],
-      code: [
-        { required: "Short code is required", pattern: /^[A-Za-z]{2,6}$/ },
-      ],
-      description: [{ required: "Add a short scope description", min: 10 }],
-    },
-  });
-
-  const save = form.handleSubmit(async (values) => {
-    // Status is not edited here — it is toggled from the table. New departments
-    // start active; edits keep whatever the row already had.
-    const status = (initial.status ?? "active") as Status;
-    const data = {
-      ...values,
-      code: values.code.toUpperCase(),
-      headDoctorId: values.headDoctorId || null,
-      status,
-      // API expects the boolean flag.
-      isActive: status === "active",
-    };
-    if (initial.id)
-      await dispatch(
-        departmentsApi.thunks.updateOne({
-          id: initial.id,
-          data,
-          successMessage: "Department updated",
-        } as any),
-      );
-    else
-      await dispatch(
-        departmentsApi.thunks.createOne({
-          data: { ...data, createdAt: new Date().toISOString() },
-          successMessage: "Department created",
-        } as any),
-      );
-    onClose();
-  });
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(v) => !v && onClose()}
-      title={initial.id ? `Edit ${initial.name}` : "Add department"}
-      description="Code and floor help staff route patients quickly."
-      footer={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" loading={form.submitting} onClick={save}>
-            {initial.id ? "Save department" : "Create department"}
-          </Button>
-        </>
-      }
-    >
-      <form onSubmit={save} className="space-y-4">
-        <FormRow>
-          <Input
-            name="name"
-            label="Department name"
-            required
-            placeholder="Cardiac Sciences"
-            value={form.values.name}
-            onChange={(e) => form.setValue("name", e.target.value)}
-            error={form.errors.name}
-          />
-          <Input
-            name="code"
-            label="Code"
-            required
-            placeholder="CAR"
-            hint="2–6 letters"
-            value={form.values.code}
-            onChange={(e) => form.setValue("code", e.target.value)}
-            error={form.errors.code}
-            className="uppercase"
-          />
-          <Input
-            name="floor"
-            label="Location / floor"
-            placeholder="Block A · 4th"
-            value={form.values.floor}
-            onChange={(e) => form.setValue("floor", e.target.value)}
-          />
-          <Select
-            name="headDoctorId"
-            label="Head of department"
-            clearable
-            value={form.values.headDoctorId ?? ""}
-            onChange={(v) => form.setValue("headDoctorId", v)}
-            options={doctors.map((d: any) => ({
-              value: d.id,
-              label: `Dr. ${fullName(d)}`,
-            }))}
-          />
-        </FormRow>
-        <Textarea
-          name="description"
-          label="Scope"
-          required
-          rows={3}
-          placeholder="Services, units and programs run by this department…"
-          value={form.values.description}
-          onChange={(e) => form.setValue("description", e.target.value)}
-          error={form.errors.description}
-        />
-      </form>
-    </Dialog>
   );
 }
