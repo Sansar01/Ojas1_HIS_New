@@ -9,12 +9,11 @@
  */
 
 // Get the API base URL from Vite environment variables
-export const API_BASE_URL: string = " http://127.0.0.1:8000";
-//"https://cloud-his-backend.onrender.com";
+export const API_BASE_URL: string = (import.meta.env as any).VITE_API_BASE_URL ||"https://cloud-his-backend.onrender.com";
 
 // Application environment
-export const APP_ENV: string = " http://127.0.0.1:8000";
-//|| "development";
+export const APP_ENV: string = (import.meta.env as any).VITE_API_BASE_URL ||
+ "development";
 // Debug mode flag
 export const DEBUG: boolean = (import.meta.env as any).VITE_DEBUG === "true";
 
