@@ -1,6 +1,7 @@
 import { configureStore } from "@reduxjs/toolkit";
 import authReducer from "@/features/auth/authSlice";
 import uiReducer from "@/features/ui/uiSlice";
+import { authListenerMiddleware } from "@/store/authListener";
 import entitlementReducer from "@/features/entitlement/entitlementSlice";
 import {
   ALL_APIS,
@@ -35,6 +36,9 @@ export const store = configureStore({
     activities: activitiesApi.reducer,
     hospital: hospitalReducer,
   },
+  // 👇 YEH ADD KAREIN (Listener ko store ke sath attach karna zaroori hai)
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().prepend(authListenerMiddleware.middleware),
   devTools: true,
 });
 
@@ -42,11 +46,5 @@ export type { RootState, AppDispatch } from "@/store/types";
 
 /** Loads every collection for the signed-in session (shared by all pages). */
 export const bootstrapResources = (): AppThunk => async (dispatch) => {
-  // await Promise.all(
-  //   Object.values(ALL_APIS).map((api) =>
-  //     Promise.resolve(dispatch(api.thunks.fetchAll() as any)).catch(() => {
-  //       /* handled inside the slice + toast layer */
-  //     }),
-  //   ),
-  // );
+  // ...
 };

@@ -141,16 +141,7 @@ export const login = createAsyncThunk(
 );
 
 // ==================== CHANGE / RESET PASSWORD ====================
-/**
- * SAME thunk for both flows (no new thunk added):
- *
- *   changePassword("user@mail.com")               → recovery (pre-auth):
- *        backend emails the verification code.
- *
- *   changePassword({ oldPassword, newPassword })   → forced change for the
- *        signed-in user (HospitalChangePasswordDto) — used by
- *        pages/auth/ForcePasswordChange.tsx. Clears the flag on success.
- */
+
 export const changePassword = createAsyncThunk(
   "auth/changePassword",
   async (
