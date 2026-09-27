@@ -22,7 +22,8 @@ export type ModuleKey =
   | "consultations"
   | "billing"
   | "settings"
-  | "opd";
+  | "opd"
+  | "master-config";
 
 export interface ModuleDef {
   key: ModuleKey;

@@ -239,7 +239,7 @@ export function AppRoutes() {
           <Route
             path="/master-config"
             element={
-              <RequireModule module="settings">
+              <RequireModule module="master-config">
                 <MasterConfigurationPage />
               </RequireModule>
             }
