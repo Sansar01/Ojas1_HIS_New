@@ -5,18 +5,20 @@ import { APP_NAME, APP_SUBTITLE } from "@/constants";
 import { useAppDispatch } from "@/hooks";
 import { setMobileNav, toggleSidebar } from "@/features/ui/uiSlice";
 import { useRootSelector } from "@/hooks";
-import { getModuleInfoByLabel } from "@/utils/modulesMap";
+import { getModuleIconByCode } from "@/utils/moduleIcons";
 import { useState } from "react";
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const dispatch = useAppDispatch();
   const entitlements = useRootSelector((s) => s.entitlement);
 
-  const allowedModules = entitlements?.modules || [];
+  // API-driven modules — single runtime source per cleanup plan
+  // Filter by isActive if backend provides it
+  const allowedModules = (entitlements?.modules || []).filter(
+    (m: any) => m.isActive !== false,
+  );
 
   const [isHovered, setIsHovered] = useState(false);
-
-  // Actual visual state of sidebar
   const isSidebarCollapsed = collapsed && !isHovered;
 
   return (
@@ -47,7 +49,6 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
             <p className="font-display text-[15px] font-bold tracking-tight text-white">
               {APP_NAME}
             </p>
-
             <p className="truncate text-[10px] uppercase tracking-[0.16em] text-brand-200/80">
               {APP_SUBTITLE}
             </p>
@@ -63,14 +64,14 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         </button>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation — uses module.code for icon, module.name for display, module.route for nav */}
       <nav className="nav-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-3">
         <ul className="space-y-0.5">
-          {allowedModules.map((module) => {
-            const moduleInfo = getModuleInfoByLabel(module.name);
-            const Icon = moduleInfo?.icon || HeartPulse;
-            const label = moduleInfo?.label || module.name;
-            const path = module.route;
+          {allowedModules.map((module: any) => {
+            const Icon =
+              getModuleIconByCode(module.code || module.name) || HeartPulse;
+            const label = module.name; // display from API, not static map
+            const path = module.route; // navigation from API
 
             return (
               <li key={module.id}>
@@ -94,14 +95,12 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                           isActive ? "opacity-100" : "opacity-0",
                         )}
                       />
-
                       <Icon
                         className={cn(
                           "size-4.5 shrink-0 transition-transform duration-200",
                           !isActive && "group-hover:scale-110",
                         )}
                       />
-
                       {!isSidebarCollapsed && (
                         <span className="truncate">{label}</span>
                       )}
@@ -124,9 +123,6 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
         <button
           type="button"
           onClick={() => {
-            // The collapse control itself is inside the hover area. Resetting the
-            // hover preview here lets the collapsed state take effect immediately
-            // instead of waiting for the pointer to leave the sidebar.
             setIsHovered(false);
             dispatch(toggleSidebar());
           }}
@@ -141,7 +137,6 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
               isSidebarCollapsed && "rotate-180",
             )}
           />
-
           {!isSidebarCollapsed && "Collapse sidebar"}
         </button>
       </div>

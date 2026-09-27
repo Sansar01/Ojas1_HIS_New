@@ -23,7 +23,7 @@ export function AuthLayout({
       <aside className="relative hidden w-[46%] max-w-[720px] shrink-0 overflow-hidden lg:block">
         <img
           src={HERO_IMAGE}
-          alt="Meridian Care hospital atrium"
+          alt="OJAS1 hospital atrium"
           className="absolute inset-0 size-full object-cover opacity-[0.34]"
           loading="eager"
         />

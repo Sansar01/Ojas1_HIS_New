@@ -67,20 +67,22 @@ export function useLoader() {
 
 export function usePermission() {
   const user = useCurrentUser();
-  const sessionEntitlements = useRootSelector(
-    (state) => state.auth.session?.entitlements ?? null,
-  ) as Entitlements | null;
+  // Single runtime source per cleanup plan: entitlementSlice.modules
+  // auth/session is for authentication only, not permissions
   const dynamicModules = useRootSelector((state) => state.entitlement.modules);
   const loading = useRootSelector((state) => state.entitlement.loading);
   const ready = useRootSelector((state) => state.entitlement.ready);
+  const error = useRootSelector((state) => state.entitlement.error);
+  const status = useRootSelector((state) => state.entitlement.status);
   const userType =
     user?.userType ??
     (user as any)?.role?.slug ??
     (user as any)?.role?.name ??
     null;
-  const entitlements: Entitlements | null = dynamicModules.length
-    ? { userType, modules: dynamicModules }
-    : sessionEntitlements ?? (userType ? { userType, modules: [] } : null);
+  const entitlements: Entitlements | null = {
+    userType: userType ?? undefined,
+    modules: dynamicModules,
+  } as Entitlements;
 
   const can = useCallback(
     (module: ModuleKey, action: Permission = "view") =>
@@ -94,6 +96,8 @@ export function usePermission() {
     entitlements,
     loading,
     ready,
+    error,
+    status,
     hasFeature: (moduleCode: string, featureCode: string) =>
       hasFeature(entitlements, moduleCode, featureCode),
     canView: (m: ModuleKey) => can(m, "view"),
@@ -188,8 +192,7 @@ export function useTable<T extends Record<string, any>>(
       );
     }
     const activeFilters = Object.entries(options.filters ?? {}).filter(
-      ([, v]) =>
-        v && (Array.isArray(v) ? !v.includes("all") : v !== "all"),
+      ([, v]) => v && (Array.isArray(v) ? !v.includes("all") : v !== "all"),
     );
     if (activeFilters.length) {
       out = out.filter((row) =>
@@ -285,7 +288,7 @@ export function useMediaQuery(query: string) {
 
 export function useDocumentTitle(title: string) {
   useEffect(() => {
-    document.title = `${title} · Meridian Care Hospital Portal`;
+    document.title = `${title} · OJAS1 Hospital Management Portal`;
   }, [title]);
 }
 

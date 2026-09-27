@@ -1,114 +1,16 @@
 import type {
   AppointmentStatus,
   ConsultationStatus,
-  ModuleDef,
-  ModuleKey,
   PaymentStatus,
   Permission,
 } from "@/types";
 
 export const APP_NAME = "OJAS1";
 export const APP_SUBTITLE = "Hospital Management Portal";
-export const STORAGE_KEY = "meridian.session.v1";
-export const DB_KEY = "meridian.db.v1";
 
-export const MODULES: ModuleDef[] = [
-  {
-    key: "dashboard",
-    label: "Dashboard",
-    path: "/dashboard",
-    icon: "LayoutDashboard",
-    group: "Insights",
-    description: "Live hospital overview & KPIs",
-  },
-  {
-    key: "patients",
-    label: "Patients",
-    path: "/patients",
-    icon: "Users",
-    group: "Clinical",
-    description: "Registry, profiles & history",
-  },
-  {
-    key: "doctors",
-    label: "Doctors",
-    path: "/doctors",
-    icon: "Stethoscope",
-    group: "Clinical",
-    description: "Clinicians, fees & availability",
-  },
-  {
-    key: "consultations",
-    label: "Consultations",
-    path: "/consultation",
-    icon: "ClipboardList",
-    group: "Clinical",
-    description: "Clinical workspace & prescriptions",
-  },
-  {
-    key: "appointments",
-    label: "Appointments",
-    path: "/appointments",
-    icon: "CalendarClock",
-    group: "Operations",
-    description: "Scheduling engine & slot builder",
-  },
-  {
-    key: "billing",
-    label: "Billing",
-    path: "/billing",
-    icon: "ReceiptIndianRupee",
-    group: "Operations",
-    description: "Invoices, payments & charges",
-  },
-  {
-    key: "departments",
-    label: "Departments",
-    path: "/departments",
-    icon: "Building2",
-    group: "Operations",
-    description: "Hospital departments",
-  },
-  {
-    key: "specializations",
-    label: "Specializations",
-    path: "/specializations",
-    icon: "Sparkles",
-    group: "Operations",
-    description: "Clinical specializations",
-  },
-  {
-    key: "users",
-    label: "Users",
-    path: "/users",
-    icon: "UserCog",
-    group: "Access",
-    description: "Portal users & access",
-  },
-  {
-    key: "roles",
-    label: "Roles & Permissions",
-    path: "/roles",
-    icon: "ShieldCheck",
-    group: "Access",
-    description: "RBAC matrix per module",
-  },
-  {
-    key: "settings",
-    label: "Hospital Settings",
-    path: "/settings",
-    icon: "Settings",
-    group: "Access",
-    description: "Facility & invoice settings",
-  },
-];
+// MODULES removed per cleanup plan — runtime source is entitlement API (entitlementSlice.modules)
+// MODULE_LABEL and ALL_MODULE_KEYS removed for same reason — single source of truth is backend
 
-export const MODULE_LABEL: Record<ModuleKey, string> = MODULES.reduce(
-  (acc, m) => ({ ...acc, [m.key]: m.label }),
-  {} as Record<ModuleKey, string>,
-);
-
-export const ALL_MODULE_KEYS: ModuleKey[] = MODULES.map((m) => m.key);
 export const PERMISSIONS: Permission[] = ["view", "create", "edit", "delete"];
 export const PERMISSION_LABEL: Record<Permission, string> = {
   view: "View",
@@ -216,9 +118,7 @@ export const AVATAR_COLORS = [
 
 export const PAGE_SIZES = [8, 12, 25, 50];
 
-
 /* ------------------------- backend DTO value mirrors ----------------------- */
-/** Mirrors the backend `AppointmentType` enum */
 export const APPOINTMENT_TYPES = [
   { value: "WALK_IN", label: "Walk In" },
   { value: "SCHEDULED", label: "Scheduled" },
@@ -226,7 +126,6 @@ export const APPOINTMENT_TYPES = [
   { value: "TELECONSULTATION", label: "Teleconsultation" },
 ] as const;
 
-/** Mirrors the backend `VisitType` enum */
 export const VISIT_TYPES = [
   { value: "NEW_VISIT", label: "New Visit" },
   { value: "FOLLOW_UP", label: "Follow Up" },
@@ -236,15 +135,11 @@ export const VISIT_TYPES = [
   { value: "EMERGENCY", label: "Emergency" },
 ] as const;
 
-/** 0 = Normal | 1 = Urgent | 2 = Emergency (backend DTO priority) —
- *  values kept as strings because the Select component expects string options */
 export const PRIORITY_OPTIONS = [
   { value: "0", label: "Routine" },
   { value: "1", label: "Urgent" },
   { value: "2", label: "Emergency" },
 ] as const;
-
-// Add this in src/constants.ts or a new file src/constants/specializations.ts
 
 export interface StaticSpecialization {
   id: string;
@@ -259,8 +154,16 @@ export const STATIC_SPECIALIZATIONS: StaticSpecialization[] = [
   { id: "Orthopedics", name: "Orthopedics", code: "ORTHO" },
   { id: "Dermatology", name: "Dermatology", code: "DERM" },
   { id: "Neurology", name: "Neurology", code: "NEURO" },
-  { id: "Gynecology & Obstetrics", name: "Gynecology & Obstetrics", code: "OBGYN" },
-  { id: "ENT (Ear, Nose, Throat)", name: "ENT (Ear, Nose, Throat)", code: "ENT" },
+  {
+    id: "Gynecology & Obstetrics",
+    name: "Gynecology & Obstetrics",
+    code: "OBGYN",
+  },
+  {
+    id: "ENT (Ear, Nose, Throat)",
+    name: "ENT (Ear, Nose, Throat)",
+    code: "ENT",
+  },
   { id: "Ophthalmology", name: "Ophthalmology", code: "EYE" },
   { id: "Gastroenterology", name: "Gastroenterology", code: "GASTRO" },
   { id: "Pulmonology", name: "Pulmonology", code: "PULMO" },
