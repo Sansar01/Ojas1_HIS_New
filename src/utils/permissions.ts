@@ -95,6 +95,25 @@ export function hasFeature(
   );
 }
 
+/**
+ * True when a module with this key/route/name actually exists in the loaded
+ * module list — independent of the current user's role (the SUPERADMIN bypass
+ * in canAccessModule() does NOT apply here).
+ *
+ * Used by the router to 404 on routes whose module is not part of the portal
+ * at all, for every user including admins.
+ */
+export function isModuleRegistered(
+  entitlements: Entitlements | any,
+  module: ModuleKey | string,
+): boolean {
+  const modulesList: EntitlementModule[] = Array.isArray(entitlements)
+    ? entitlements
+    : entitlements?.modules ?? [];
+
+  return Boolean(findModule(modulesList, module));
+}
+
 export function canAccessModule(
   entitlements: Entitlements | any,
   module: ModuleKey | string,

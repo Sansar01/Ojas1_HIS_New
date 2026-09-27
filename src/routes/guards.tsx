@@ -10,7 +10,8 @@ import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
 import { FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
 import type { ModuleKey, Permission } from "@/types";
-import { canAccessModule } from "@/utils/permissions";
+import { canAccessModule, isModuleRegistered } from "@/utils/permissions";
+import { NotFoundPage } from "@/pages/admin/AdminPages";
 
 export function Splash({
   label = "Restoring your secure session",
@@ -135,6 +136,17 @@ export function RequireModule({
 
   if (!isSuperAdmin && (!ready || loading)) {
     return <Splash label="Loading permissions" />;
+  }
+
+  // A module that is not part of the loaded module list is not a route in this
+  // portal at all → 404, for every user including admins. Guarded by `ready` so
+  // we never 404 while modules are still loading, and by a non-empty list so a
+  // wholesale modules-API failure keeps the previous behaviour.
+  const modulesLoaded: any[] = Array.isArray(entitlements?.modules)
+    ? entitlements!.modules
+    : [];
+  if (ready && modulesLoaded.length > 0 && !isModuleRegistered(entitlements, module)) {
+    return <NotFoundPage />;
   }
 
   if (!canAccessModule(entitlements, module, action)) {
