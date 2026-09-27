@@ -21,7 +21,7 @@ export type ModuleKey =
   | "appointments"
   | "consultations"
   | "billing"
-  | "settings"
+  | "settings"|
 "opd";
 
 export interface ModuleDef {

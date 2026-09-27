@@ -388,7 +388,6 @@ export function UsersNewPage() {
                       required
                       autoComplete="given-name"
                       placeholder="e.g. Meera"
-                      leadingIcon={<IdCard />}
                       value={form.values.firstName}
                       onChange={(e) =>
                         form.setValue("firstName", e.target.value)
@@ -407,7 +406,6 @@ export function UsersNewPage() {
                       required
                       autoComplete="family-name"
                       placeholder="e.g. Nair"
-                      leadingIcon={<IdCard />}
                       value={form.values.lastName}
                       onChange={(e) =>
                         form.setValue("lastName", e.target.value)
@@ -441,7 +439,6 @@ export function UsersNewPage() {
                       label="User type"
                       required
                       placeholder="Select user type"
-                      hint="Doctors get the clinical workspace; regular users get operational modules"
                       value={form.values.userType}
                       onChange={(v) => form.setValue("userType", v)}
                       options={[
@@ -462,12 +459,10 @@ export function UsersNewPage() {
                       name="designation"
                       label="Designation"
                       placeholder="e.g. Consultant cardiologist"
-                      leadingIcon={<Layers />}
                       value={form.values.designation}
                       onChange={(e) =>
                         form.setValue("designation", e.target.value)
                       }
-                      hint="Optional — printed next to the name"
                     />
                   </div>
                 </FormSection>
@@ -482,11 +477,9 @@ export function UsersNewPage() {
                       required
                       autoComplete="email"
                       placeholder="name@hospital.com"
-                      leadingIcon={<Mail />}
                       value={form.values.email}
                       onChange={(e) => form.setValue("email", e.target.value)}
                       error={form.errorFor("email")}
-                      hint="This doubles as the username"
                       trailingIcon={
                         form.isValid(["email"]) && form.values.email ? (
                           <Check className="size-4 text-mint-500" />
@@ -501,7 +494,6 @@ export function UsersNewPage() {
                       required
                       autoComplete="tel"
                       placeholder="+91 98765 43210"
-                      leadingIcon={<Phone />}
                       value={form.values.mobile}
                       onChange={(e) => form.setValue("mobile", e.target.value)}
                       error={form.errorFor("mobile")}
@@ -543,7 +535,6 @@ export function UsersNewPage() {
                     <MultiSelect
                       label="Additional roles"
                       placeholder="Add secondary roles"
-                      hint="Used for cross-cover duties"
                       values={form.values.additionalRoleIds}
                       onChange={(v) =>
                         form.setValue("additionalRoleIds", v as string[])
@@ -561,7 +552,6 @@ export function UsersNewPage() {
                     <MultiSelect
                       label="Departments"
                       placeholder="Assign departments"
-                      hint="Scope of clinical / operational access"
                       values={form.values.departmentIds}
                       onChange={(v) =>
                         form.setValue("departmentIds", v as string[])
@@ -582,8 +572,6 @@ export function UsersNewPage() {
                       value={form.values.email}
                       disabled
                       readOnly
-                      leadingIcon={<Mail />}
-                      hint="Same as the email entered in step 1"
                     />
                     <div className="space-y-2">
                       <Input
@@ -594,7 +582,6 @@ export function UsersNewPage() {
                         required
                         autoComplete="new-password"
                         placeholder="Minimum 8 characters"
-                        leadingIcon={<Lock />}
                         value={form.values.password}
                         onChange={(e) =>
                           form.setValue("password", e.target.value)
@@ -744,15 +731,6 @@ export function UsersNewPage() {
             </Button>
 
             <div className="flex items-center gap-3">
-              <span className="text-[12px] text-ink-400">
-                <span className="font-semibold text-ink-600">
-                  Step {currentStep}
-                </span>{" "}
-                of {STEPS.length} · fields with a red
-                <span className="mx-0.5 text-coral-500">*</span>
-                are required
-              </span>
-
               {currentStep < STEPS.length ? (
                 <Button
                   type="button"

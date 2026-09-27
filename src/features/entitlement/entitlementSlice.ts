@@ -7,12 +7,16 @@ import { hideLoader, showLoader, toast } from "../ui/uiSlice";
 interface EntitlementState {
   modules: EntitlementModule[];
   status: "idle" | "loading" | "succeeded" | "failed"; // 👈 Clean State Machine
+  loading: boolean;
+  ready: boolean;
   error: string | null;
 }
 
 const initialState: EntitlementState = {
   modules: [],
   status: "idle",
+  loading: false,
+  ready: false,
   error: null,
 };
 
@@ -29,11 +33,18 @@ export const fetchEntitlements = createAsyncThunk(
         return [];
       }
 
-      if (!Array.isArray(response) && (!response || Object.keys(response).length === 0)) {
-        throw new Error("Server returned an empty response (200 with no data).");
+      if (
+        !Array.isArray(response) &&
+        (!response || Object.keys(response).length === 0)
+      ) {
+        throw new Error(
+          "Server returned an empty response (200 with no data).",
+        );
       }
       if (response?.success === false) {
-        throw new Error(response?.message || "Server refused the modules request.");
+        throw new Error(
+          response?.message || "Server refused the modules request.",
+        );
       }
 
       const data = response?.data ?? response;
@@ -62,6 +73,8 @@ const entitlementSlice = createSlice({
     clearEntitlements: (state) => {
       state.modules = [];
       state.status = "idle";
+      state.loading = false;
+      state.ready = false;
       state.error = null;
     },
   },
@@ -69,14 +82,22 @@ const entitlementSlice = createSlice({
     builder
       .addCase(fetchEntitlements.pending, (state) => {
         state.status = "loading";
+        state.loading = true;
+        state.ready = false;
         state.error = null;
       })
       .addCase(fetchEntitlements.fulfilled, (state, action) => {
         state.status = "succeeded";
+        state.loading = false;
+        state.ready = true;
         state.modules = action.payload || [];
       })
       .addCase(fetchEntitlements.rejected, (state, action) => {
         state.status = "failed";
+        state.loading = false;
+        // Mark ready true even on failure so guards don't spin forever.
+        // The empty modules list will cause Forbidden fallback, preserving UX.
+        state.ready = true;
         state.error = action.payload as string;
       });
   },

@@ -126,10 +126,10 @@ export function canAccessModule(
     ? entitlements
     : entitlements?.modules ?? [];
 
-  const userType = normalize(entitlements?.userType ?? "").replace(/_/g, "");
-  if (userType === "SUPERADMIN") {
-    return true;
-  }
+  // const userType = normalize(entitlements?.userType ?? "").replace(/_/g, "");
+  // if (userType === "SUPERADMIN") {
+  //   return true;
+  // }
 
   const entitlementModule = findModule(modulesList, module);
   if (!entitlementModule || entitlementModule.isActive === false) {

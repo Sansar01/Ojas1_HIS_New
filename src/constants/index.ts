@@ -64,7 +64,7 @@ export const MODULES: ModuleDef[] = [
   {
     key: "departments",
     label: "Departments",
-    path: "departments",
+    path: "/departments",
     icon: "Building2",
     group: "Operations",
     description: "Hospital departments",

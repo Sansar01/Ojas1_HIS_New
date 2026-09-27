@@ -8,7 +8,7 @@ import {
 } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
-import { FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
+import { ALL_MODULE_KEYS, FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
 import type { ModuleKey, Permission } from "@/types";
 import { canAccessModule, isModuleRegistered } from "@/utils/permissions";
 import { NotFoundPage } from "@/pages/admin/AdminPages";
@@ -124,33 +124,22 @@ export function RequireModule({
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
-  const user = useRootSelector(selectUser) as any;
-  const isSuperAdmin = [user?.userType, user?.role?.slug, user?.role?.name]
-    .filter(Boolean)
-    .some(
-      (value) =>
-        String(value)
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, "") === "SUPERADMIN",
-    );
 
-  if (!isSuperAdmin && (!ready || loading)) {
+  // Wait for entitlements to load for all users uniformly
+  if (!ready || loading) {
     return <Splash label="Loading permissions" />;
   }
 
-  // A module that is not part of the loaded module list is not a route in this
-  // portal at all → 404, for every user including admins. Guarded by `ready` so
-  // we never 404 while modules are still loading, and by a non-empty list so a
-  // wholesale modules-API failure keeps the previous behaviour.
-  const modulesLoaded: any[] = Array.isArray(entitlements?.modules)
-    ? entitlements!.modules
-    : [];
-  if (ready && modulesLoaded.length > 0 && !isModuleRegistered(entitlements, module)) {
+  // Portal-level check: is this module key even part of the portal?
+  // Uses static ALL_MODULE_KEYS, not user's list, so 404 is truly portal-wide.
+  if (!ALL_MODULE_KEYS.includes(module as any)) {
     return <NotFoundPage />;
   }
 
+  // User-level dynamic check: is this module assigned to current user?
+  // Same logic for admin, doctor, regular user — no role-based bypass.
   if (!canAccessModule(entitlements, module, action)) {
-    return <ForbiddenState module={MODULE_LABEL[module]} />;
+    return <ForbiddenState module={MODULE_LABEL[module] ?? module} />;
   }
 
   return <>{children}</>;
