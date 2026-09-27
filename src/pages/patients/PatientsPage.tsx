@@ -18,7 +18,6 @@ import {
 } from "@/hooks";
 import { patientsApi } from "@/features/slices";
 import { calcAge, formatDate, fullName } from "@/utils";
-import { samplePatient } from "@/data/formDefaults";
 import type { Patient, Status } from "@/types";
 import {
   Avatar,
@@ -37,8 +36,6 @@ import {
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { PageIntro } from "@/components/common";
 import { toDisplayBloodGroup } from "@/types/bloodGroup";
-
-export const emptyPatient = (): Partial<Patient> => samplePatient();
 
 const bloodGroupApiValue = (bloodGroup: string) =>
   bloodGroup.replace("+", "_POSITIVE").replace("-", "_NEGATIVE").toUpperCase();

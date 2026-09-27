@@ -3,7 +3,7 @@ import { createCrudSlice } from "@/features/crud/createCrudSlice";
 import { request } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { HospitalInfo, CreateDoctorPayload, ScheduleDay, Doctor } from "@/types";
+import type { HospitalInfo, CreateDoctorPayload, ScheduleDay } from "@/types";
 
 /* ---------------------------------------------------------------------------
  * One modular slice per domain feature (Redux Toolkit).

@@ -1,20 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Ban,
-  Building2,
   Check,
   CheckCircle2,
   Eye,
   EyeOff,
-  IdCard,
   KeyRound,
-  Layers,
-  Lock,
-  Mail,
-  Phone,
   ShieldCheck,
-  Sparkles,
   UserPlus,
   UserRound,
 } from "lucide-react";
@@ -22,7 +14,7 @@ import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { rolesApi, usersApi } from "@/features/slices";
 import { FormSection, PageIntro } from "@/components/common";
-import { Avatar, Badge, Button, Panel } from "@/components/ui/primitives";
+import {  Badge, Button, Panel } from "@/components/ui/primitives";
 import {
   Checkbox,
   Input,

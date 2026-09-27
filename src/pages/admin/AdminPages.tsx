@@ -24,7 +24,6 @@ import {
   createHospitalRole,
   type RoleMasterCatalogItem,
 } from "@/features/slices";
-import { resetDb } from "@/data/db";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, ModuleKey, Permission, Role } from "@/types";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui/primitives";
@@ -764,7 +763,6 @@ export function SettingsPage() {
                   "All locally created patients, appointments, invoices and profile edits will be replaced with the seeded demo hospital data.",
                 confirmLabel: "Reset data",
                 action: async () => {
-                  resetDb();
                   window.location.reload();
                 },
               })

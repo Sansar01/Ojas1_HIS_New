@@ -39,10 +39,9 @@ import {
 } from "@/components/ui/table";
 import { PageIntro, PrescriptionPrintPreview } from "@/components/common";
 import { EmptyState } from "@/components/ui/feedback";
-import { hospitalSeed } from "@/data/db";
 import { buildApiUrl } from "@/config/api";
 
-import { Input, Select, Textarea } from "@/components/ui/fields";
+import { Select } from "@/components/ui/fields";
 
 /* ==========================================================================
    1. AUTH & API HELPERS
@@ -737,8 +736,7 @@ export function ConsultationWorkspacePage() {
   const [completing, setCompleting] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [cardTab, setCardTab] = useState<"details" | "history">("details");
-  const hospital =
-    useRootSelector((state) => state.hospital.data) || hospitalSeed;
+  const hospital = useRootSelector((state) => state.hospital.data);
 
   const isCompleted = record?.status === CONSULT_STATUSES.COMPLETED;
   const readOnly = !canEdit("consultations") || isCompleted;
@@ -1054,10 +1052,12 @@ export function ConsultationWorkspacePage() {
 
             {/* Tab strip — Patient details / Patient history */}
             <div className="flex gap-1 rounded-lg bg-ink-100 p-1">
-              {([
-                { key: "details", label: "Patient details" },
-                { key: "history", label: "Patient history" },
-              ] as const).map((t) => (
+              {(
+                [
+                  { key: "details", label: "Patient details" },
+                  { key: "history", label: "Patient history" },
+                ] as const
+              ).map((t) => (
                 <button
                   key={t.key}
                   onClick={() => setCardTab(t.key)}
@@ -1520,7 +1520,9 @@ function PatientHistoryPanel({
 }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState<any[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1537,7 +1539,9 @@ function PatientHistoryPanel({
         setStatus("error");
         return;
       }
-      const list = Array.isArray(res.data) ? res.data : ((res.data as any)?.data ?? []);
+      const list = Array.isArray(res.data)
+        ? res.data
+        : ((res.data as any)?.data ?? []);
       setRows(
         list
           .filter((c: any) => String(c.id) !== String(currentId))
@@ -1592,7 +1596,9 @@ function PatientHistoryPanel({
             key={c.id}
             className={cn(
               "rounded-lg border transition-colors",
-              isOpen ? "border-[#1D6C63]/30 bg-teal-50/30" : "border-ink-200 bg-white",
+              isOpen
+                ? "border-[#1D6C63]/30 bg-teal-50/30"
+                : "border-ink-200 bg-white",
             )}
           >
             <button
@@ -1612,13 +1618,17 @@ function PatientHistoryPanel({
               </p>
               <p className="mt-0.5 text-[10.5px] text-ink-500">
                 Dr. {c.doctor?.firstName || ""} {c.doctor?.lastName || ""}
-                {meds.length > 0 && ` · ${meds.length} med${meds.length > 1 ? "s" : ""}`}
+                {meds.length > 0 &&
+                  ` · ${meds.length} med${meds.length > 1 ? "s" : ""}`}
               </p>
             </button>
 
             {isOpen && (
               <div className="border-t border-ink-200/70 p-3 space-y-2.5 text-[11.5px]">
-                <HistoryField label="Chief complaint" value={c.chiefComplaints} />
+                <HistoryField
+                  label="Chief complaint"
+                  value={c.chiefComplaints}
+                />
                 <HistoryField label="History" value={c.history} />
                 <HistoryField label="Examination" value={c.examination} />
                 <HistoryField label="Advice" value={c.specialInstructions} />
@@ -1634,9 +1644,15 @@ function PatientHistoryPanel({
                           key={m.id ?? i}
                           className="rounded-md border border-ink-100 bg-white px-2 py-1.5"
                         >
-                          <p className="font-medium text-ink-900">{m.medicineName}</p>
+                          <p className="font-medium text-ink-900">
+                            {m.medicineName}
+                          </p>
                           <p className="text-[10.5px] text-ink-500">
-                            {[m.dosage, m.frequency, m.durationDays && `${m.durationDays} days`]
+                            {[
+                              m.dosage,
+                              m.frequency,
+                              m.durationDays && `${m.durationDays} days`,
+                            ]
                               .filter(Boolean)
                               .join(" · ")}
                           </p>
