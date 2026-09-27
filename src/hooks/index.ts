@@ -65,24 +65,37 @@ export function useLoader() {
 
 /* --------------------------------- RBAC ----------------------------------- */
 
+/* --------------------------------- RBAC ----------------------------------- */
+
 export function usePermission() {
   const user = useCurrentUser();
   // Single runtime source per cleanup plan: entitlementSlice.modules
   // auth/session is for authentication only, not permissions
-  const dynamicModules = useRootSelector((state) => state.entitlement.modules);
-  const loading = useRootSelector((state) => state.entitlement.loading);
-  const ready = useRootSelector((state) => state.entitlement.ready);
+  const dynamicModules = useRootSelector(
+    (state) => state.entitlement.modules ?? [],
+  );
   const error = useRootSelector((state) => state.entitlement.error);
   const status = useRootSelector((state) => state.entitlement.status);
+  const sessionEntitlements = useRootSelector(
+    (state) => state.auth.session?.entitlements ?? null,
+  ) as Entitlements | null;
+
+  const loading = status === "loading";
+  // Succeeded ho gaya, ya error aa gayi, ya session me data hai toh ready = true
+  const ready =
+    status === "succeeded" ||
+    status === "failed" ||
+    sessionEntitlements !== null;
+
   const userType =
     user?.userType ??
     (user as any)?.role?.slug ??
     (user as any)?.role?.name ??
     null;
-  const entitlements: Entitlements | null = {
-    userType: userType ?? undefined,
-    modules: dynamicModules,
-  } as Entitlements;
+
+  const entitlements: Entitlements | null = dynamicModules.length
+    ? { userType, modules: dynamicModules }
+    : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
 
   const can = useCallback(
     (module: ModuleKey, action: Permission = "view") =>
