@@ -13,7 +13,7 @@ import {
   UserPlus,
   Users2,
 } from "lucide-react";
-import { APP_NAME, AVATAR_COLORS, MODULES, PERMISSIONS } from "@/constants";
+import { APP_NAME, AVATAR_COLORS, PERMISSIONS } from "@/constants";
 import {
   useAppDispatch,
   usePermission,
@@ -110,6 +110,9 @@ export function UsersPage() {
   );
   const [refreshKey, setRefreshKey] = useState(0);
   const roles = useRootSelector((s) => s.roles.items);
+  const entitlementModules = useRootSelector(
+    (s: any) => s.entitlement.modules || [],
+  );
   const [filters, setFilters] = useState({ role: "all", status: "all" });
   const [editing, setEditing] = useState<Partial<User> | null>(null);
   const [detail, setDetail] = useState<User | null>(null);
@@ -324,14 +327,19 @@ export function UsersPage() {
               render: (u) => (
                 <div className="flex items-center gap-1">
                   {u.modules.slice(0, 4).map((m) => {
-                    const def = MODULES.find((x) => x.key === m);
+                    const def = entitlementModules.find(
+                      (x: any) =>
+                        x.key === m ||
+                        x.code?.toLowerCase() === m ||
+                        x.code === m.toUpperCase(),
+                    );
                     return (
                       <Tooltip
                         key={m}
-                        content={`${def?.label ?? m} · ${(u.permissions?.[m] ?? ["view"]).join(", ")}`}
+                        content={`${def?.name ?? def?.label ?? m} · ${(u.permissions?.[m] ?? ["view"]).join(", ")}`}
                       >
                         <span className="grid size-6 place-items-center rounded-md bg-ink-50 text-[10px] font-bold uppercase text-ink-500 ring-1 ring-inset ring-ink-100">
-                          {def?.label.slice(0, 2)}
+                          {(def?.name || def?.label || m).slice(0, 2)}
                         </span>
                       </Tooltip>
                     );
@@ -591,27 +599,44 @@ export function UsersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-ink-100">
-                    {MODULES.filter((m) => detail.modules.includes(m.key)).map(
-                      (m) => (
-                        <tr key={m.key}>
+                    {entitlementModules
+                      .filter(
+                        (m: any) =>
+                          detail.modules.includes(m.key) ||
+                          detail.modules.includes(m.code?.toLowerCase()) ||
+                          detail.modules.includes(m.code),
+                      )
+                      .map((m: any) => (
+                        <tr key={m.id || m.key || m.code}>
                           <td className="px-3 py-2 font-medium text-ink-700">
-                            {m.label}
+                            {m.name || m.label}
                           </td>
-                          {PERMISSIONS.map((p) => (
-                            <td key={p} className="px-2 py-2 text-center">
-                              <span
-                                className={cn(
-                                  "inline-block size-4 rounded-full ring-1",
-                                  (detail.permissions[m.key] ?? []).includes(p)
-                                    ? "bg-brand-500 ring-brand-600"
-                                    : "bg-white ring-ink-200",
-                                )}
-                              />
-                            </td>
-                          ))}
+                          {PERMISSIONS.map((p) => {
+                            const permsMap = detail.permissions as Record<
+                              string,
+                              Permission[]
+                            >;
+                            const modulePerms =
+                              permsMap[m.key] ||
+                              permsMap[m.code?.toLowerCase()] ||
+                              permsMap[m.code] ||
+                              permsMap[m.code?.toUpperCase()] ||
+                              [];
+                            return (
+                              <td key={p} className="px-2 py-2 text-center">
+                                <span
+                                  className={cn(
+                                    "inline-block size-4 rounded-full ring-1",
+                                    (modulePerms as Permission[]).includes(p)
+                                      ? "bg-brand-500 ring-brand-600"
+                                      : "bg-white ring-ink-200",
+                                  )}
+                                />
+                              </td>
+                            );
+                          })}
                         </tr>
-                      ),
-                    )}
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -711,14 +736,17 @@ function UserFormDialog({
     },
   });
 
+  const entitlementModules = useRootSelector(
+    (s: any) => s.entitlement.modules || [],
+  );
   const moduleOptions = useMemo(
     () =>
-      MODULES.map((m) => ({
-        value: m.key,
-        label: m.label,
-        description: m.description,
+      entitlementModules.map((m: any) => ({
+        value: m.code?.toLowerCase() || m.key,
+        label: m.name,
+        description: m.route || m.features?.map((f: any) => f.name).join(", "),
       })),
-    [],
+    [entitlementModules],
   );
 
   const applyRoleDefaults = (roleId: string) => {

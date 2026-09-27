@@ -8,7 +8,7 @@ import {
 } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
 import { ForbiddenState } from "@/components/ui/feedback";
-import { FORCE_PASSWORD_PATH, MODULE_LABEL } from "@/constants";
+import { FORCE_PASSWORD_PATH } from "@/constants";
 import type { ModuleKey, Permission } from "@/types";
 import { canAccessModule } from "@/utils/permissions";
 
@@ -40,12 +40,10 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   const mustChange = useRootSelector(selectMustChangePassword);
   const location = useLocation();
 
-  // While restoring session from localStorage
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash />;
   }
 
-  // No valid session found → redirect to login
   if (!session) {
     return (
       <Navigate
@@ -56,13 +54,10 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Signed in but the backend asked for a new password first → divert.
-  // (Mirrors the backend flag forcePasswordChange from the login response.)
   if (mustChange && location.pathname !== FORCE_PASSWORD_PATH) {
     return <Navigate to={FORCE_PASSWORD_PATH} replace />;
   }
 
-  // User is authenticated → render protected content
   return <>{children}</>;
 }
 
@@ -76,8 +71,6 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
     return <Splash label="Checking authentication" />;
   }
 
-  // Accounts that owe a password change must land on the force-password
-  // screen, not the dashboard (RequireAuth would only bounce them back).
   if (user)
     return (
       <Navigate to={mustChange ? FORCE_PASSWORD_PATH : "/dashboard"} replace />
@@ -87,9 +80,6 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
 
 /**
  * Guard for the force-password screen.
- *  - not signed in            → login
- *  - signed in, no flag       → dashboard (the screen is pointless otherwise)
- *  - signed in with the flag  → render the form
  */
 export function RequirePasswordChange({
   children,
@@ -112,7 +102,13 @@ export function RequirePasswordChange({
   return <>{children}</>;
 }
 
-/** Denies a route when the module (or a specific action) is not granted. */
+/** Denies a route when the module (or a specific action) is not granted.
+ *  Fully dynamic — checks the assigned modules from entitlements for EVERY user
+ *  type (admin, doctor, regular, etc.). No SUPERADMIN bypass.
+ *  Authorization uses entitlement state (single runtime source), not static MODULES registry.
+ *  If module not in user's entitlements.modules → Forbidden for everyone.
+ *  True 404s are handled by router's catch-all * route.
+ */
 export function RequireModule({
   module,
   action = "view",
@@ -123,22 +119,26 @@ export function RequireModule({
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
-  const user = useRootSelector(selectUser) as any;
-  const isSuperAdmin = [user?.userType, user?.role?.slug, user?.role?.name]
-    .filter(Boolean)
-    .some(
-      (value) =>
-        String(value)
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, "") === "SUPERADMIN",
-    );
 
-  if (!isSuperAdmin && (!ready || loading)) {
+  // Wait for entitlements to load for all users uniformly — single source per cleanup plan
+  if (!ready || loading) {
     return <Splash label="Loading permissions" />;
   }
 
+  // User-level dynamic check: is this module assigned to current user?
+  // Same logic for admin, doctor, regular user — no role-based bypass.
+  // No static ALL_MODULE_KEYS check here per cleanup plan — 404 is router's job.
   if (!canAccessModule(entitlements, module, action)) {
-    return <ForbiddenState module={MODULE_LABEL[module]} />;
+    // Use module key as fallback label; display name comes from entitlement API when available
+    const displayName =
+      entitlements?.modules?.find((m: any) => {
+        const code = (m.code || "").toLowerCase();
+        return (
+          code === module || code === `${module}s` || `${code}s` === module
+        );
+      })?.name || module;
+
+    return <ForbiddenState module={displayName} />;
   }
 
   return <>{children}</>;

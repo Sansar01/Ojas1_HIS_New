@@ -1,22 +1,19 @@
-// src/utils/permissions.ts
+// src/utils/permissions.ts — tightened per cleanup plan
 
 import type { ModuleKey, Permission } from "@/types";
 import type { EntitlementModule, Entitlements } from "@/types/entitlement";
 
-// Helper: Slash hatayega aur normalize karega
 const normalize = (value: string = "") =>
   value
-    .replace(/^\/+|\/+$/g, "") // leading/trailing slash '/' remove karega
+    .replace(/^\/+|\/+$/g, "")
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_");
 
-// Helper: Singular/Plural dono match karne ke liye trailing 'S' hatayega
 const singularize = (value: string) => value.replace(/S$/, "");
 
 const findModule = (modules: EntitlementModule[] = [], requested: string) => {
   if (!Array.isArray(modules)) return undefined;
-
   const reqClean = normalize(requested);
   const reqSingular = singularize(reqClean);
 
@@ -26,7 +23,6 @@ const findModule = (modules: EntitlementModule[] = [], requested: string) => {
     const itemName = normalize(item.name ?? "");
     const itemRouteModule = itemRoute.split("_")[0];
 
-    // 1. Direct match
     if (
       itemCode === reqClean ||
       itemRoute === reqClean ||
@@ -35,8 +31,6 @@ const findModule = (modules: EntitlementModule[] = [], requested: string) => {
     ) {
       return true;
     }
-
-    // 2. Singular/Plural Insensitive match (e.g., CONSULTATIONS == CONSULTATION)
     if (
       singularize(itemCode) === reqSingular ||
       singularize(itemRoute) === reqSingular ||
@@ -45,11 +39,11 @@ const findModule = (modules: EntitlementModule[] = [], requested: string) => {
     ) {
       return true;
     }
-
     return false;
   });
 };
 
+// Tightened: explicit action matching only, no broad includes('VIEW') that can accidentally match
 const featureAllows = (
   module: EntitlementModule,
   featureCode: string = "",
@@ -61,18 +55,59 @@ const featureAllows = (
   const actionCode = normalize(action);
   const moduleCode = normalize(module.code ?? "");
   const routeCode = normalize(module.route ?? "");
+  const moduleSingular = singularize(moduleCode);
+  const routeSingular = singularize(routeCode);
 
+  // Direct explicit matches
   if (code === actionCode) return true;
-  if (code === `${actionCode}_${moduleCode}` || code === `${actionCode}_${singularize(moduleCode)}`) return true;
-  if (code === `${actionCode}_${routeCode}` || code === `${actionCode}_${singularize(routeCode)}`) return true;
+  if (name === actionCode) return true;
 
-  // Generic checks for common backend conventions
-  if (action === "view" && (code.startsWith("VIEW_") || code.endsWith("_VIEW") || code.includes("VIEW") || code.includes("READ"))) return true;
-  if (action === "create" && (code.startsWith("CREATE_") || code.endsWith("_CREATE") || code.includes("CREATE") || code.includes("ADD"))) return true;
-  if (action === "edit" && (code.startsWith("EDIT_") || code.endsWith("_EDIT") || code.startsWith("UPDATE_") || code.includes("EDIT") || code.includes("DEACTIVATE"))) return true;
-  if (action === "delete" && (code.startsWith("DELETE_") || code.endsWith("_DELETE") || code.includes("DELETE") || code.includes("REMOVE"))) return true;
+  // Exact prefixed/suffixed patterns: ACTION_MODULE, MODULE_ACTION
+  const exactPatterns = [
+    `${actionCode}_${moduleCode}`,
+    `${moduleCode}_${actionCode}`,
+    `${actionCode}_${routeCode}`,
+    `${routeCode}_${actionCode}`,
+    `${actionCode}_${moduleSingular}`,
+    `${moduleSingular}_${actionCode}`,
+    `${actionCode}_${routeSingular}`,
+    `${routeSingular}_${actionCode}`,
+  ];
+  if (exactPatterns.includes(code)) return true;
+  if (exactPatterns.includes(name)) return true;
 
-  return name.startsWith(actionCode);
+  // Explicit aliases — no substring includes()
+  if (action === "view") {
+    // READ is explicit alias for VIEW
+    if (
+      code === "READ" ||
+      code === `READ_${moduleCode}` ||
+      code === `${moduleCode}_READ`
+    )
+      return true;
+    if (code === "VIEW") return true;
+  }
+  if (action === "edit") {
+    // UPDATE is explicit alias for EDIT
+    if (
+      code === "UPDATE" ||
+      code === `UPDATE_${moduleCode}` ||
+      code === `${moduleCode}_UPDATE`
+    )
+      return true;
+    if (code === "EDIT") return true;
+  }
+  if (action === "create") {
+    if (code === "CREATE" || code === `ADD`) return true;
+  }
+  if (action === "delete") {
+    if (code === "DELETE" || code === "REMOVE") return true;
+  }
+
+  // Name-based explicit start: e.g., VIEW_PATIENTS
+  if (name.startsWith(`${actionCode}_`)) return true;
+
+  return false;
 };
 
 export function hasFeature(
@@ -82,7 +117,7 @@ export function hasFeature(
 ) {
   const modulesList = Array.isArray(entitlements)
     ? entitlements
-    : entitlements?.modules ?? [];
+    : (entitlements?.modules ?? []);
 
   const module = findModule(modulesList, moduleCode);
   return Boolean(
@@ -90,9 +125,21 @@ export function hasFeature(
       (feature) =>
         feature.isActive !== false &&
         (normalize(feature.code) === normalize(featureCode) ||
-          singularize(normalize(feature.code)) === singularize(normalize(featureCode))),
+          singularize(normalize(feature.code)) ===
+            singularize(normalize(featureCode))),
     ),
   );
+}
+
+export function isModuleRegistered(
+  entitlements: Entitlements | any,
+  module: ModuleKey | string,
+): boolean {
+  const modulesList: EntitlementModule[] = Array.isArray(entitlements)
+    ? entitlements
+    : (entitlements?.modules ?? []);
+
+  return Boolean(findModule(modulesList, module));
 }
 
 export function canAccessModule(
@@ -102,22 +149,16 @@ export function canAccessModule(
 ): boolean {
   if (!entitlements) return false;
 
-  // Agar backend array bhej raha hai ya { modules: [...] } object
+  // Single runtime source: entitlementSlice.modules — no SUPERADMIN bypass
   const modulesList: EntitlementModule[] = Array.isArray(entitlements)
     ? entitlements
-    : entitlements?.modules ?? [];
-
-  const userType = normalize(entitlements?.userType ?? "").replace(/_/g, "");
-  if (userType === "SUPERADMIN") {
-    return true;
-  }
+    : (entitlements?.modules ?? []);
 
   const entitlementModule = findModule(modulesList, module);
   if (!entitlementModule || entitlementModule.isActive === false) {
     return false;
   }
 
-  // Agar module mil gaya aur features array empty hai ya features match ho gaye
   if (!entitlementModule.features || entitlementModule.features.length === 0) {
     return true;
   }
@@ -126,11 +167,6 @@ export function canAccessModule(
     (feature) =>
       feature.isActive !== false &&
       (feature.action === action ||
-        featureAllows(
-          entitlementModule,
-          feature.code,
-          feature.name,
-          action,
-        )),
+        featureAllows(entitlementModule, feature.code, feature.name, action)),
   );
 }

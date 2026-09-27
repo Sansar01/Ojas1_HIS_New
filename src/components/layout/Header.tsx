@@ -12,7 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { MODULES, APP_NAME } from "@/constants";
+import { APP_NAME } from "@/constants";
 import { useAppDispatch, useCurrentUser, useRootSelector } from "@/hooks";
 import { setMobileNav } from "@/features/ui/uiSlice";
 import { bootstrapResources } from "@/store";
@@ -47,6 +47,9 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   const { isSuperAdmin } = usePermission();
   const now = useClock();
 
+  const entitlementModules = useRootSelector(
+    (s: any) => s.entitlement.modules || [],
+  );
   const trail = useMemo(() => {
     const segments = location.pathname.split("/").filter(Boolean);
     const trail: { label: string; to: string }[] = [
@@ -55,13 +58,13 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
     let path = "";
     segments.forEach((seg) => {
       path += `/${seg}`;
-      const module = MODULES.find((m) => m.path === path);
-      if (module) trail.push({ label: module.label, to: module.path });
+      const module = entitlementModules.find((m: any) => m.route === path);
+      if (module) trail.push({ label: module.name, to: module.route });
       else if (seg !== "app")
         trail.push({ label: labelFromSegment(seg), to: path });
     });
     return trail;
-  }, [location.pathname]);
+  }, [location.pathname, entitlementModules]);
 
   const pageTitle = trail[trail.length - 1]?.label ?? "Dashboard";
   const unread = activities.slice(0, 6);
@@ -242,7 +245,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
         </div>
         <div className="pt-1.5">
           <MenuItem
-            onSelect={() => navigate("/app/settings")}
+            onSelect={() => navigate("/settings")}
             className={menuItemClass()}
           >
             <UserRound className="size-4" /> Profile & facility
@@ -306,7 +309,7 @@ export function GlobalSearch({
         out.push({
           label: `${p.firstName} ${p.lastName}`,
           meta: `Patient · ${p.mrn}`,
-          to: `/app/patients/${p.id}`,
+          to: `/patients/${p.id}/detail`,
         }),
       );
     doctors
@@ -328,7 +331,7 @@ export function GlobalSearch({
         out.push({
           label: i.number,
           meta: `Invoice · ${i.paymentStatus}`,
-          to: `/app/billing?invoice=${i.id}`,
+          to: `/billing?invoice=${i.id}`,
         }),
       );
     setResults(out);

@@ -10,7 +10,7 @@ import {
   Trash2,
   UserCog,
 } from "lucide-react";
-import { MODULES, PERMISSIONS } from "@/constants";
+import { PERMISSIONS } from "@/constants";
 import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import {
@@ -24,7 +24,6 @@ import {
   createHospitalRole,
   type RoleMasterCatalogItem,
 } from "@/features/slices";
-import { resetDb } from "@/data/db";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, ModuleKey, Permission, Role } from "@/types";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui/primitives";
@@ -56,7 +55,9 @@ export function RolesPage() {
   const { canCreate, canEdit, canDelete } = usePermission();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Role> | null>(null);
-  const [assignedPermissions, setAssignedPermissions] = useState<RolePermissionAssignment[]>([]);
+  const [assignedPermissions, setAssignedPermissions] = useState<
+    RolePermissionAssignment[]
+  >([]);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const { ask, confirmNode } = useConfirmDialog();
 
@@ -220,9 +221,13 @@ export function RolesPage() {
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {entitlementModules.map((m) => {
                   const granted = assignedPermissions
-                    .filter((assignment) => assignment.moduleId === Number(m.id))
+                    .filter(
+                      (assignment) => assignment.moduleId === Number(m.id),
+                    )
                     .map((assignment) =>
-                      featureAction(assignment.moduleFeature?.feature?.code ?? ""),
+                      featureAction(
+                        assignment.moduleFeature?.feature?.code ?? "",
+                      ),
                     )
                     .filter(Boolean) as Permission[];
                   return (
@@ -276,7 +281,9 @@ export function RolesPage() {
                   onSaved={() => {
                     dispatch(fetchRolePermissions(String(selected.id)) as any)
                       .unwrap()
-                      .then((data: RolePermissionAssignment[]) => setAssignedPermissions(data));
+                      .then((data: RolePermissionAssignment[]) =>
+                        setAssignedPermissions(data),
+                      );
                   }}
                 />
               )}
@@ -314,9 +321,9 @@ function RoleMatrixEditor({
   useEffect(() => {
     const nextModules = Array.from(
       new Set(
-        assignedPermissions.map(
-          (assignment) => assignment.moduleFeature?.module?.code,
-        ).filter(Boolean) as string[],
+        assignedPermissions
+          .map((assignment) => assignment.moduleFeature?.module?.code)
+          .filter(Boolean) as string[],
       ),
     );
     setModules(nextModules);
@@ -335,8 +342,7 @@ function RoleMatrixEditor({
   const save = async () => {
     const moduleFeatures = modules.flatMap((moduleKey) => {
       const apiModule = entitlementModules.find(
-        (module) =>
-          module.code === moduleKey,
+        (module) => module.code === moduleKey,
       );
 
       if (!apiModule) return [];
@@ -369,20 +375,24 @@ function RoleMatrixEditor({
         options={entitlementModules.map((module) => ({
           value: module.code,
           label: module.name,
-          description: module.features?.map((feature) => feature.name).join(", "),
+          description: module.features
+            ?.map((feature) => feature.name)
+            .join(", "),
         }))}
         onChange={(vals) => setModules(vals as string[])}
         hint="Only checked modules appear in the sidebar for users of this role"
       />
-        {loading ? (
-          <p className="rounded-lg border border-ink-100 bg-white px-3 py-6 text-center text-sm text-ink-500">
-            Loading assigned permissions...
-          </p>
-        ) : <PermissionMatrix
-        modules={modules}
-        permissions={permissions}
-        onToggle={toggle}
-        />}
+      {loading ? (
+        <p className="rounded-lg border border-ink-100 bg-white px-3 py-6 text-center text-sm text-ink-500">
+          Loading assigned permissions...
+        </p>
+      ) : (
+        <PermissionMatrix
+          modules={modules}
+          permissions={permissions}
+          onToggle={toggle}
+        />
+      )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11.5px] text-ink-400">
           Users inheriting this role: all accounts assigned to {role.name}.
@@ -410,16 +420,17 @@ function featureAction(code: string): Permission | undefined {
   const normalized = code.toUpperCase();
   if (normalized.includes("VIEW")) return "view";
   if (normalized.includes("CREATE")) return "create";
-  if (normalized.includes("EDIT") || normalized.includes("UPDATE") || normalized.includes("DEACTIVATE")) return "edit";
+  if (
+    normalized.includes("EDIT") ||
+    normalized.includes("UPDATE") ||
+    normalized.includes("DEACTIVATE")
+  )
+    return "edit";
   if (normalized.includes("DELETE")) return "delete";
   return undefined;
 }
 
-function featureMatchesAction(
-  code: string,
-  name: string,
-  action: Permission,
-) {
+function featureMatchesAction(code: string, name: string, action: Permission) {
   const normalizedCode = code.toUpperCase();
   const normalizedName = name.toUpperCase();
   const actionName = action.toUpperCase();
@@ -466,12 +477,12 @@ function RoleForm({
       modules: Object.keys(initial.permissions ?? {}) as ModuleKey[],
     },
     schema: {
-      roleNameId: roleMode === "master"
-        ? [{ required: "Select a master role" }]
-        : [],
-      name: roleMode === "custom"
-        ? [{ required: "Role name is required", min: 3 }]
-        : [],
+      roleNameId:
+        roleMode === "master" ? [{ required: "Select a master role" }] : [],
+      name:
+        roleMode === "custom"
+          ? [{ required: "Role name is required", min: 3 }]
+          : [],
       slug: [
         { required: "Slug is required", pattern: /^[a-z][a-z0-9_]{2,24}$/ },
       ],
@@ -524,7 +535,10 @@ function RoleForm({
                 roleName: values.name.trim(),
                 roleCode:
                   values.roleCode.trim() ||
-                  values.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_"),
+                  values.name
+                    .trim()
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]+/g, "_"),
               }),
           description: values.description.trim(),
         }),
@@ -535,13 +549,14 @@ function RoleForm({
         const moduleFeatures = Object.entries(values.permissions).flatMap(
           ([moduleCode, actions]) => {
             const requestedModule = moduleCode.toUpperCase().replace(/S$/, "");
-            const module = entitlementModules.find((item) =>
-              item.code.toUpperCase().replace(/S$/, "") === requestedModule ||
-              String(item.route ?? "")
-                .replace(/^\/+/, "")
-                .split("/")[0]
-                .toUpperCase()
-                .replace(/S$/, "") === requestedModule,
+            const module = entitlementModules.find(
+              (item) =>
+                item.code.toUpperCase().replace(/S$/, "") === requestedModule ||
+                String(item.route ?? "")
+                  .replace(/^\/+/, "")
+                  .split("/")[0]
+                  .toUpperCase()
+                  .replace(/S$/, "") === requestedModule,
             );
             if (!module) return [];
             return (actions ?? []).flatMap((action) => {
@@ -549,7 +564,12 @@ function RoleForm({
                 featureMatchesAction(item.code, item.name, action),
               );
               return feature
-                ? [{ moduleId: Number(module.id), featureId: Number(feature.id) }]
+                ? [
+                    {
+                      moduleId: Number(module.id),
+                      featureId: Number(feature.id),
+                    },
+                  ]
                 : [];
             });
           },
@@ -602,8 +622,14 @@ function RoleForm({
               value={form.values.roleNameId}
               disabled={catalogLoading}
               onChange={(value) => {
-                const selected = masterRoles.find((item) => String(item.id) === value);
-                form.setMany({ roleNameId: value, name: selected?.name ?? "", slug: selected?.code.toLowerCase() ?? "" });
+                const selected = masterRoles.find(
+                  (item) => String(item.id) === value,
+                );
+                form.setMany({
+                  roleNameId: value,
+                  name: selected?.name ?? "",
+                  slug: selected?.code.toLowerCase() ?? "",
+                });
               }}
               options={masterRoles
                 .filter((item) => item.isActivatedInHospital)
@@ -627,7 +653,9 @@ function RoleForm({
               label="Role code"
               placeholder="NIGHT_NURSE"
               value={form.values.roleCode}
-              onChange={(e) => form.setValue("roleCode", e.target.value.toUpperCase())}
+              onChange={(e) =>
+                form.setValue("roleCode", e.target.value.toUpperCase())
+              }
             />
           )}
           <Input
@@ -660,10 +688,11 @@ function RoleForm({
             label="Allowed modules"
             required
             values={form.values.modules as string[]}
-            options={MODULES.map((m) => ({
-              value: m.key,
-              label: m.label,
-              description: m.description,
+            options={entitlementModules.map((m: any) => ({
+              value: m.code.toLowerCase(),
+              label: m.name,
+              description:
+                m.features?.map((f: any) => f.name).join(", ") || m.route,
             }))}
             onChange={(vals) => form.setValue("modules", vals as ModuleKey[])}
             error={
@@ -754,24 +783,25 @@ export function SettingsPage() {
           </Badge>
         }
         actions={
-          <Button
-            variant="outline"
-            icon={<ServerCog />}
-            onClick={() =>
-              ask({
-                title: "Reset demo dataset?",
-                description:
-                  "All locally created patients, appointments, invoices and profile edits will be replaced with the seeded demo hospital data.",
-                confirmLabel: "Reset data",
-                action: async () => {
-                  resetDb();
-                  window.location.reload();
-                },
-              })
-            }
-          >
-            Reset demo data
-          </Button>
+          import.meta.env.DEV ? (
+            <Button
+              variant="outline"
+              icon={<ServerCog />}
+              onClick={() =>
+                ask({
+                  title: "Reset demo dataset?",
+                  description:
+                    "All locally created patients, appointments, invoices and profile edits will be replaced with the seeded demo hospital data.",
+                  confirmLabel: "Reset data",
+                  action: async () => {
+                    window.location.reload();
+                  },
+                })
+              }
+            >
+              Reset demo data
+            </Button>
+          ) : undefined
         }
       />
 
@@ -964,7 +994,7 @@ export function SettingsPage() {
             <div className="grid gap-2">
               {can("users", "view") && (
                 <button
-                  onClick={() => navigate("/app/users")}
+                  onClick={() => navigate("/users")}
                   className="flex items-center justify-between rounded-lg border border-ink-100 px-3 py-2.5 text-left text-[12.5px] font-medium text-ink-700 transition-colors hover:border-brand-200 hover:bg-brand-25"
                 >
                   Manage users & access{" "}

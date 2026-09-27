@@ -16,7 +16,7 @@ export function DepartmentFormDialog({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const doctors = useRootSelector((s) => s.doctors.items);
+  const doctors = useRootSelector((s) => s.doctors.items)
   const form = useForm({
     initialValues: {
       name: initial.name ?? "",
