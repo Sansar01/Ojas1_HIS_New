@@ -1,3 +1,4 @@
+// src/features/entitlement/entitlementSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { entitlementApi } from "@/services/apiClient";
 import type { EntitlementModule } from "@/types/entitlement";
@@ -5,15 +6,13 @@ import { hideLoader, showLoader, toast } from "../ui/uiSlice";
 
 interface EntitlementState {
   modules: EntitlementModule[];
-  loading: boolean;
-  ready: boolean;
+  status: "idle" | "loading" | "succeeded" | "failed"; // 👈 Clean State Machine
   error: string | null;
 }
 
 const initialState: EntitlementState = {
   modules: [],
-  loading: false,
-  ready: false,
+  status: "idle",
   error: null,
 };
 
@@ -24,20 +23,19 @@ export const fetchEntitlements = createAsyncThunk(
     try {
       const res = await entitlementApi.getModules();
       const response: any = res;
-      // Session closed mid-flight (logout / forced change) — stay quiet.
+
       if (response?.cancelled) {
         dispatch(hideLoader());
         return [];
       }
-      // A 200 with an empty/unreadable body parses to {} — never valid here,
-      // so fail loudly instead of silently showing an empty portal.
-      // (A genuinely empty module list arrives as [], which stays valid.)
+
       if (!Array.isArray(response) && (!response || Object.keys(response).length === 0)) {
         throw new Error("Server returned an empty response (200 with no data).");
       }
       if (response?.success === false) {
         throw new Error(response?.message || "Server refused the modules request.");
       }
+
       const data = response?.data ?? response;
       const modules = Array.isArray(data)
         ? data
@@ -46,6 +44,7 @@ export const fetchEntitlements = createAsyncThunk(
           : data?.id && data?.features
             ? [data]
             : [];
+
       dispatch(hideLoader());
       return modules as EntitlementModule[];
     } catch (error: any) {
@@ -62,25 +61,22 @@ const entitlementSlice = createSlice({
   reducers: {
     clearEntitlements: (state) => {
       state.modules = [];
-      state.ready = false;
-      state.loading = false;
+      state.status = "idle";
       state.error = null;
     },
   },
   extraReducers: (builder) => {
     builder
       .addCase(fetchEntitlements.pending, (state) => {
-        state.loading = true;
+        state.status = "loading";
         state.error = null;
       })
       .addCase(fetchEntitlements.fulfilled, (state, action) => {
-        state.loading = false;
-        state.ready = true;
+        state.status = "succeeded";
         state.modules = action.payload || [];
       })
       .addCase(fetchEntitlements.rejected, (state, action) => {
-        state.loading = false;
-        state.ready = true;
+        state.status = "failed";
         state.error = action.payload as string;
       });
   },

@@ -1,6 +1,6 @@
+// src/Root.tsx
 import { useEffect } from "react";
-import { useSelector } from "react-redux";
-import { Provider } from "react-redux";
+import { useSelector, Provider } from "react-redux";
 import { store } from "@/store";
 import {
   restoreSession,
@@ -12,28 +12,19 @@ import {
   registerSessionGate,
   startSessionWatchdog,
 } from "@/services/apiClient";
-import { fetchEntitlements } from "@/features/entitlement/entitlementSlice";
 import { AppRoutes } from "@/routes";
 import { TooltipProvider } from "@/components/ui/overlays";
 import { ToastHost } from "@/components/ui/feedback";
 import type { RootState } from "@/store";
 
 function Root() {
-  const authStatus = useSelector((state: RootState) => state.auth.status);
-  const entitlements = useSelector(
-    (state: RootState) => state.entitlement.modules,
-  );
-  const mustChangePassword = useSelector(selectMustChangePassword);
-  const entitlementsReady = useSelector(
-    (state: RootState) => state.entitlement.ready,
-  );
   const toasts = useSelector((state: RootState) => state.ui.toasts);
 
   useEffect(() => {
+    // 1. Sirf session restore trigger karo (Listener khud fetchEntitlements call karega)
     store.dispatch(restoreSession() as any);
 
-    // Lets the api client decide, per request, whether the session allows it:
-    // signed out, or signed in with forcePasswordChange → auth calls only.
+    // 2. Session gate register
     registerSessionGate(() => {
       const { session, status } = store.getState().auth;
       return {
@@ -42,6 +33,7 @@ function Root() {
       };
     });
 
+    // 3. Refresh handler register
     registerRefreshHandler(async () => {
       try {
         await store.dispatch(refreshSession() as any).unwrap();
@@ -51,27 +43,14 @@ function Root() {
       }
     });
 
+    // 4. Session watchdog
     const stopWatchdog = startSessionWatchdog(60_000);
     return () => {
       if (typeof stopWatchdog === "function") stopWatchdog();
     };
   }, []);
 
-  // AFTER
-useEffect(() => {
-  // While the account owes a password change the session gate blocks every
-  // business API, so never fire entitlements here — the call returns a
-  // cancelled (empty) envelope and this effect would refire forever.
-  // `ready` also stops refetching for accounts with genuinely zero modules.
-  if (
-    authStatus === "authenticated" &&
-    !mustChangePassword &&
-    !entitlementsReady &&
-    (!entitlements || entitlements.length === 0)
-  ) {
-    store.dispatch(fetchEntitlements() as any);
-  }
-}, [authStatus, entitlements, entitlementsReady, mustChangePassword]);
+  // ❌ Sabhi fragile useEffects yahan se permanently delete ho gaye!
 
   return (
     <TooltipProvider>
