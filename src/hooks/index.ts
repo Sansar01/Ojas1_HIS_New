@@ -65,19 +65,30 @@ export function useLoader() {
 
 /* --------------------------------- RBAC ----------------------------------- */
 
+
+/* --------------------------------- RBAC ----------------------------------- */
+
 export function usePermission() {
   const user = useCurrentUser();
   const sessionEntitlements = useRootSelector(
     (state) => state.auth.session?.entitlements ?? null,
   ) as Entitlements | null;
-  const dynamicModules = useRootSelector((state) => state.entitlement.modules);
-  const loading = useRootSelector((state) => state.entitlement.loading);
-  const ready = useRootSelector((state) => state.entitlement.ready);
+
+  const dynamicModules = useRootSelector((state) => state.entitlement.modules ?? []);
+  
+  // 👉 ASLI FIX: 'status' se derive karein loading aur ready ko
+  const status = useRootSelector((state) => state.entitlement.status);
+  
+  const loading = status === "loading";
+  // Succeeded ho gaya, ya error aa gayi, ya session me data hai toh ready = true
+  const ready = status === "succeeded" || status === "failed" || sessionEntitlements !== null;
+
   const userType =
     user?.userType ??
     (user as any)?.role?.slug ??
     (user as any)?.role?.name ??
     null;
+
   const entitlements: Entitlements | null = dynamicModules.length
     ? { userType, modules: dynamicModules }
     : sessionEntitlements ?? (userType ? { userType, modules: [] } : null);
@@ -92,8 +103,8 @@ export function usePermission() {
     user,
     can,
     entitlements,
-    loading,
-    ready,
+    loading, // ab yeh boolean hai (true / false)
+    ready,   // ab yeh boolean hai (true / false)
     hasFeature: (moduleCode: string, featureCode: string) =>
       hasFeature(entitlements, moduleCode, featureCode),
     canView: (m: ModuleKey) => can(m, "view"),
