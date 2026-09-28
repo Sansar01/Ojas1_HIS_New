@@ -108,10 +108,10 @@ export function PrescriptionPrintPreview({
               </span>
               <div className="min-w-0">
                 <h1 className="font-display text-[21px] font-bold leading-tight text-ink-950 sm:text-[26px]">
-                  {hospital.name || "Hospital"}
+                  {hospital?.name || "Hospital"}
                 </h1>
                 <p className="mt-1 text-[10px] leading-relaxed text-ink-500 sm:text-[11px]">
-                  {[hospital.address, hospital.city, hospital.phone]
+                  {[hospital?.address, hospital?.city, hospital?.phone]
                     .filter(Boolean)
                     .join(" · ") || "Clinical care, thoughtfully delivered."}
                 </p>

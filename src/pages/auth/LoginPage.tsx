@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
+  KeyRound,
   Lock,
   Mail,
   ShieldCheck,
@@ -12,7 +13,7 @@ import {
 import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppDispatch, useAuthStatus } from "@/hooks";
-import { login } from "@/features/auth/authSlice";
+import { login, verifyOtp } from "@/features/auth/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
@@ -24,6 +25,13 @@ export function LoginPage() {
   const status = useAuthStatus();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  /** set only when the login API answers with an OTP challenge */
+  const [otpChallenge, setOtpChallenge] = useState<{
+    otpToken: string;
+    userId: string;
+    email: string;
+  } | null>(null);
+  const [otp, setOtp] = useState("");
 
   const form = useForm({
     initialValues: { email: "", password: "" },
@@ -33,18 +41,39 @@ export function LoginPage() {
     },
   });
 
+  const goToDashboard = (payload: any) => {
+    form.reset();
+    // The backend tells us whether a new password is required first.
+    const mustChangePassword = Boolean(
+      payload?.forcePasswordChange ?? payload?.user?.forcePasswordChange,
+    );
+    navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/dashboard", {
+      replace: true,
+    });
+  };
+
   const onSubmit = form.handleSubmit(async (values) => {
     const result: any = await dispatch(login(values));
     if (login.fulfilled.match(result)) {
-      form.reset();
-      // The backend tells us whether a new password is required first.
-      const mustChangePassword = Boolean(
-        result.payload?.forcePasswordChange ??
-        result.payload?.user?.forcePasswordChange,
-      );
-      navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/dashboard", {
-        replace: true,
-      });
+      // 2FA: password accepted but a code is required - swap in the
+      // verification step instead of signing in.
+      if (result.payload?.requiresOtp) {
+        setOtpChallenge({
+          otpToken: result.payload.otpToken,
+          userId: result.payload.userId,
+          email: values.email,
+        });
+        setOtp("");
+        dispatch(
+          toast.info(
+            "Verification code sent",
+            result.payload.message ??
+              "Enter the code sent to your registered device.",
+          ),
+        );
+        return;
+      }
+      goToDashboard(result.payload);
     } else {
       const message =
         (result.payload as string) ||
@@ -52,6 +81,32 @@ export function LoginPage() {
       dispatch(toast.error("Sign-in failed", message));
     }
   });
+
+  const onVerifyOtp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!otpChallenge) return;
+
+    const code = otp.trim();
+    if (!code) {
+      dispatch(toast.error("Code required", "Enter the verification code."));
+      return;
+    }
+
+    const result: any = await dispatch(
+      verifyOtp({ ...otpChallenge, code: code }),
+    );
+    if (verifyOtp.fulfilled.match(result)) {
+      goToDashboard(result.payload);
+    } else {
+      dispatch(
+        toast.error(
+          "Verification failed",
+          (result.payload as string) ||
+            "That code is invalid or has expired. Please try again.",
+        ),
+      );
+    }
+  };
 
   // const fillDemo = (account: (typeof DEMO)[number]) => {
   //   form.setMany({ email: account.email, password: account.password });
@@ -85,82 +140,144 @@ export function LoginPage() {
       </div>
 
       <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card sm:p-7">
-        <p className="text-[11.5px] font-semibold uppercase tracking-[0.16em] text-brand-600">
-          Welcome back
-        </p>
-        <h1 className="mt-2 font-display text-[26px] font-bold leading-tight text-ink-900">
-          Sign in to the portal
-        </h1>
-        <p className="mt-2 text-[13px] leading-relaxed text-ink-400">
-          Use your hospital directory credentials. Sessions expire after 8 hours
-          of inactivity.
-        </p>
+        {otpChallenge ? (
+          /* ------------------------- step 2: verify OTP ------------------------- */
+          <>
+            <p className="text-[11.5px] font-semibold uppercase tracking-[0.16em] text-brand-600">
+              Two-factor verification
+            </p>
+            <h1 className="mt-2 font-display text-[26px] font-bold leading-tight text-ink-900">
+              Enter your verification code
+            </h1>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-400">
+              Signing in as{" "}
+              <span className="font-semibold text-ink-700">
+                {otpChallenge.email}
+              </span>
+              . Enter the code we sent to your registered device to continue.
+            </p>
 
-        <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
-          <Input
-            name="email"
-            type="email"
-            autoComplete="username"
-            label="Email address"
-            required
-            placeholder=""
-            leadingIcon={<Mail />}
-            value={form.values.email}
-            onChange={(e) => form.setValue("email", e.target.value)}
-            error={form.errors.email}
-          />
+            <form onSubmit={onVerifyOtp} className="mt-6 space-y-4" noValidate>
+              <Input
+                name="otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
+                label="Verification code"
+                required
+                leadingIcon={<KeyRound />}
+                placeholder="Enter the code"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                hint="Sent to your registered device - check your messages or authenticator app."
+              />
 
-          <div className="relative">
-            <Input
-              name="password"
-              type={showPassword ? "text" : "password"}
-              autoComplete="current-password"
-              label="Password"
-              required
-              placeholder=""
-              leadingIcon={<Lock />}
-              value={form.values.password}
-              onChange={(e) => form.setValue("password", e.target.value)}
-              error={form.errors.password}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute right-2.5 top-[30px] rounded-md p-1.5 text-ink-400 transition-colors hover:bg-ink-50 hover:text-ink-700"
-            >
-              {showPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
-            </button>
-          </div>
+              <Button
+                type="submit"
+                size="lg"
+                block
+                loading={status === "authenticating"}
+                iconRight={<ShieldCheck />}
+              >
+                {status === "authenticating"
+                  ? "Verifying…"
+                  : "Verify and sign in"}
+              </Button>
 
-          <div className="flex items-center justify-between gap-3 pt-0.5">
-            <Checkbox
-              checked={remember}
-              onCheckedChange={setRemember}
-              label="Keep me signed in on this device"
-            />
-            <Link
-              to="/accounts/forgot-password"
-              className="shrink-0 text-[12.5px] font-semibold text-brand-600 hover:underline"
-            >
-              Forgot?
-            </Link>
-          </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOtpChallenge(null);
+                  setOtp("");
+                }}
+                className="mx-auto block text-[12.5px] font-semibold text-ink-400 transition-colors hover:text-ink-700"
+              >
+                Use a different account
+              </button>
+            </form>
+          </>
+        ) : (
+          /* --------------------------- step 1: sign in -------------------------- */
+          <>
+            <p className="text-[11.5px] font-semibold uppercase tracking-[0.16em] text-brand-600">
+              Welcome back
+            </p>
+            <h1 className="mt-2 font-display text-[26px] font-bold leading-tight text-ink-900">
+              Sign in to the portal
+            </h1>
+            <p className="mt-2 text-[13px] leading-relaxed text-ink-400">
+              Use your hospital directory credentials. Sessions expire after 8
+              hours of inactivity.
+            </p>
 
-          <Button
-            type="submit"
-            size="lg"
-            block
-            loading={status === "authenticating"}
-            iconRight={<ArrowRight />}
-          >
-            {status === "authenticating" ? "Verifying…" : "Sign in"}
-          </Button>
-        </form>
+            <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
+              <Input
+                name="email"
+                type="email"
+                autoComplete="username"
+                label="Email address"
+                required
+                placeholder=""
+                leadingIcon={<Mail />}
+                value={form.values.email}
+                onChange={(e) => form.setValue("email", e.target.value)}
+                error={form.errors.email}
+              />
+
+              <div className="relative">
+                <Input
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  label="Password"
+                  required
+                  placeholder=""
+                  leadingIcon={<Lock />}
+                  value={form.values.password}
+                  onChange={(e) => form.setValue("password", e.target.value)}
+                  error={form.errors.password}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-2.5 top-[30px] rounded-md p-1.5 text-ink-400 transition-colors hover:bg-ink-50 hover:text-ink-700"
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-0.5">
+                <Checkbox
+                  checked={remember}
+                  onCheckedChange={setRemember}
+                  label="Keep me signed in on this device"
+                />
+                <Link
+                  to="/accounts/forgot-password"
+                  className="shrink-0 text-[12.5px] font-semibold text-brand-600 hover:underline"
+                >
+                  Forgot?
+                </Link>
+              </div>
+
+              <Button
+                type="submit"
+                size="lg"
+                block
+                loading={status === "authenticating"}
+                iconRight={<ArrowRight />}
+              >
+                {status === "authenticating" ? "Verifying…" : "Sign in"}
+              </Button>
+            </form>
+          </>
+        )}
       </div>
 
       <p className="mt-6 text-center text-[11.5px] leading-relaxed text-ink-400">

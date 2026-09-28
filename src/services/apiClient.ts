@@ -118,6 +118,7 @@ export function registerSessionGate(fn: () => SessionGate | null) {
 const ALWAYS_ALLOWED_ENDPOINTS: string[] = [
   API_ENDPOINTS.auth.login,
   API_ENDPOINTS.auth.logout,
+   API_ENDPOINTS.auth.verifyOtp,
   API_ENDPOINTS.auth.changePassword,
   API_ENDPOINTS.auth.resetPassword,
   API_ENDPOINTS.auth.sendResetCode,
@@ -371,6 +372,20 @@ export const authApi = {
       url: API_ENDPOINTS.auth.login,
       method: "POST",
       body: { email, password },
+      skipRefresh: true,
+      withCredentials: true,
+    });
+  },
+
+  /** Second leg of 2FA - trades the login OTP challenge for a real session. */
+  async verifyOtp(payload: {
+    otpToken: string;
+    code: string;
+  }): Promise<ApiResponse<Session>> {
+    return request<Session>({
+      url: API_ENDPOINTS.auth.verifyOtp,
+      method: "POST",
+      body: payload,
       skipRefresh: true,
       withCredentials: true,
     });
