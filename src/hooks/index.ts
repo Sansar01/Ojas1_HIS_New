@@ -9,7 +9,7 @@ import {
   toast,
   type ToastVariant,
 } from "@/features/ui/uiSlice";
-import type { ModuleKey, Permission } from "@/types";
+import type { Permission } from "@/types";
 import { canAccessModule, hasFeature } from "@/utils/permissions";
 import type { Entitlements } from "@/types/entitlement";
 
@@ -98,7 +98,7 @@ export function usePermission() {
     : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
 
   const can = useCallback(
-    (module: ModuleKey, action: Permission = "view") =>
+    (module: string, action: Permission = "view") =>
       canAccessModule(entitlements, module, action),
     [entitlements],
   );
@@ -113,10 +113,10 @@ export function usePermission() {
     status,
     hasFeature: (moduleCode: string, featureCode: string) =>
       hasFeature(entitlements, moduleCode, featureCode),
-    canView: (m: ModuleKey) => can(m, "view"),
-    canCreate: (m: ModuleKey) => can(m, "create"),
-    canEdit: (m: ModuleKey) => can(m, "edit"),
-    canDelete: (m: ModuleKey) => can(m, "delete"),
+    canView: (m: string) => can(m, "view"),
+    canCreate: (m: string) => can(m, "create"),
+    canEdit: (m: string) => can(m, "edit"),
+    canDelete: (m: string) => can(m, "delete"),
     isSuperAdmin: userType
       ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
       : false,

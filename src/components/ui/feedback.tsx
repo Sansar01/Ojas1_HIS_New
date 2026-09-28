@@ -14,7 +14,8 @@ import { cn } from "@/utils/cn";
 import { useAppDispatch } from "@/hooks";
 import { dismissToast, type Toast } from "@/features/ui/uiSlice";
 import { Button } from "@/components/ui/primitives";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, FileQuestion } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 /* ------------------------------- Skeletons --------------------------------- */
 
@@ -177,6 +178,48 @@ export function ForbiddenState({ module }: { module?: string }) {
           <em className="not-italic text-brand-700"> View </em> access, then
           sign in again.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 404 state.
+ *
+ * Rendered for BOTH cases so a user can never tell them apart:
+ *   • the URL is not a route this app knows about, and
+ *   • the URL is a real route but the entitlements API never granted the
+ *     module behind it (see `ModuleRoute` in src/routes/guards.tsx).
+ * Hiding the difference is deliberate — it stops URL probing from mapping out
+ * which modules exist.
+ */
+export function NotFoundState() {
+  const navigate = useNavigate();
+  return (
+    <div className="grid min-h-[60vh] place-items-center px-6">
+      <div className="max-w-md text-center">
+        <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-500 ring-1 ring-brand-500/20">
+          <FileQuestion className="size-7" />
+        </span>
+        <p className="mt-4 font-display text-[40px] font-bold leading-none text-brand-500">
+          404
+        </p>
+        <h1 className="mt-2 font-display text-[22px] font-bold text-ink-900">
+          This page isn&rsquo;t part of the portal
+        </h1>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-400">
+          The link may be outdated, or the module is not available for your
+          account.
+        </p>
+        <div className="mt-5 flex justify-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("/dashboard")}
+          >
+            Go to dashboard
+          </Button>
+        </div>
       </div>
     </div>
   );

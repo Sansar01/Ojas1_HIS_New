@@ -7,10 +7,10 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
-import { ForbiddenState } from "@/components/ui/feedback";
+import { ForbiddenState, NotFoundState } from "@/components/ui/feedback";
 import { FORCE_PASSWORD_PATH } from "@/constants";
-import type { ModuleKey, Permission } from "@/types";
-import { canAccessModule } from "@/utils/permissions";
+import type { Permission } from "@/types";
+import { checkRouteAccess } from "@/utils/permissions";
 
 export function Splash({
   label = "Restoring your secure session",
@@ -102,43 +102,65 @@ export function RequirePasswordChange({
   return <>{children}</>;
 }
 
-/** Denies a route when the module (or a specific action) is not granted.
- *  Fully dynamic — checks the assigned modules from entitlements for EVERY user
- *  type (admin, doctor, regular, etc.). No SUPERADMIN bypass.
- *  Authorization uses entitlement state (single runtime source), not static MODULES registry.
- *  If module not in user's entitlements.modules → Forbidden for everyone.
- *  True 404s are handled by router's catch-all * route.
+/**
+ * The only gate that can render a page — wrap every protected `<Route>` in it.
+ * ---------------------------------------------------------------------------
+ * Replaces the old `RequireModule`, which took a hand-picked module key and
+ * looked it up with fuzzy matching. Now:
+ *
+ *   • `module` (+ optional `aliases`) names the entitlement module this page
+ *     belongs to, spelled exactly as the API spells it;
+ *   • the module is resolved STRICTLY against `entitlements.modules`
+ *     (exact code / route / name). If the API did not grant the module, the
+ *     user sees the 404 page — the existence of the page is not leaked;
+ *   • if the module exists but the required action is missing, they see the
+ *     403 "access restricted" state instead.
+ *
+ * A URL with no `<Route>` at all never reaches this component — the router's
+ * catch-all `*` shows the 404 page. Entitlements are always awaited first, so
+ * there is no flash of a protected page while permissions load, and no bypass
+ * for any user type.
+ *
+ *   <Route path="/users" element={
+ *     <ModuleRoute module="users"><UsersPage /></ModuleRoute>
+ *   } />
  */
-export function RequireModule({
+export function ModuleRoute({
   module,
+  aliases,
   action = "view",
+  label,
   children,
 }: {
-  module: ModuleKey;
+  /** module key exactly as the entitlements API spells it */
+  module: string;
+  /** other accepted spellings for the same module (exact match only) */
+  aliases?: string[];
   action?: Permission;
+  /** human label used in the 403 message */
+  label?: string;
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
 
-  // Wait for entitlements to load for all users uniformly — single source per cleanup plan
   if (!ready || loading) {
     return <Splash label="Loading permissions" />;
   }
 
-  // User-level dynamic check: is this module assigned to current user?
-  // Same logic for admin, doctor, regular user — no role-based bypass.
-  // No static ALL_MODULE_KEYS check here per cleanup plan — 404 is router's job.
-  if (!canAccessModule(entitlements, module, action)) {
-    // Use module key as fallback label; display name comes from entitlement API when available
-    const displayName =
-      entitlements?.modules?.find((m: any) => {
-        const code = (m.code || "").toLowerCase();
-        return (
-          code === module || code === `${module}s` || `${code}s` === module
-        );
-      })?.name || module;
+  const access = checkRouteAccess(
+    entitlements,
+    [module, ...(aliases ?? [])],
+    action,
+  );
 
-    return <ForbiddenState module={displayName} />;
+  if (access.status === "not-found") {
+    // Module not in this user's entitlements → behave exactly like a
+    // non-existent URL. Same page as the catch-all route.
+    return <NotFoundState />;
+  }
+
+  if (access.status === "forbidden") {
+    return <ForbiddenState module={access.module?.name ?? label ?? module} />;
   }
 
   return <>{children}</>;
@@ -151,7 +173,8 @@ export function PermissionGuard({
   children,
   fallback = null,
 }: {
-  module: ModuleKey;
+  /** module key exactly as the entitlements API spells it */
+  module: string;
   action?: Permission;
   children: React.ReactNode;
   fallback?: React.ReactNode;

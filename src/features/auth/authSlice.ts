@@ -10,7 +10,7 @@ import {
   TOKEN_KEY,
 } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
-import type { ModuleKey, Permission, Session, User } from "@/types";
+import type { Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
 import { Entitlements } from "@/types/entitlement";
 
@@ -28,11 +28,11 @@ interface AuthState {
   session: Session | null;
   entitlements: Entitlements | null;
   status:
-  | "idle"
-  | "restoring"
-  | "authenticating"
-  | "authenticated"
-  | "unauthenticated";
+    | "idle"
+    | "restoring"
+    | "authenticating"
+    | "authenticated"
+    | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -145,9 +145,7 @@ export const login = createAsyncThunk(
 export const changePassword = createAsyncThunk(
   "auth/changePassword",
   async (
-    payload:
-      | string
-      | { oldPassword: string; newPassword: string },
+    payload: string | { oldPassword: string; newPassword: string },
     { dispatch, rejectWithValue },
   ) => {
     const isForcedChange =
@@ -200,12 +198,14 @@ export const changePassword = createAsyncThunk(
         error?.message === "Failed to fetch"
           ? "Unable to reach the server. Please try again."
           : error?.message ||
-          (isForcedChange
-            ? "Could not update the password."
-            : "Unable to send reset link.");
+            (isForcedChange
+              ? "Could not update the password."
+              : "Unable to send reset link.");
       dispatch(
         toast.error(
-          isForcedChange ? "Password change failed" : "Could not send reset link",
+          isForcedChange
+            ? "Password change failed"
+            : "Could not send reset link",
           message,
         ),
       );
@@ -282,7 +282,7 @@ export const logoutUser = createAsyncThunk(
     try {
       // Backend clears the httpOnly cookie
       await authApi.logout();
-      dispatch(toast.success("Logged out successfully"))
+      dispatch(toast.success("Logged out successfully"));
     } catch (error: any) {
       console.warn("Server logout failed, clearing local session");
     } finally {
@@ -343,7 +343,8 @@ const authSlice = createSlice({
         if (state.session) {
           state.session = {
             ...state.session,
-            accessToken: action.payload.accessToken ?? state.session.accessToken,
+            accessToken:
+              action.payload.accessToken ?? state.session.accessToken,
             expiresAt: action.payload.expiresAt ?? state.session.expiresAt,
           } as Session;
         }
@@ -426,7 +427,7 @@ export const selectMustChangePassword = (s: { auth: AuthState }) => {
 
 export function canAccess(
   user: User | null,
-  module: ModuleKey,
+  module: string,
   action: Permission = "view",
 ) {
   if (!user) return false;

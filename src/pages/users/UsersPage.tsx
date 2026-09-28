@@ -28,7 +28,7 @@ import { request } from "@/services/apiClient";
 import { API_ENDPOINTS } from "@/config/api";
 import { formatDateTime, fullName, relativeTime } from "@/utils";
 import { cn } from "@/utils/cn";
-import type { ModuleKey, Permission, Status, User } from "@/types";
+import type { Permission, Status, User } from "@/types";
 import {
   Avatar,
   Badge,
@@ -710,9 +710,9 @@ function UserFormDialog({
       gender: initial.gender ?? "Female",
       dateOfBirth: initial.dateOfBirth ?? "1995-01-01",
       title: initial.title ?? "",
-      modules: (initial.modules ?? ["dashboard"]) as ModuleKey[],
+      modules: (initial.modules ?? ["dashboard"]) as string[],
       permissions: (initial.permissions ?? { dashboard: ["view"] }) as Partial<
-        Record<ModuleKey, Permission[]>
+        Record<string, Permission[]>
       >,
       color:
         initial.color ??
@@ -752,15 +752,11 @@ function UserFormDialog({
   const applyRoleDefaults = (roleId: string) => {
     const selected = roles.find((r) => r.id === roleId);
     const perms = (selected?.permissions ?? {}) as Record<string, Permission[]>;
-    const modules = Object.keys(perms).filter(
-      (k) => (perms[k] ?? []).length,
-    ) as ModuleKey[];
-    const nextPermissions: Partial<Record<ModuleKey, Permission[]>> = {};
+    const modules = Object.keys(perms).filter((k) => (perms[k] ?? []).length);
+    const nextPermissions: Partial<Record<string, Permission[]>> = {};
     modules.forEach((m) => (nextPermissions[m] = perms[m] ?? ["view"]));
     if (!nextPermissions.dashboard) nextPermissions.dashboard = ["view"];
-    const nextModules = modules.length
-      ? modules
-      : (["dashboard"] as ModuleKey[]);
+    const nextModules = modules.length ? modules : ["dashboard"];
     form.setValues({
       ...form.values,
       roleId,
@@ -770,7 +766,7 @@ function UserFormDialog({
   };
 
   const togglePermission = (module: string, permission: Permission) => {
-    const key = module as ModuleKey;
+    const key = module;
     const current = form.values.permissions[key] ?? [];
     const next = current.includes(permission)
       ? current.filter((p) => p !== permission)
@@ -1002,14 +998,13 @@ function UserFormDialog({
             values={form.values.modules as string[]}
             options={moduleOptions}
             onChange={(vals) => {
-              const modules = vals as ModuleKey[];
+              const modules = vals as string[];
               const permissions = { ...form.values.permissions };
               modules.forEach((m) => {
                 if (!permissions[m]?.length) permissions[m] = ["view"];
               });
               Object.keys(permissions).forEach((k) => {
-                if (!modules.includes(k as ModuleKey))
-                  delete permissions[k as ModuleKey];
+                if (!modules.includes(k)) delete permissions[k];
               });
               form.setValues({ ...form.values, modules, permissions });
             }}
@@ -1032,7 +1027,7 @@ function UserFormDialog({
                   size="xs"
                   variant="ghost"
                   onClick={() => {
-                    const all: Partial<Record<ModuleKey, Permission[]>> = {};
+                    const all: Partial<Record<string, Permission[]>> = {};
                     form.values.modules.forEach(
                       (m) => (all[m] = [...PERMISSIONS]),
                     );
@@ -1045,8 +1040,7 @@ function UserFormDialog({
                   size="xs"
                   variant="ghost"
                   onClick={() => {
-                    const viewOnly: Partial<Record<ModuleKey, Permission[]>> =
-                      {};
+                    const viewOnly: Partial<Record<string, Permission[]>> = {};
                     form.values.modules.forEach(
                       (m) => (viewOnly[m] = ["view"]),
                     );
@@ -1058,7 +1052,7 @@ function UserFormDialog({
               </div>
             </div>
             <PermissionMatrix
-              modules={form.values.modules as ModuleKey[]}
+              modules={form.values.modules as string[]}
               permissions={form.values.permissions}
               onToggle={togglePermission}
             />
@@ -1079,8 +1073,7 @@ function UserFormDialog({
                       checked={allOn}
                       label={<span className="capitalize">{p} all</span>}
                       onCheckedChange={(v) => {
-                        const next: Partial<Record<ModuleKey, Permission[]>> =
-                          {};
+                        const next: Partial<Record<string, Permission[]>> = {};
                         form.values.modules.forEach((m) => {
                           const cur = new Set(form.values.permissions[m] ?? []);
                           v ? cur.add(p) : cur.delete(p);
