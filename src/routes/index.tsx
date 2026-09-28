@@ -203,7 +203,7 @@ export function AppRoutes() {
           <Route
             path="/consultation/:id"
             element={
-              <ModuleRoute module="consultations">
+              <ModuleRoute module="consultation">
                 <ConsultationWorkspacePage />
               </ModuleRoute>
             }
