@@ -225,6 +225,25 @@ export function NotFoundState() {
   );
 }
 
+/**
+ * Inline loading block for the content area.
+ *
+ * Used by `ModuleRoute` while entitlements are in flight: the app shell
+ * (sidebar, header) must paint immediately on refresh / after login, so this
+ * deliberately does NOT cover the screen the way `Splash` does — otherwise the
+ * user sees a second full-screen loader behind the global one.
+ */
+export function LoadingBlock({ label = "Loading" }: { label?: string }) {
+  return (
+    <div className="grid min-h-[50vh] place-items-center px-6">
+      <div className="flex flex-col items-center gap-3">
+        <Spinner className="text-brand-500" size={22} />
+        <p className="text-[12.5px] font-medium text-ink-400">{label}</p>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------- Spinner ----------------------------------- */
 
 export function Spinner({

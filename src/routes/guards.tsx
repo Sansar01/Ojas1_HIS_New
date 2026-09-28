@@ -7,7 +7,11 @@ import {
   selectUser,
 } from "@/features/auth/authSlice";
 import { useRootSelector } from "@/hooks";
-import { ForbiddenState, NotFoundState } from "@/components/ui/feedback";
+import {
+  ForbiddenState,
+  LoadingBlock,
+  NotFoundState,
+} from "@/components/ui/feedback";
 import { FORCE_PASSWORD_PATH } from "@/constants";
 import type { Permission } from "@/types";
 import { checkRouteAccess } from "@/utils/permissions";
@@ -142,9 +146,20 @@ export function ModuleRoute({
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
+  const globalLoaderVisible = useRootSelector((s) => s.ui.loader.count > 0);
 
+  // Only ONE loading indicator at a time.
+  // While the modules API is in flight, fetchEntitlements has already raised
+  // the global loader ("Loading modules") — rendering an inline spinner in the
+  // same window reads as two loaders stacked on top of each other. So the
+  // content area stays empty and the global loader does the talking.
+  // The inline block is only the fallback, for the rare case where the global
+  // loader is not showing (e.g. entitlements came from the login response and
+  // nothing else is loading) — never a blank page with no explanation.
   if (!ready || loading) {
-    return <Splash label="Loading permissions" />;
+    return globalLoaderVisible ? null : (
+      <LoadingBlock label="Loading permissions" />
+    );
   }
 
   const access = checkRouteAccess(
