@@ -25,7 +25,7 @@ import {
   type RoleMasterCatalogItem,
 } from "@/features/slices";
 import { cn } from "@/utils/cn";
-import type { HospitalInfo, ModuleKey, Permission, Role } from "@/types";
+import type { HospitalInfo, Permission, Role } from "@/types";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui/primitives";
 import {
   Input,
@@ -472,9 +472,9 @@ function RoleForm({
       slug: initial.slug ?? "",
       description: initial.description ?? "",
       permissions: (initial.permissions ?? {}) as Partial<
-        Record<ModuleKey, Permission[]>
+        Record<string, Permission[]>
       >,
-      modules: Object.keys(initial.permissions ?? {}) as ModuleKey[],
+      modules: Object.keys(initial.permissions ?? {}) as string[],
     },
     schema: {
       roleNameId:
@@ -491,7 +491,7 @@ function RoleForm({
   });
 
   const toggle = (module: string, permission: Permission) => {
-    const key = module as ModuleKey;
+    const key = module;
     const current = new Set(form.values.permissions[key] ?? []);
     current.has(permission)
       ? current.delete(permission)
@@ -504,7 +504,7 @@ function RoleForm({
   };
 
   const save = form.handleSubmit(async (values) => {
-    const permissions: Partial<Record<ModuleKey, Permission[]>> = {};
+    const permissions: Partial<Record<string, Permission[]>> = {};
     values.modules.forEach(
       (m) =>
         (permissions[m] = values.permissions[m]?.length
@@ -694,7 +694,7 @@ function RoleForm({
               description:
                 m.features?.map((f: any) => f.name).join(", ") || m.route,
             }))}
-            onChange={(vals) => form.setValue("modules", vals as ModuleKey[])}
+            onChange={(vals) => form.setValue("modules", vals as string[])}
             error={
               form.values.modules.length
                 ? undefined

@@ -25,7 +25,7 @@ const initialState: AppointmentState = {
 export const fetchAppointments = createAsyncThunk(
   "appointments/fetchAll",
   async (payload: { params?: any } = {}, { dispatch, rejectWithValue }) => {
-    dispatch(showLoader("Loading appointments"));
+    dispatch(showLoader("Loading"));
     try {
       const response: any = await appointmentApi.list(payload?.params);
       dispatch(hideLoader());

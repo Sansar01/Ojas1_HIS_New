@@ -8,25 +8,31 @@ export type ID = string;
 export type ISODate = string; // yyyy-MM-dd
 export type ISODateTime = string;
 
+/* -------------------------------------------------------------------------
+ * Module identity
+ * -------------------------------------------------------------------------
+ * There is deliberately NO closed union of module keys any more.
+ * Modules are a RUNTIME value: they arrive from the entitlements API
+ * (`/api/hospital/roles/entitlements/modules`) as { id, name, code, route }.
+ * A hard-coded union (`type ModuleKey = "dashboard" | "users" | ...`) only
+ * ever described the *front-end route table*, drifted from the backend on
+ * every new module, and gave a false sense that it restricted anything.
+ * It did not: TypeScript types are erased at build time, so a route guarded
+ * with `module="departments"` is reachable by URL no matter what the union
+ * says. The single source of truth is therefore:
+ *
+ *   src/routes/index.tsx      →  <Route> path  ⇄  entitlement module key
+ *   src/routes/guards.tsx     →  ModuleRoute checks that module against the
+ *                                user's entitlements; missing module → 404.
+ *
+ * Everywhere a module is referenced (guards, hooks, forms) we now use plain
+ * `string`, which is exactly what the API sends.
+ * ---------------------------------------------------------------------- */
+
 export type Permission = "view" | "create" | "edit" | "delete";
 
-export type ModuleKey =
-  | "dashboard"
-  | "users"
-  | "roles"
-  | "patients"
-  | "doctors"
-  | "departments"
-  | "specializations"
-  | "appointments"
-  | "consultations"
-  | "billing"
-  | "settings"
-  | "opd"
-  | "master-config";
-
 export interface ModuleDef {
-  key: ModuleKey;
+  key: string;
   label: string;
   path: string;
   icon: string; // lucide icon name resolved in constants
@@ -66,8 +72,8 @@ export interface User {
   gender: Gender;
   dateOfBirth: ISODate;
   password?: string;
-  modules: ModuleKey[];
-  permissions: Partial<Record<ModuleKey, Permission[]>>;
+  modules: string[];
+  permissions: Partial<Record<string, Permission[]>>;
   title?: string;
   lastLogin: ISODateTime | null;
   createdAt: ISODateTime;

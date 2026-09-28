@@ -1,9 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import {
   RequireAuth,
-  RequireModule,
   PublicOnly,
   RequirePasswordChange,
+  ModuleRoute,
 } from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { LoginPage } from "@/pages/auth/LoginPage";
@@ -34,12 +34,22 @@ import { OpdExaminationRoom } from "@/pages/opd/Opd";
 import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
 import { SpecializationsPage } from "@/pages/Specializations/SpecializationPage";
 import { DepartmentsPage } from "@/pages/Departments/DepartmentsPage";
-//import DepartmentsPage from "@/pages/Departments/DepartmentsPage";
-// import { AppointmentFormPage } from "@/pages/appointments/AppointmentFormPage";
 
 /**
  * Public routes → auth screens.
- * Protected routes → RequireAuth (session) + RequireModule (RBAC per module).
+ * Protected routes → RequireAuth (session) + ModuleRoute (entitlement check).
+ *
+ * How access is decided (see `ModuleRoute` in ./guards.tsx):
+ *   • the URL must exist as a `<Route>` below, otherwise the catch-all `*`
+ *     renders the 404 page;
+ *   • `module="…"` must name a module the entitlements API actually returned
+ *     for this user (exact code / route / name match). If it did not, the same
+ *     404 page is shown — the page's existence is never leaked;
+ *   • if the module exists but the required `action` is missing, the 403
+ *     "access restricted" page is shown instead.
+ *
+ * So: only modules the API grants are reachable; everything else is a 404.
+ * Adding a page = adding one `<Route>` here with its `module="…"`.
  */
 export function AppRoutes() {
   return (
@@ -92,156 +102,164 @@ export function AppRoutes() {
           <Route
             path="dashboard"
             element={
-              <RequireModule module="dashboard">
+              <ModuleRoute module="dashboard">
                 <DashboardPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/patients"
             element={
-              <RequireModule module="patients">
+              <ModuleRoute
+                module="patients"
+                aliases={["patient", "patient-registration"]}
+              >
                 <PatientsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
 
           <Route
             path="/opd"
             element={
-              <RequireModule module="patients">
+              <ModuleRoute module="patients" aliases={["opd"]}>
                 <OpdExaminationRoom />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="patients/register"
             element={
-              <RequireModule module="patients">
+              <ModuleRoute module="patients" aliases={["patient-registration"]}>
                 <PatientsFormPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="patients/:id/edit"
             element={
-              <RequireModule module="patients">
+              <ModuleRoute module="patients">
                 <PatientsFormPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="patients/:id/detail"
             element={
-              <RequireModule module="patients">
+              <ModuleRoute module="patients">
                 <PatientDetailPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/doctors"
             element={
-              <RequireModule module="doctors">
+              <ModuleRoute module="doctors">
                 <DoctorsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="doctors/:id"
             element={
-              <RequireModule module="doctors">
+              <ModuleRoute module="doctors">
                 <DoctorDetailPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/departments"
             element={
-              <RequireModule module="departments">
+              <ModuleRoute module="departments">
                 <DepartmentsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/specializations"
             element={
-              <RequireModule module="specializations">
+              <ModuleRoute module="specializations">
                 <SpecializationsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/appointments"
             element={
-              <RequireModule module="appointments">
+              <ModuleRoute module="appointments">
                 <AppointmentsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
 
           <Route
             path="/consultation"
             element={
-              <RequireModule module="consultations">
+              <ModuleRoute module="consultation">
                 <ConsultationsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/consultation/:id"
             element={
-              <RequireModule module="consultations">
+              <ModuleRoute module="consultations">
                 <ConsultationWorkspacePage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/billing"
             element={
-              <RequireModule module="billing">
+              <ModuleRoute module="billing">
                 <BillingPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/users"
             element={
-              <RequireModule module="users">
+              // no "user" alias on purpose: a bare USER/PROFILE module must not
+              // unlock user administration
+              <ModuleRoute module="users">
                 <UsersPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/users/new"
             element={
-              <RequireModule module="users">
+              <ModuleRoute module="users/new">
                 <UsersNewPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/roles"
             element={
-              <RequireModule module="roles">
+              <ModuleRoute module="roles">
                 <RolesPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
           <Route
             path="/settings"
             element={
-              <RequireModule module="settings">
+              <ModuleRoute module="settings">
                 <SettingsPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
 
           <Route
             path="/master-config"
             element={
-              <RequireModule module="master-config">
+              <ModuleRoute
+                module="master-config"
+                aliases={["master-configuration"]}
+              >
                 <MasterConfigurationPage />
-              </RequireModule>
+              </ModuleRoute>
             }
           />
 

@@ -8,7 +8,6 @@ import { Button, Badge, Panel, PanelHeader } from "@/components/ui/primitives";
 import { usePermission, useAppDispatch } from "@/hooks";
 import { FORM_INVALID } from "@/features/ui/uiSlice";
 import { formRegistry } from "@/hooks/useForm";
-import type { ModuleKey } from "@/types";
 export { Emptyish } from "./Emptyish";
 export { PrescriptionPrintPreview } from "./PrescriptionPrintPreview";
 
@@ -26,7 +25,8 @@ export function PageIntro({
 }: {
   title: string;
   description?: string;
-  module?: ModuleKey;
+  /** module key exactly as the entitlements API spells it */
+  module?: string;
   actions?: React.ReactNode;
   onCreate?: () => void;
   createLabel?: string;

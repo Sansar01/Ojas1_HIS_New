@@ -23,7 +23,7 @@ const initialState: EntitlementState = {
 export const fetchEntitlements = createAsyncThunk(
   "entitlement/fetchModules",
   async (_, { dispatch, rejectWithValue }) => {
-    dispatch(showLoader("Loading modules"));
+    dispatch(showLoader("Loading"));
     try {
       const res = await entitlementApi.getModules();
       const response: any = res;
