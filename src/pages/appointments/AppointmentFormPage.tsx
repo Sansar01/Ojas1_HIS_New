@@ -6,6 +6,7 @@ import {
   fetchDoctorSlots,
   generateOpdToken,
 } from "@/features/slices";
+import { fetchConsultationTypes } from "@/features/Appointment/AppointmentSlice";
 import { useAppDispatch, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
@@ -141,6 +142,36 @@ export function AppointmentFormModal({
   });
 
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+
+  /* ------- visit type options from the CONSULTATION_TYPE dropdown API ------ */
+  const [visitTypeOptions, setVisitTypeOptions] = useState<
+    { value: string; label: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    dispatch(fetchConsultationTypes() as any)
+      .unwrap()
+      .then((data: any) => {
+        if (cancelled) return;
+        const rows = Array.isArray(data) ? data : (data?.data ?? []);
+        const options = (rows as any[])
+          .map((item) => ({
+            value: item.value,
+            label: String(item.value)
+              .replace(/_/g, " ")
+              .toLowerCase()
+              .replace(/\b\w/g, (c) => c.toUpperCase()),
+          }))
+          .filter((o) => o.value);
+        if (options.length) setVisitTypeOptions(options);
+      })
+      .catch(() => undefined); // fall back to static VISIT_TYPES on failure
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [editLoading, setEditLoading] = useState(false);
@@ -448,7 +479,11 @@ export function AppointmentFormModal({
                 value={form.values.visitType}
                 error={form.errors.visitType}
                 onChange={(v) => form.setValue("visitType", v)}
-                options={VISIT_TYPES.map((t) => ({ ...t }))}
+                options={
+                  visitTypeOptions.length
+                    ? visitTypeOptions
+                    : VISIT_TYPES.map((t) => ({ ...t }))
+                }
               />
               <Select
                 name="priority"

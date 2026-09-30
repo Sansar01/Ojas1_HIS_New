@@ -3,6 +3,7 @@ import authReducer from "@/features/auth/authSlice";
 import uiReducer from "@/features/ui/uiSlice";
 import { authListenerMiddleware } from "@/store/authListener";
 import entitlementReducer from "@/features/entitlement/entitlementSlice";
+import consultationHistoryReducer from "@/features/consultations/consultationSlice";
 import {
   ALL_APIS,
   appointmentsApi,
@@ -34,6 +35,7 @@ export const store = configureStore({
     consultations: consultationsApi.reducer,
     invoices: invoicesApi.reducer,
     activities: activitiesApi.reducer,
+    consultationsHistory: consultationHistoryReducer,
     hospital: hospitalReducer,
   },
   // 👇 YEH ADD KAREIN (Listener ko store ke sath attach karna zaroori hai)
