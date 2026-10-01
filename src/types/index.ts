@@ -169,6 +169,7 @@ export interface Patient {
   lastName: string;
   gender: Gender;
   dateOfBirth: ISODate;
+  ageAtRegistration?: number;
   ageUnit: "Years" | "Months" | "Days";
   mobile: string;
   altMobile?: string;
