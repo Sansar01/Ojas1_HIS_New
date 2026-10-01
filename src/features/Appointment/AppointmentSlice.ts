@@ -1,6 +1,8 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { appointmentApi } from "@/services/apiClient";
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
+import { request } from "@/services/apiClient";
+import { API_ENDPOINTS } from "@/config/api";
 import type { Appointment } from "@/types";
 
 /* ---------------------------------------------------------------------------
@@ -95,6 +97,30 @@ export const deleteAppointment = createAsyncThunk(
       const errorMessage = error?.message || "Failed to delete appointment";
       dispatch(toast.error("Error", errorMessage));
       return rejectWithValue(errorMessage);
+    }
+  },
+);
+
+// ==================== FETCH CONSULTATION TYPES (VISIT TYPE DROPDOWN) ====================
+/**
+ * Fetch the global CONSULTATION_TYPE dropdown — the options for the
+ * "Visit type" field on the appointment form (create + edit modal).
+ */
+export const fetchConsultationTypes = createAsyncThunk(
+  "appointments/fetchConsultationTypes",
+  async (_: void, { dispatch, rejectWithValue }) => {
+    dispatch(showLoader("Loading visit types"));
+    try {
+      const response: any = await request({
+        url: API_ENDPOINTS.appointment.getConsultationType("CONSULTATION_TYPE"),
+        method: "GET",
+      });
+      dispatch(hideLoader());
+      return response?.data ?? response;
+    } catch (error: any) {
+      dispatch(hideLoader());
+      dispatch(toast.error("Could not load visit types", error?.message));
+      return rejectWithValue(error?.message ?? "Failed to load visit types");
     }
   },
 );

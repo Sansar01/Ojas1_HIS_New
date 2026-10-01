@@ -19,6 +19,7 @@ import {
   History,
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
+import { fetchPatientHistory } from "@/features/consultations/consultationSlice";
 import { idGen } from "@/data/db";
 import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
@@ -1519,44 +1520,23 @@ function PatientHistoryPanel({
   currentId?: string;
 }) {
   const navigate = useNavigate();
-  const [rows, setRows] = useState<any[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">(
-    "loading",
-  );
+  const dispatch = useAppDispatch();
+  const history = useRootSelector((s: any) => s.consultationsHistory.patientHistory);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!patientKey) {
-      setStatus("ready");
-      return;
-    }
-    let cancelled = false;
-    setStatus("loading");
-    (async () => {
-      const res = await api(`/api/opd/consultations?patientId=${patientKey}`);
-      if (cancelled) return;
-      if (!res.ok) {
-        setStatus("error");
-        return;
-      }
-      const list = Array.isArray(res.data)
-        ? res.data
-        : ((res.data as any)?.data ?? []);
-      setRows(
-        list
-          .filter((c: any) => String(c.id) !== String(currentId))
-          .sort(
-            (a: any, b: any) =>
-              new Date(b.consultationDate || b.createdAt || 0).getTime() -
-              new Date(a.consultationDate || a.createdAt || 0).getTime(),
-          ),
-      );
-      setStatus("ready");
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [patientKey, currentId]);
+    if (!patientKey) return;
+    dispatch(fetchPatientHistory("b9d13667-4c66-4630-9c94-9ca031a4668e") as any);
+  }, [patientKey, dispatch]);
+
+  const rows = (history?.items ?? [])
+    .filter((c: any) => String(c.id) !== String(currentId))
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.consultationDate || b.createdAt || 0).getTime() -
+        new Date(a.consultationDate || a.createdAt || 0).getTime(),
+    );
+  const status = history?.status ?? "loading";
 
   if (status === "loading")
     return (

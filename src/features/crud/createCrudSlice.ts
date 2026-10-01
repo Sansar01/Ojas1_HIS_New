@@ -59,14 +59,12 @@ export function createCrudSlice<T extends { id: string }>(
   const fetchAll = createAsyncThunk(
     `${name}/fetchAll`,
     async (_: void, { dispatch }) => {
-      const done = guard(dispatch, `Loading ${name}`);
+      const done = guard(dispatch, `Loading`);
 
       try {
         const res = await resourceApi.list(
           resource,
-          config.listParams === null
-            ? undefined
-            : config.listParams,
+          config.listParams === null ? undefined : config.listParams,
         );
 
         done();
@@ -75,17 +73,12 @@ export function createCrudSlice<T extends { id: string }>(
 
         const rows = Array.isArray(responseData)
           ? responseData
-          : responseData?.rows ?? [];
+          : (responseData?.rows ?? []);
 
         return rows.map(map);
       } catch (error: any) {
         done();
-        dispatch(
-          toast.error(
-            `Could not load ${name}`,
-            error?.message
-          )
-        );
+        dispatch(toast.error(`Could not load ${name}`, error?.message));
         throw error;
       }
     },
@@ -93,9 +86,7 @@ export function createCrudSlice<T extends { id: string }>(
       condition: (_, { getState }) => {
         const state = getState() as RootState;
 
-        const resourceState = state[
-          name as keyof RootState
-        ] as {
+        const resourceState = state[name as keyof RootState] as {
           status?: string;
         };
 
