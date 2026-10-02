@@ -2,11 +2,8 @@ import * as React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
-import {
-  selectMustChangePassword,
-  selectUser,
-} from "@/features/auth/authSlice";
-import { useRootSelector } from "@/hooks";
+import { selectMustChangePassword, selectUser } from "@/store/slices/authSlice";
+import { useAppSelector } from "@/store/hooks";
 import {
   ForbiddenState,
   LoadingBlock,
@@ -40,8 +37,8 @@ export function Splash({
 /** Blocks unauthenticated visitors, remembers the attempted URL. */
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
-  const session = useRootSelector(selectUser);
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const session = useAppSelector(selectUser);
+  const mustChange = useAppSelector(selectMustChangePassword);
   const location = useLocation();
 
   if ((status === "restoring" || status === "idle") && !session) {
@@ -68,8 +65,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 /** Redirects signed-in users away from public auth screens. */
 export function PublicOnly({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
-  const user = useRootSelector(selectUser);
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const user = useAppSelector(selectUser);
+  const mustChange = useAppSelector(selectMustChangePassword);
 
   if ((status === "idle" || status === "restoring") && !user) {
     return <Splash label="Checking authentication" />;
@@ -91,8 +88,8 @@ export function RequirePasswordChange({
   children: React.ReactNode;
 }) {
   const status = useAuthStatus();
-  const session = useRootSelector((s) => s.auth.session) as any;
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const session = useAppSelector((s) => s.auth.session) as any;
+  const mustChange = useAppSelector(selectMustChangePassword);
 
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash label="Checking your session" />;
@@ -146,10 +143,10 @@ export function ModuleRoute({
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
-  const globalLoaderVisible = useRootSelector((s) => s.ui.loader.count > 0);
+  const globalLoaderVisible = useAppSelector((s) => s.ui.loader.count > 0);
 
   // Only ONE loading indicator at a time.
-  // While the modules API is in flight, fetchEntitlements has already raised
+  // While the modules API is in flight, fetchModules has already raised
   // the global loader ("Loading modules") — rendering an inline spinner in the
   // same window reads as two loaders stacked on top of each other. So the
   // content area stays empty and the global loader does the talking.

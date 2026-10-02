@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import { DatePicker, Input, Textarea } from "@/components/ui/fields";
-import { Button } from "@/components/ui/primitives";
+import { DatePicker, Input, Textarea, Select } from "@/components/ui/fields";
+import { Button, Badge } from "@/components/ui/primitives";
 import {
-  appointmentsApi,
-  fetchDoctorSlots,
+  createAppointment,
+  fetchAppointment,
+  fetchAppointments,
+  fetchConsultationTypes,
   generateOpdToken,
-} from "@/features/slices";
-import { fetchConsultationTypes } from "@/features/Appointment/AppointmentSlice";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+  updateAppointment,
+} from "@/store/slices/appointmentSlice";
+import { fetchDoctorSlots } from "@/store/slices/doctorSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
-import { Select } from "@/components/ui/fields";
-import { Badge } from "@/components/ui/primitives";
 import { SlotPicker } from "./AppointmentsPage";
 import { APPOINTMENT_TYPES, VISIT_TYPES, PRIORITY_OPTIONS } from "@/constants";
 
@@ -109,11 +110,11 @@ export function AppointmentFormModal({
   const dispatch = useAppDispatch();
   const isEdit = !!editing?.id;
 
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
-  const existingAppointments = useRootSelector((s) => s.appointments.items);
+  const patients = useAppSelector((s) => s.patients.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const specializations = useAppSelector((s) => s.specializations.items);
+  const existingAppointments = useAppSelector((s) => s.appointments.items);
 
   const form = useForm({
     initialValues: {
@@ -182,7 +183,7 @@ export function AppointmentFormModal({
     if (!open || !isEdit) return;
     let cancelled = false;
     setEditLoading(true);
-    dispatch(appointmentsApi.thunks.getOne(editing.id) as any)
+    dispatch(fetchAppointment(editing.id) as any)
       .unwrap()
       .then((record: any) => {
         if (cancelled || !record) return;
@@ -293,7 +294,7 @@ export function AppointmentFormModal({
       // 1. Create or Update Appointment
       if (isEdit) {
         const result = await dispatch(
-          appointmentsApi.thunks.updateOne({
+          updateAppointment({
             id: editing.id,
             data: payload,
             successMessage: "Appointment updated successfully",
@@ -302,7 +303,7 @@ export function AppointmentFormModal({
         appointmentId = result?.id ?? editing.id;
       } else {
         const result = await dispatch(
-          appointmentsApi.thunks.createOne({
+          createAppointment({
             data: payload,
             successMessage: "Appointment booked successfully",
           } as any),
@@ -325,7 +326,7 @@ export function AppointmentFormModal({
     }
 
     // 3. Re-sync table list and close the form
-    dispatch(appointmentsApi.thunks.fetchAll() as any);
+    dispatch(fetchAppointments() as any);
     form.reset();
     onOpenChange(false);
   });

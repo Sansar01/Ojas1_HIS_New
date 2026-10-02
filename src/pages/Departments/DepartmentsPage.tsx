@@ -7,13 +7,12 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
 import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
-import { departmentsApi } from "@/features/slices";
+  deleteDepartment,
+  fetchDepartments,
+} from "@/store/slices/departmentSlice";
 import { formatDate, fullName } from "@/utils";
 import type { Department } from "@/types";
 import {
@@ -38,10 +37,10 @@ import { DepartmentFormDialog } from "./DepartmentsFormPage";
 
 export function DepartmentsPage() {
   const dispatch = useAppDispatch();
-  const { items: departments, status } = useRootSelector((s) => s.departments);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
+  const { items: departments, status } = useAppSelector((s) => s.departments);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const specializations = useAppSelector((s) => s.specializations.items);
+  const appointments = useAppSelector((s) => s.appointments.items);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [editing, setEditing] = useState<Partial<Department> | null>(null);
   const [detail, setDetail] = useState<Department | null>(null);
@@ -49,13 +48,13 @@ export function DepartmentsPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (status === "idle") dispatch(departmentsApi.thunks.fetchAll() as any);
+    if (status === "idle") dispatch(fetchDepartments() as any);
   }, [status, dispatch]);
 
   /** re-run the department list API (e.g. after a write) without the full loader flash */
   const refreshList = async () => {
     setRefreshing(true);
-    await dispatch(departmentsApi.thunks.fetchAll() as any);
+    await dispatch(fetchDepartments() as any);
     setRefreshing(false);
   };
 
@@ -261,7 +260,7 @@ export function DepartmentsPage() {
                   hidden: !canDelete("departments"),
                   onClick: () =>
                     dispatch(
-                      departmentsApi.thunks.removeOne({
+                      deleteDepartment({
                         id: d.id,
                         label: d.name,
                       } as any),

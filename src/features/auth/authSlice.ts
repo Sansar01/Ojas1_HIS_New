@@ -12,7 +12,7 @@ import {
 import { hideLoader, showLoader, toast } from "@/features/ui/uiSlice";
 import type { Permission, Session, User } from "@/types";
 import { clearEntitlements } from "../entitlement/entitlementSlice";
-import { Entitlements } from "@/types/entitlement";
+import { Entitlements } from "@/types/moduleTypes";
 
 /* ---------------------------------------------------------------------------
  * Authentication + current-user permissions (RBAC source of truth)

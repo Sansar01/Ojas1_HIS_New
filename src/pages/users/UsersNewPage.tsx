@@ -10,11 +10,13 @@ import {
   UserPlus,
   UserRound,
 } from "lucide-react";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
-import { rolesApi, usersApi } from "@/features/slices";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchRoles } from "@/store/slices/roleSlice";
+import { createUser } from "@/store/slices/userSlice";
 import { FormSection, PageIntro } from "@/components/common";
-import {  Badge, Button, Panel } from "@/components/ui/primitives";
+import { Badge, Button, Panel } from "@/components/ui/primitives";
 import {
   Checkbox,
   Input,
@@ -22,10 +24,8 @@ import {
   Select,
   Switch,
 } from "@/components/ui/fields";
-import { toast } from "@/features/ui/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
-import { useDispatch } from "react-redux";
-import { departmentsApi } from "@/features/slices";
 import { Stepper } from "@/components/ui/Stepper";
 
 /* ---------------------------------------------------------------------------
@@ -88,8 +88,8 @@ function passwordScore(value: string) {
 export function UsersNewPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { items: roles, status: rolesStatus } = useRootSelector((s) => s.roles);
-  const departments = useRootSelector(
+  const { items: roles, status: rolesStatus } = useAppSelector((s) => s.roles);
+  const departments = useAppSelector(
     (state) =>
       state.departments.items &&
       state.departments.items.filter((x) => x.isActive === true),
@@ -97,7 +97,7 @@ export function UsersNewPage() {
 
   // department options for the dropdown
   useEffect(() => {
-    dispatch(departmentsApi.thunks.fetchAll() as any);
+    dispatch(fetchDepartments() as any);
   }, [dispatch]);
 
   const [currentStep, setCurrentStep] = useState(1);
@@ -105,7 +105,7 @@ export function UsersNewPage() {
 
   useEffect(() => {
     if (rolesStatus === "idle") {
-      dispatch(rolesApi.thunks.fetchAll() as any);
+      dispatch(fetchRoles() as any);
     }
   }, [dispatch, rolesStatus]);
 
@@ -278,7 +278,7 @@ export function UsersNewPage() {
     };
 
     await dispatch(
-      usersApi.thunks.createOne({
+      createUser({
         data: payload,
         successMessage: "User created successfully",
       } as any),

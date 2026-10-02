@@ -14,21 +14,27 @@ import {
   Users2,
 } from "lucide-react";
 import { APP_NAME, AVATAR_COLORS, PERMISSIONS } from "@/constants";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
-  useAppDispatch,
   usePermission,
-  useRootSelector,
   useTable,
+  useAppSelector as _rootSelector,
+  useCurrentUser,
 } from "@/hooks";
-import { useRootSelector as _rootSelector } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { patientsApi, usersApi } from "@/features/slices";
-import { syncUser } from "@/features/auth/authSlice";
-import { request } from "@/services/apiClient";
-import { API_ENDPOINTS } from "@/config/api";
+import { fetchPatients } from "@/store/slices/patientSlice";
+import {
+  createUser,
+  deleteUser,
+  toggleUserStatus,
+  updateUser,
+} from "@/store/slices/userSlice";
+import { syncUser } from "@/store/slices/authSlice";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
 import { formatDateTime, fullName, relativeTime } from "@/utils";
 import { cn } from "@/utils/cn";
-import type { Permission, Status, User } from "@/types";
+import type { Permission, Status } from "@/types";
 import {
   Avatar,
   Badge,
@@ -60,8 +66,8 @@ import {
   SectionPanel,
   PageIntro,
 } from "@/components/common";
-import { useCurrentUser } from "@/hooks";
 import { useNavigate } from "react-router-dom";
+import { User } from "@/types/userTypes";
 
 const normalizeUser = (record: any): User => {
   const primaryRole =
@@ -109,9 +115,9 @@ export function UsersPage() {
     "loading",
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const roles = useRootSelector((s) => s.roles.items);
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  const roles = useAppSelector((s) => s.roles.items);
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
   const [filters, setFilters] = useState({ role: "all", status: "all" });
   const [editing, setEditing] = useState<Partial<User> | null>(null);
@@ -136,8 +142,7 @@ export function UsersPage() {
   useEffect(() => {
     let active = true;
 
-    request<any[]>({
-      url: API_ENDPOINTS.users,
+    apiClient<any[]>(API_ENDPOINTS.users.list, {
       method: "GET",
     })
       .then((response) => {
@@ -163,7 +168,7 @@ export function UsersPage() {
   const toggleStatus = (user: User) => {
     const next: Status = user.status === "active" ? "inactive" : "active";
     dispatch(
-      usersApi.thunks.toggleActive({
+      toggleUserStatus({
         id: user.id,
         status: next,
         label: `${user.firstName} ${user.lastName}`,
@@ -174,7 +179,7 @@ export function UsersPage() {
   const remove = (user: User) => {
     if (user.id === me?.id) return;
     dispatch(
-      usersApi.thunks.removeOne({
+      deleteUser({
         id: user.id,
         label: `${user.firstName} ${user.lastName}`,
       } as any),
@@ -326,7 +331,7 @@ export function UsersPage() {
               hideBelow: "lg",
               render: (u) => (
                 <div className="flex items-center gap-1">
-                  {u.modules.slice(0, 4).map((m) => {
+                  {u.modules.slice(0, 4).map((m: any) => {
                     const def = entitlementModules.find(
                       (x: any) =>
                         x.key === m ||
@@ -736,8 +741,8 @@ function UserFormDialog({
     },
   });
 
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
   const moduleOptions = useMemo(
     () =>
@@ -803,7 +808,7 @@ function UserFormDialog({
     if (!isEdit) payload.password = values.password;
     if (isEdit) {
       const res: any = await dispatch(
-        usersApi.thunks.updateOne({
+        updateUser({
           id: initial.id!,
           data: payload,
           successMessage: "User updated",
@@ -813,13 +818,13 @@ function UserFormDialog({
         dispatch(syncUser(res.payload as User));
     } else {
       await dispatch(
-        usersApi.thunks.createOne({
+        createUser({
           data: payload,
           successMessage: "User account created",
         } as any),
       );
     }
-    dispatch(patientsApi.thunks.fetchAll() as any);
+    dispatch(fetchPatients() as any);
     onSaved();
   });
 
@@ -1191,7 +1196,7 @@ function UserFormDialog({
               label="Search & Select Users"
               values={[]}
               onChange={() => {}}
-              options={(useRootSelector((s) => s.users.items) as any[])
+              options={(useAppSelector((s) => s.users.items) as any[])
                 .filter((u: any) => u.id !== initial.id)
                 .map((u: any) => ({
                   value: u.id,
@@ -1207,7 +1212,7 @@ function UserFormDialog({
               values={[]}
               onChange={() => {}}
               options={(
-                useRootSelector((s) => s.departments.items) as any[]
+                useAppSelector((s) => s.departments.items) as any[]
               ).map((d: any) => ({ value: d.id, label: d.name }))}
               placeholder="Hold Ctrl / Cmd to select multiple"
               columns={1}

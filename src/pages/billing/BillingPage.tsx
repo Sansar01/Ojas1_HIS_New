@@ -51,17 +51,54 @@ import {
   PageIntro,
   StatStrip,
 } from "@/components/common";
-import { billingService } from "@/features/billing/billingService";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
 
 // Service Master Fallback for frontend quick-selection
 const SERVICE_MASTER = [
-  { code: "CON01", desc: "Consultation - General OPD", cat: "Consultation", price: 500, tax: 0 },
-  { code: "CON02", desc: "Consultation - Specialist", cat: "Consultation", price: 1200, tax: 0 },
-  { code: "LAB01", desc: "Complete Blood Count (CBC)", cat: "Lab", price: 350, tax: 0 },
+  {
+    code: "CON01",
+    desc: "Consultation - General OPD",
+    cat: "Consultation",
+    price: 500,
+    tax: 0,
+  },
+  {
+    code: "CON02",
+    desc: "Consultation - Specialist",
+    cat: "Consultation",
+    price: 1200,
+    tax: 0,
+  },
+  {
+    code: "LAB01",
+    desc: "Complete Blood Count (CBC)",
+    cat: "Lab",
+    price: 350,
+    tax: 0,
+  },
   { code: "LAB02", desc: "Lipid Profile", cat: "Lab", price: 950, tax: 0 },
-  { code: "RAD01", desc: "X-Ray Chest PA View", cat: "Procedure", price: 600, tax: 5 },
-  { code: "RAD02", desc: "ECG + 2D Echocardiography", cat: "Procedure", price: 2400, tax: 5 },
-  { code: "PHA01", desc: "Pharmacy Consumables Kit", cat: "Pharmacy", price: 150, tax: 12 },
+  {
+    code: "RAD01",
+    desc: "X-Ray Chest PA View",
+    cat: "Procedure",
+    price: 600,
+    tax: 5,
+  },
+  {
+    code: "RAD02",
+    desc: "ECG + 2D Echocardiography",
+    cat: "Procedure",
+    price: 2400,
+    tax: 5,
+  },
+  {
+    code: "PHA01",
+    desc: "Pharmacy Consumables Kit",
+    cat: "Pharmacy",
+    price: 150,
+    tax: 12,
+  },
 ];
 
 export function BillingPage() {
@@ -75,9 +112,24 @@ export function BillingPage() {
   // Data states from API
   const [bills, setBills] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
-  const [kpis, setKpis] = useState({ totalAmount: 0, totalCollected: 0, totalDue: 0, totalDiscount: 0 });
-  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
-  const [payPagination, setPayPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [kpis, setKpis] = useState({
+    totalAmount: 0,
+    totalCollected: 0,
+    totalDue: 0,
+    totalDiscount: 0,
+  });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
+  });
+  const [payPagination, setPayPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 1,
+  });
 
   // Filters
   const [filters, setFilters] = useState({
@@ -95,7 +147,10 @@ export function BillingPage() {
   // ─── API DATA FETCHING ──────────────────────────────────────────
   const fetchSummary = useCallback(async () => {
     try {
-      const summary = await billingService.getDailySummary(filters.date || undefined);
+      const summary: any = await apiClient(API_ENDPOINTS.billing.dailySummary, {
+        method: "GET",
+        params: filters.date ? { date: filters.date } : undefined,
+      });
       setKpis({
         totalAmount: summary.totalAmount || 0,
         totalCollected: summary.totalCollected || 0,
@@ -111,12 +166,17 @@ export function BillingPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await billingService.getBills({
-        page: pagination.page,
-        limit: pagination.limit,
-        paymentStatus: filters.paymentStatus,
-        billStatus: filters.billStatus,
-        date: filters.date,
+      const query: Record<string, any> = {};
+      if (pagination.page) query.page = String(pagination.page);
+      if (pagination.limit) query.limit = String(pagination.limit);
+      if (filters.date) query.date = filters.date;
+      if (filters.billStatus && filters.billStatus !== "all")
+        query.billStatus = filters.billStatus;
+      if (filters.paymentStatus && filters.paymentStatus !== "all")
+        query.paymentStatus = filters.paymentStatus;
+      const res: any = await apiClient(API_ENDPOINTS.billing.list, {
+        method: "GET",
+        params: Object.keys(query).length ? query : undefined,
       });
       setBills(res.data || []);
       setPagination((prev) => ({
@@ -133,9 +193,12 @@ export function BillingPage() {
 
   const fetchPayments = useCallback(async () => {
     try {
-      const res = await billingService.getPayments({
-        page: payPagination.page,
-        limit: payPagination.limit,
+      const query: Record<string, any> = {};
+      if (payPagination.page) query.page = String(payPagination.page);
+      if (payPagination.limit) query.limit = String(payPagination.limit);
+      const res: any = await apiClient(API_ENDPOINTS.billing.payments, {
+        method: "GET",
+        params: Object.keys(query).length ? query : undefined,
       });
       setPayments(res.data || []);
       setPayPagination((prev) => ({
@@ -164,7 +227,9 @@ export function BillingPage() {
       toCSV(
         bills.map((i) => ({
           Invoice: i.billNo,
-          Patient: i.patient ? `${i.patient.firstName} ${i.patient.lastName || ""}` : "—",
+          Patient: i.patient
+            ? `${i.patient.firstName} ${i.patient.lastName || ""}`
+            : "—",
           Date: formatDate(i.billedAt),
           Subtotal: i.subtotal,
           Discount: i.discountAmount,
@@ -173,8 +238,8 @@ export function BillingPage() {
           Paid: i.paidAmount,
           Balance: i.dueAmount,
           Status: i.paymentStatus,
-        }))
-      )
+        })),
+      ),
     );
   };
 
@@ -182,7 +247,10 @@ export function BillingPage() {
     const reason = prompt(`Enter reason for cancelling bill ${bill.billNo}:`);
     if (!reason) return;
     try {
-      await billingService.cancelBill(bill.id, reason);
+      await apiClient(API_ENDPOINTS.billing.cancel(bill.id), {
+        method: "PATCH",
+        body: { cancelReason: reason },
+      });
       reloadAll();
     } catch (e: any) {
       alert(e.message || "Failed to cancel bill");
@@ -202,7 +270,11 @@ export function BillingPage() {
             <Button variant="outline" icon={<RefreshCw />} onClick={reloadAll}>
               Refresh
             </Button>
-            <Button variant="outline" icon={<FileSpreadsheet />} onClick={exportCsv}>
+            <Button
+              variant="outline"
+              icon={<FileSpreadsheet />}
+              onClick={exportCsv}
+            >
               Export CSV
             </Button>
           </div>
@@ -244,7 +316,10 @@ export function BillingPage() {
             variant="pill"
             tabs={[
               { value: "invoices", label: `Invoices (${pagination.total})` },
-              { value: "payments", label: `Payment history (${payPagination.total})` },
+              {
+                value: "payments",
+                label: `Payment history (${payPagination.total})`,
+              },
             ]}
           />
         </div>
@@ -262,7 +337,9 @@ export function BillingPage() {
                     className="w-[10.5rem]"
                     name="ps"
                     value={filters.paymentStatus}
-                    onChange={(v) => setFilters((f) => ({ ...f, paymentStatus: v }))}
+                    onChange={(v) =>
+                      setFilters((f) => ({ ...f, paymentStatus: v }))
+                    }
                     options={[
                       { value: "all", label: "Any payment status" },
                       { value: "PENDING", label: "Pending" },
@@ -296,13 +373,19 @@ export function BillingPage() {
                   key: "patient",
                   header: "Patient",
                   render: (i) => {
-                    const name = i.patient ? `${i.patient.firstName} ${i.patient.lastName || ""}` : "Walk-in Patient";
+                    const name = i.patient
+                      ? `${i.patient.firstName} ${i.patient.lastName || ""}`
+                      : "Walk-in Patient";
                     return (
                       <div className="flex items-center gap-2.5">
                         <Avatar name={name} size="xs" color="bg-lagoon-500" />
                         <div className="min-w-0">
-                          <p className="truncate text-[13px] font-semibold text-ink-900">{name}</p>
-                          <p className="truncate text-[11px] text-ink-400">{i.patient?.uhid || ""}</p>
+                          <p className="truncate text-[13px] font-semibold text-ink-900">
+                            {name}
+                          </p>
+                          <p className="truncate text-[11px] text-ink-400">
+                            {i.patient?.uhid || ""}
+                          </p>
                         </div>
                       </div>
                     );
@@ -321,8 +404,13 @@ export function BillingPage() {
                   key: "payer",
                   header: "Payer",
                   render: (i) => (
-                    <Badge tone={i.isInsurance ? "lagoon" : "neutral"} size="xs">
-                      {i.isInsurance ? i.insuranceProvider || "Insurance" : "Self Pay"}
+                    <Badge
+                      tone={i.isInsurance ? "lagoon" : "neutral"}
+                      size="xs"
+                    >
+                      {i.isInsurance
+                        ? i.insuranceProvider || "Insurance"
+                        : "Self Pay"}
                     </Badge>
                   ),
                 },
@@ -344,7 +432,7 @@ export function BillingPage() {
                     <span
                       className={cn(
                         "num text-[13px] font-bold",
-                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600"
+                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600",
                       )}
                     >
                       {formatMoney(i.dueAmount)}
@@ -373,14 +461,20 @@ export function BillingPage() {
                     {
                       label: "Record payment",
                       icon: <Banknote />,
-                      hidden: !canEdit("billing") || i.paymentStatus === "PAID" || i.billStatus === "CANCELLED",
+                      hidden:
+                        !canEdit("billing") ||
+                        i.paymentStatus === "PAID" ||
+                        i.billStatus === "CANCELLED",
                       onClick: () => setPaying(i),
                     },
                     {
                       label: "Cancel/Void Bill",
                       icon: <Trash2 />,
                       tone: "danger",
-                      hidden: !canDelete("billing") || i.paymentStatus === "PAID" || i.billStatus === "CANCELLED",
+                      hidden:
+                        !canDelete("billing") ||
+                        i.paymentStatus === "PAID" ||
+                        i.billStatus === "CANCELLED",
                       onClick: () => handleCancelBill(i),
                     },
                   ]}
@@ -401,8 +495,12 @@ export function BillingPage() {
                   pageCount={pagination.totalPages}
                   total={pagination.total}
                   pageSize={pagination.limit}
-                  onPage={(p) => setPagination((prev) => ({ ...prev, page: p }))}
-                  onPageSize={(s) => setPagination((prev) => ({ ...prev, limit: s, page: 1 }))}
+                  onPage={(p) =>
+                    setPagination((prev) => ({ ...prev, page: p }))
+                  }
+                  onPageSize={(s) =>
+                    setPagination((prev) => ({ ...prev, limit: s, page: 1 }))
+                  }
                   label="invoices"
                 />
               }
@@ -433,10 +531,12 @@ export function BillingPage() {
                       </span>
                       <div className="min-w-0">
                         <p className="truncate text-[13px] font-semibold text-ink-900">
-                          {formatMoney(p.amount)} · {p.patient?.name || "Patient"}
+                          {formatMoney(p.amount)} ·{" "}
+                          {p.patient?.name || "Patient"}
                         </p>
                         <p className="num truncate text-[11.5px] text-ink-400">
-                          Receipt: {p.receiptNo} · Bill: {p.billNo} · {formatDate(p.paidAt)} · Mode: {p.paymentMode}
+                          Receipt: {p.receiptNo} · Bill: {p.billNo} ·{" "}
+                          {formatDate(p.paidAt)} · Mode: {p.paymentMode}
                           {p.transactionId ? ` · Txn: ${p.transactionId}` : ""}
                         </p>
                       </div>
@@ -482,12 +582,19 @@ export function BillingPage() {
             <Receipt className="size-4.5 text-brand-600" /> {viewing?.billNo}
           </span>
         }
-        description={viewing ? `Statement · ${formatDate(viewing.billedAt)}` : ""}
+        description={
+          viewing ? `Statement · ${formatDate(viewing.billedAt)}` : ""
+        }
         footer={
           <div className="flex w-full items-center justify-between gap-2">
             <StatusBadge status={viewing?.paymentStatus ?? ""} />
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" icon={<Printer />} onClick={() => window.print()}>
+              <Button
+                size="sm"
+                variant="outline"
+                icon={<Printer />}
+                onClick={() => window.print()}
+              >
                 Print / PDF
               </Button>
               {canEdit("billing") && viewing && viewing.dueAmount > 0 && (
@@ -520,13 +627,23 @@ function InvoiceSheet({ invoice }: { invoice: any }) {
     <div className="rounded-xl border border-ink-100 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink-100 pb-4">
         <div>
-          <p className="font-display text-[17px] font-bold text-ink-900">Hospital Multi-Specialty</p>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-400">Main OPD Block</p>
+          <p className="font-display text-[17px] font-bold text-ink-900">
+            Hospital Multi-Specialty
+          </p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-ink-400">
+            Main OPD Block
+          </p>
         </div>
         <div className="text-right">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400">Tax Invoice</p>
-          <p className="num text-[16px] font-bold text-ink-900">{invoice.billNo}</p>
-          <p className="text-[11.5px] text-ink-400">Issued {formatDate(invoice.billedAt)}</p>
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-ink-400">
+            Tax Invoice
+          </p>
+          <p className="num text-[16px] font-bold text-ink-900">
+            {invoice.billNo}
+          </p>
+          <p className="text-[11.5px] text-ink-400">
+            Issued {formatDate(invoice.billedAt)}
+          </p>
           <div className="mt-1.5 flex justify-end">
             <StatusBadge status={invoice.paymentStatus} />
           </div>
@@ -535,11 +652,17 @@ function InvoiceSheet({ invoice }: { invoice: any }) {
 
       <div className="grid gap-4 py-4 sm:grid-cols-2">
         <div>
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">Billed to</p>
-          <p className="mt-1 text-[13.5px] font-semibold text-ink-900">
-            {patient ? `${patient.firstName} ${patient.lastName || ""}` : "Walk-in"}
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-400">
+            Billed to
           </p>
-          <p className="text-[11.5px] text-ink-400">{patient?.uhid} · {patient?.mobile}</p>
+          <p className="mt-1 text-[13.5px] font-semibold text-ink-900">
+            {patient
+              ? `${patient.firstName} ${patient.lastName || ""}`
+              : "Walk-in"}
+          </p>
+          <p className="text-[11.5px] text-ink-400">
+            {patient?.uhid} · {patient?.mobile}
+          </p>
         </div>
       </div>
 
@@ -556,11 +679,17 @@ function InvoiceSheet({ invoice }: { invoice: any }) {
         <tbody className="divide-y divide-ink-100">
           {(invoice.items || []).map((it: any) => (
             <tr key={it.id}>
-              <td className="px-2 py-2 font-medium text-ink-800">{it.itemName || it.description}</td>
+              <td className="px-2 py-2 font-medium text-ink-800">
+                {it.itemName || it.description}
+              </td>
               <td className="px-2 py-2 text-ink-500">{it.category}</td>
               <td className="num px-2 py-2 text-center">{it.quantity}</td>
-              <td className="num px-2 py-2 text-right">{formatMoney(it.unitPrice)}</td>
-              <td className="num px-2 py-2 text-right font-semibold">{formatMoney(it.totalAmount || it.quantity * it.unitPrice)}</td>
+              <td className="num px-2 py-2 text-right">
+                {formatMoney(it.unitPrice)}
+              </td>
+              <td className="num px-2 py-2 text-right font-semibold">
+                {formatMoney(it.totalAmount || it.quantity * it.unitPrice)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -569,21 +698,32 @@ function InvoiceSheet({ invoice }: { invoice: any }) {
       <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_15rem]">
         <div className="space-y-2 text-[11.5px] leading-relaxed text-ink-400">
           <p>
-            <span className="font-semibold text-ink-700">Payments received · </span>
+            <span className="font-semibold text-ink-700">
+              Payments received ·{" "}
+            </span>
             {invoice.payments?.length === 0 && "None"}
             {invoice.payments?.map((p: any) => (
               <span key={p.id} className="num">
-                {formatMoney(p.amount)} ({p.paymentMode}) on {formatDate(p.paidAt)}{" "}
+                {formatMoney(p.amount)} ({p.paymentMode}) on{" "}
+                {formatDate(p.paidAt)}{" "}
               </span>
             ))}
           </p>
         </div>
         <dl className="space-y-1.5 rounded-xl border border-ink-100 bg-ink-25/60 p-3 text-[12.5px]">
           <Line label="Subtotal" value={formatMoney(invoice.subtotal)} />
-          <Line label="Discount" value={`− ${formatMoney(invoice.discountAmount)}`} tone="mint" />
+          <Line
+            label="Discount"
+            value={`− ${formatMoney(invoice.discountAmount)}`}
+            tone="mint"
+          />
           <Line label="Tax" value={formatMoney(invoice.taxAmount)} />
           <div className="my-1.5 h-px bg-ink-200" />
-          <Line label="Total payable" value={formatMoney(invoice.totalAmount)} strong />
+          <Line
+            label="Total payable"
+            value={formatMoney(invoice.totalAmount)}
+            strong
+          />
           <Line label="Paid" value={formatMoney(invoice.paidAmount)} />
           <Line
             label="Balance due"
@@ -597,10 +737,32 @@ function InvoiceSheet({ invoice }: { invoice: any }) {
   );
 }
 
-const Line = ({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: "mint" | "coral" }) => (
+const Line = ({
+  label,
+  value,
+  strong,
+  tone,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  tone?: "mint" | "coral";
+}) => (
   <div className="flex items-center justify-between gap-3">
-    <dt className={cn("text-ink-500", strong && "font-semibold text-ink-700")}>{label}</dt>
-    <dd className={cn("num font-semibold", tone === "coral" ? "text-coral-600" : tone === "mint" ? "text-mint-600" : "text-ink-900", strong && "text-[14px]")}>
+    <dt className={cn("text-ink-500", strong && "font-semibold text-ink-700")}>
+      {label}
+    </dt>
+    <dd
+      className={cn(
+        "num font-semibold",
+        tone === "coral"
+          ? "text-coral-600"
+          : tone === "mint"
+            ? "text-mint-600"
+            : "text-ink-900",
+        strong && "text-[14px]",
+      )}
+    >
       {value}
     </dd>
   </div>
@@ -610,9 +772,15 @@ const Line = ({ label, value, strong, tone }: { label: string; value: string; st
 
 /* ------------------------------- INVOICE FORM (CREATE) ------------------------------- */
 
-function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function InvoiceForm({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [searchParams] = useSearchParams();
-  
+
   // 🟢 1. Read URL Parameters
   const urlAppointmentId = searchParams.get("appointment");
   const urlPatientId = searchParams.get("patient");
@@ -658,21 +826,29 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     async function loadMasters() {
       try {
         setMastersLoading(true);
-        const [patRes, docRes, aptRes] = await Promise.all([
-          billingService.getPatients({ limit: 100 }),
-          billingService.getDoctors(),
-          billingService.getAppointments({}), // Fetches all recent appointments
-        ]);
+        const [patRes, docRes, aptRes] = (await Promise.all([
+          apiClient(API_ENDPOINTS.patients.list, {
+            method: "GET",
+            params: { page: "1", limit: "100" },
+          }),
+          apiClient(API_ENDPOINTS.doctors.list, { method: "GET" }),
+          apiClient(API_ENDPOINTS.appointments.list, { method: "GET" }), // Fetches all recent appointments
+        ])) as any[];
 
         const rawPatients = patRes.data || [];
         const rawDoctors = docRes.data || [];
         const rawAppointments = aptRes.data || [];
 
         // Find appointment passed in URL
-        let matchedApt = rawAppointments.find((a: any) => a.id === urlAppointmentId);
+        let matchedApt = rawAppointments.find(
+          (a: any) => a.id === urlAppointmentId,
+        );
 
         // Ensure Patient from matchedApt is present in patient options
-        if (matchedApt?.patient && !rawPatients.some((p: any) => p.id === matchedApt.patient.id)) {
+        if (
+          matchedApt?.patient &&
+          !rawPatients.some((p: any) => p.id === matchedApt.patient.id)
+        ) {
           rawPatients.unshift(matchedApt.patient);
         }
 
@@ -687,9 +863,10 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
         setDoctors(
           rawDoctors.map((d: any) => ({
             value: d.id,
-            label: `Dr. ${d.fullName || `${d.firstName} ${d.lastName || ""}`}`.trim(),
+            label:
+              `Dr. ${d.fullName || `${d.firstName} ${d.lastName || ""}`}`.trim(),
             fee: Number(d.consultationFee || 0),
-          }))
+          })),
         );
 
         const aptList = rawAppointments.map((a: any) => ({
@@ -725,7 +902,6 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
         } else if (urlPatientId) {
           form.setValue("patientId", urlPatientId);
         }
-
       } catch (e) {
         console.error("Failed loading billing masters", e);
       } finally {
@@ -782,12 +958,19 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     const remaining = total - Number(form.values.amountPaid || 0);
 
     return { subtotal, discount, tax: itemizedTax, total, remaining };
-  }, [form.values.items, form.values.discountType, form.values.discountValue, form.values.amountPaid]);
+  }, [
+    form.values.items,
+    form.values.discountType,
+    form.values.discountValue,
+    form.values.amountPaid,
+  ]);
 
   const patchItem = (id: string, patch: any) =>
     form.setValue(
       "items",
-      form.values.items.map((it: any) => (it.id === id ? { ...it, ...patch } : it))
+      form.values.items.map((it: any) =>
+        it.id === id ? { ...it, ...patch } : it,
+      ),
     );
 
   const save = form.handleSubmit(async (values) => {
@@ -804,10 +987,17 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
           unitPrice: Number(i.unitPrice),
           taxRate: Number(i.taxRate || 0),
         })),
-      discountPercent: values.discountType === "Percent" ? Number(values.discountValue) : undefined,
-      discountAmount: values.discountType === "Flat" ? Number(values.discountValue) : undefined,
+      discountPercent:
+        values.discountType === "Percent"
+          ? Number(values.discountValue)
+          : undefined,
+      discountAmount:
+        values.discountType === "Flat"
+          ? Number(values.discountValue)
+          : undefined,
       isInsurance: Boolean(values.insurance) && values.insurance !== "Self pay",
-      insuranceProvider: values.insurance !== "Self pay" ? values.insurance : undefined,
+      insuranceProvider:
+        values.insurance !== "Self pay" ? values.insurance : undefined,
     };
 
     if (Number(values.amountPaid) > 0) {
@@ -816,7 +1006,10 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     }
 
     try {
-      await billingService.createBill(payload);
+      await apiClient(API_ENDPOINTS.billing.create, {
+        method: "POST",
+        body: payload,
+      });
       onSuccess();
     } catch (e: any) {
       alert(e.message || "Failed to create invoice");
@@ -862,7 +1055,13 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
             clearable
             value={form.values.insurance}
             onChange={(v) => form.setValue("insurance", v)}
-            options={["Star Health", "HDFC Ergo", "ICICI Lombard", "CGHS", "Self pay"].map((i) => ({ value: i, label: i }))}
+            options={[
+              "Star Health",
+              "HDFC Ergo",
+              "ICICI Lombard",
+              "CGHS",
+              "Self pay",
+            ].map((i) => ({ value: i, label: i }))}
           />
 
           <DatePicker
@@ -945,14 +1144,26 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                   size="sm"
                   variant="ghost"
                   className="mb-1 text-coral-500 hover:bg-coral-50"
-                  onClick={() => form.setValue("items", form.values.items.filter((x: any) => x.id !== it.id))}
+                  onClick={() =>
+                    form.setValue(
+                      "items",
+                      form.values.items.filter((x: any) => x.id !== it.id),
+                    )
+                  }
                 >
                   <Trash2 />
                 </IconButton>
               </div>
             </div>
           ))}
-          <Button size="sm" variant="outline" icon={<Plus />} onClick={() => form.setValue("items", [...form.values.items, newItem()])}>
+          <Button
+            size="sm"
+            variant="outline"
+            icon={<Plus />}
+            onClick={() =>
+              form.setValue("items", [...form.values.items, newItem()])
+            }
+          >
             Add line item
           </Button>
         </div>
@@ -982,7 +1193,9 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
             <NumberInput
               label="Payment received now"
               value={form.values.amountPaid}
-              onValueChange={(v) => form.setValue("amountPaid", Math.min(v, totals.total))}
+              onValueChange={(v) =>
+                form.setValue("amountPaid", Math.min(v, totals.total))
+              }
               min={0}
               max={totals.total}
               suffix="₹"
@@ -992,16 +1205,30 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
               label="Method"
               value={form.values.paymentMethod}
               onChange={(v) => form.setValue("paymentMethod", v)}
-              options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map((m) => ({ value: m, label: m }))}
+              options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map(
+                (m) => ({ value: m, label: m }),
+              )}
             />
           </div>
           <dl className="space-y-1.5 self-start rounded-xl border border-brand-100 bg-brand-25 p-3.5 text-[12.5px]">
             <Line label="Subtotal" value={formatMoney(totals.subtotal)} />
-            <Line label="Discount" value={`− ${formatMoney(totals.discount)}`} />
+            <Line
+              label="Discount"
+              value={`− ${formatMoney(totals.discount)}`}
+            />
             <Line label="Itemized Tax" value={formatMoney(totals.tax)} />
             <div className="my-1.5 h-px bg-brand-200" />
-            <Line label="Total payable" value={formatMoney(totals.total)} strong />
-            <Line label="Balance" value={formatMoney(totals.remaining)} tone={totals.remaining > 0 ? "coral" : "mint"} strong />
+            <Line
+              label="Total payable"
+              value={formatMoney(totals.total)}
+              strong
+            />
+            <Line
+              label="Balance"
+              value={formatMoney(totals.remaining)}
+              tone={totals.remaining > 0 ? "coral" : "mint"}
+              strong
+            />
           </dl>
         </div>
       </FormSection>
@@ -1011,7 +1238,15 @@ function InvoiceForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
 
 /* ------------------------------ PAYMENT DIALOG ------------------------------ */
 
-function PaymentDialog({ bill, onClose, onSuccess }: { bill: any; onClose: () => void; onSuccess: () => void }) {
+function PaymentDialog({
+  bill,
+  onClose,
+  onSuccess,
+}: {
+  bill: any;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const form = useForm({
     initialValues: {
       amount: bill.dueAmount,
@@ -1023,7 +1258,10 @@ function PaymentDialog({ bill, onClose, onSuccess }: { bill: any; onClose: () =>
       amount: [
         {
           required: "Amount is required",
-          validate: (v: number) => (Number(v) > 0 && Number(v) <= bill.dueAmount ? true : `Max ${bill.dueAmount}`),
+          validate: (v: number) =>
+            Number(v) > 0 && Number(v) <= bill.dueAmount
+              ? true
+              : `Max ${bill.dueAmount}`,
         },
       ],
     },
@@ -1031,11 +1269,14 @@ function PaymentDialog({ bill, onClose, onSuccess }: { bill: any; onClose: () =>
 
   const save = form.handleSubmit(async (values) => {
     try {
-      await billingService.collectPayment(bill.id, {
-        amount: Number(values.amount),
-        paymentMode: values.method,
-        transactionId: values.reference || undefined,
-        notes: values.notes || undefined,
+      await apiClient(API_ENDPOINTS.billing.collectPayment(bill.id), {
+        method: "POST",
+        body: {
+          amount: Number(values.amount),
+          paymentMode: values.method,
+          transactionId: values.reference || undefined,
+          notes: values.notes || undefined,
+        },
       });
       onSuccess();
     } catch (e: any) {
@@ -1073,7 +1314,10 @@ function PaymentDialog({ bill, onClose, onSuccess }: { bill: any; onClose: () =>
           label="Payment method"
           value={form.values.method}
           onChange={(v) => form.setValue("method", v)}
-          options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map((m) => ({ value: m, label: m }))}
+          options={["CASH", "CARD", "UPI", "INSURANCE", "ONLINE"].map((m) => ({
+            value: m,
+            label: m,
+          }))}
         />
         <Input
           name="reference"

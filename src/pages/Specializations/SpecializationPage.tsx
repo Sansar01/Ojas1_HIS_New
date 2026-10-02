@@ -9,13 +9,14 @@ import {
   RowActions,
   Pagination,
 } from "@/components/ui/table";
-import { specializationsApi } from "@/features/slices";
 import {
-  useAppDispatch,
-  useRootSelector,
-  usePermission,
-  useTable,
-} from "@/hooks";
+  createSpecialization,
+  deleteSpecialization,
+  toggleSpecializationStatus,
+  updateSpecialization,
+} from "@/store/slices/specializationSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { Specialization, Status } from "@/types";
 import { cn } from "@/utils/cn";
@@ -24,17 +25,17 @@ import { useState, useEffect, useMemo } from "react";
 
 export function SpecializationsPage() {
   const dispatch = useAppDispatch();
-  const { items: specializations, status } = useRootSelector(
+  const { items: specializations, status } = useAppSelector(
     (s) => s.specializations,
   );
-  const departments = useRootSelector((s) => s.departments.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [editing, setEditing] = useState<Partial<Specialization> | null>(null);
   const [filters, setFilters] = useState({ department: "all", status: "all" });
 
   useEffect(() => {
-    // if (status === "idle") dispatch(specializationsApi.thunks.fetchAll() as any);
+    // if (status === "idle") dispatch(fetchSpecializations() as any);
   }, [status, dispatch]);
 
   const table = useTable<Specialization>(specializations as Specialization[], {
@@ -207,7 +208,7 @@ export function SpecializationsPage() {
                   hidden: !canEdit("specializations"),
                   onClick: () =>
                     dispatch(
-                      specializationsApi.thunks.toggleActive({
+                      toggleSpecializationStatus({
                         id: s.id,
                         status: (s.status === "active"
                           ? "inactive"
@@ -223,7 +224,7 @@ export function SpecializationsPage() {
                   hidden: !canDelete("specializations"),
                   onClick: () =>
                     dispatch(
-                      specializationsApi.thunks.removeOne({
+                      deleteSpecialization({
                         id: s.id,
                         label: s.name,
                       } as any),
@@ -265,7 +266,7 @@ function SpecializationForm({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const departments = useRootSelector((s) => s.departments.items);
+  const departments = useAppSelector((s) => s.departments.items);
   const form = useForm({
     initialValues: {
       name: initial.name ?? "",
@@ -288,7 +289,7 @@ function SpecializationForm({
     const data = { ...values, code: values.code.toUpperCase() };
     if (initial.id)
       await dispatch(
-        specializationsApi.thunks.updateOne({
+        updateSpecialization({
           id: initial.id,
           data,
           successMessage: "Specialization updated",
@@ -296,7 +297,7 @@ function SpecializationForm({
       );
     else
       await dispatch(
-        specializationsApi.thunks.createOne({
+        createSpecialization({
           data: { ...data, createdAt: new Date().toISOString() },
           successMessage: "Specialization created",
         } as any),

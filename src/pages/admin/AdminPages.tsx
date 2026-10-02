@@ -11,19 +11,20 @@ import {
   UserCog,
 } from "lucide-react";
 import { PERMISSIONS } from "@/constants";
-import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { fetchHospital, saveHospital } from "@/store/slices/hospitalSlice";
 import {
-  rolesApi,
-  saveHospital,
-  fetchHospital,
-  updateRolePermissions,
-  fetchRolePermissions,
-  type RolePermissionAssignment,
-  fetchRoleMasterCatalog,
   createHospitalRole,
-  type RoleMasterCatalogItem,
-} from "@/features/slices";
+  deleteRole,
+  fetchRoleMasterCatalog,
+  fetchRolePermissions,
+  fetchRoles,
+  updateRole,
+  updateRolePermissions,
+} from "@/store/slices/roleSlice";
+import type { RoleMasterCatalogItem, RolePermissionAssignment } from "@/types";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, Permission, Role } from "@/types";
 import { Badge, Button, Panel, PanelHeader } from "@/components/ui/primitives";
@@ -49,9 +50,9 @@ import { useConfirmDialog } from "@/components/ui/overlays";
 
 export function RolesPage() {
   const dispatch = useAppDispatch();
-  const { items: roles, status } = useRootSelector((s) => s.roles);
-  const users = useRootSelector((s) => s.users.items);
-  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+  const { items: roles, status } = useAppSelector((s) => s.roles);
+  const users = useAppSelector((s) => s.users.items);
+  const entitlementModules = useAppSelector((s) => s.modules.availableModules);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Partial<Role> | null>(null);
@@ -62,7 +63,7 @@ export function RolesPage() {
   const { ask, confirmNode } = useConfirmDialog();
 
   useEffect(() => {
-    if (status === "idle") dispatch(rolesApi.thunks.fetchAll() as any);
+    if (status === "idle") dispatch(fetchRoles() as any);
   }, [status, dispatch]);
 
   const selected = roles.find(
@@ -199,7 +200,7 @@ export function RolesPage() {
                           confirmLabel: "Delete role",
                           action: async () => {
                             await dispatch(
-                              rolesApi.thunks.removeOne({
+                              deleteRole({
                                 id: selected.id,
                                 label: selected.name,
                               } as any),
@@ -312,7 +313,7 @@ function RoleMatrixEditor({
   onSaved: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+  const entitlementModules = useAppSelector((s) => s.modules.availableModules);
   const [modules, setModules] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<
     Partial<Record<string, Permission[]>>
@@ -454,7 +455,7 @@ function RoleForm({
   const [roleMode, setRoleMode] = useState<"master" | "custom">("master");
   const [masterRoles, setMasterRoles] = useState<RoleMasterCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(!initial.id);
-  const entitlementModules = useRootSelector((s) => s.entitlement.modules);
+  const entitlementModules = useAppSelector((s) => s.modules.availableModules);
 
   useEffect(() => {
     if (initial.id) return;
@@ -520,7 +521,7 @@ function RoleForm({
     };
     if (initial.id)
       await dispatch(
-        rolesApi.thunks.updateOne({
+        updateRole({
           id: initial.id,
           data,
           successMessage: "Role updated",
@@ -716,7 +717,7 @@ function RoleForm({
 
 export function SettingsPage() {
   const dispatch = useAppDispatch();
-  const hospital = useRootSelector((s) => s.hospital);
+  const hospital = useAppSelector((s) => s.hospital);
   const { can, canEdit } = usePermission();
   const navigate = useNavigate();
   const { ask, confirmNode } = useConfirmDialog();

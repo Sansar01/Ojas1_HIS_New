@@ -11,9 +11,10 @@ import {
 } from "lucide-react";
 import { PageIntro } from "@/components/common";
 import { Button } from "@/components/ui/primitives";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
-import { buildApiUrl } from "@/config/api";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
 
 // --- Types representing your API schema ---
 interface Patient {
@@ -133,7 +134,9 @@ export function OpdExaminationRoom() {
 
   // UI State
   const [activeTab, setActiveTab] = useState<"waiting" | "done">("waiting");
-  const [selectedPatient, setSelectedPatient] = useState<QueueItem | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<QueueItem | null>(
+    null,
+  );
   const [painScore, setPainScore] = useState<number | null>(null);
   const [chiefComplaint, setChiefComplaint] = useState("");
 
@@ -153,43 +156,29 @@ export function OpdExaminationRoom() {
       ? (Number(vitals.weight) / (heightM * heightM)).toFixed(1)
       : "";
 
-  // Helper to extract Auth Token safely from localStorage
-  const getAuthHeaders = (): Record<string, string> => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("authUserToken") || "null");
-      const token = stored?.accessToken ?? stored?.token ?? null;
-      return token ? { Authorization: `Bearer ${token}` } : {};
-    } catch {
-      return {};
-    }
-  };
-
   // Fetch Queue from backend
   const fetchQueue = async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      const query = new URLSearchParams({
-        date: selectedDate,
-        tab: activeTab === "waiting" ? "waiting" : "done",
-      }).toString();
-
-      const url = `${buildApiUrl("/api/opd/queue/nurse")}?${query}`;
-
-      const res = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData?.message || `Server responded with status ${res.status}`);
+      let resData: any;
+      try {
+        resData = await apiClient(API_ENDPOINTS.queue.nurse, {
+          method: "GET",
+          params: {
+            date: selectedDate,
+            tab: activeTab === "waiting" ? "waiting" : "done",
+          },
+        });
+      } catch (e: any) {
+        if (e?.status)
+          throw new Error(
+            e?.data?.message || `Server responded with status ${e.status}`,
+          );
+        throw e;
       }
+      if (resData?.cancelled)
+        throw new Error(resData?.message || "Server responded with status 401");
 
-      const resData = await res.json();
       const payload: QueueApiResponse = resData.data ? resData.data : resData;
 
       setQueue(payload.queue || []);
@@ -197,13 +186,13 @@ export function OpdExaminationRoom() {
         payload.summary || {
           waitingCount: (payload.queue || []).length,
           vitalsDoneCount: 0,
-        }
+        },
       );
 
       // Auto-select first patient if active selection is missing
       if (payload.queue && payload.queue.length > 0) {
         const stillInList = payload.queue.find(
-          (item) => item.id === selectedPatient?.id
+          (item) => item.id === selectedPatient?.id,
         );
         if (!stillInList) {
           handleSelectPatient(payload.queue[0]);
@@ -217,8 +206,8 @@ export function OpdExaminationRoom() {
       dispatch(
         toast.error(
           "Error loading patient queue",
-          err.message || "Failed to communicate with API server."
-        )
+          err.message || "Failed to communicate with API server.",
+        ),
       );
     } finally {
       setLoading(false);
@@ -276,8 +265,8 @@ export function OpdExaminationRoom() {
       dispatch(
         toast.warning(
           "Chief complaint is required",
-          "Please enter the patient's chief complaint before marking ready."
-        )
+          "Please enter the patient's chief complaint before marking ready.",
+        ),
       );
       return;
     }
@@ -292,8 +281,8 @@ export function OpdExaminationRoom() {
         dispatch(
           toast.warning(
             "Invalid BP Format",
-            "Please enter blood pressure in Sys/Dia format (e.g. 120/80)."
-          )
+            "Please enter blood pressure in Sys/Dia format (e.g. 120/80).",
+          ),
         );
         return;
       }
@@ -304,8 +293,8 @@ export function OpdExaminationRoom() {
         dispatch(
           toast.warning(
             "Invalid BP Numbers",
-            "Please make sure Blood Pressure contains valid integers."
-          )
+            "Please make sure Blood Pressure contains valid integers.",
+          ),
         );
         return;
       }
@@ -332,46 +321,45 @@ export function OpdExaminationRoom() {
         heightCm: vitals.height ? parseFloat(vitals.height) : null,
       };
 
-      const vitalsUrl = buildApiUrl("/api/opd/vitals");
-      const vitalsRes = await fetch(vitalsUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify(vitalsPayload),
-        credentials: "include",
-      });
-
-      if (!vitalsRes.ok) {
-        const errData = await vitalsRes.json().catch(() => ({}));
-        throw new Error(errData?.message || "Failed to save patient vitals.");
+      let vitalsOut: any;
+      try {
+        vitalsOut = await apiClient(API_ENDPOINTS.vitals.create, {
+          method: "POST",
+          body: vitalsPayload,
+        });
+      } catch (e: any) {
+        if (e?.status)
+          throw new Error(e?.data?.message || "Failed to save patient vitals.");
+        throw e;
       }
+      if (vitalsOut?.cancelled)
+        throw new Error("Failed to save patient vitals.");
 
       // =========================================================================
       // STEP B: Check-In Patient (PATCH /api/opd/appointments/:id/check-in)
       // =========================================================================
-      const checkInUrl = buildApiUrl(`/api/opd/appointments/${selectedPatient.appointmentId}/check-in`);
-      const checkInRes = await fetch(checkInUrl, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders(),
-        },
-        credentials: "include",
-      });
-
-      if (!checkInRes.ok) {
-        const errData = await checkInRes.json().catch(() => ({}));
-        throw new Error(errData?.message || "Vitals saved, but check-in failed.");
+      let checkInOut: any;
+      try {
+        checkInOut = await apiClient(
+          API_ENDPOINTS.appointments.checkIn(selectedPatient.appointmentId),
+          { method: "PATCH" },
+        );
+      } catch (e: any) {
+        if (e?.status)
+          throw new Error(
+            e?.data?.message || "Vitals saved, but check-in failed.",
+          );
+        throw e;
       }
+      if (checkInOut?.cancelled)
+        throw new Error("Vitals saved, but check-in failed.");
 
       // Success Flows
       dispatch(
         toast.success(
           "Patient Marked Ready",
-          `${selectedPatient.patient.fullName} successfully processed & queued for Doctor.`
-        )
+          `${selectedPatient.patient.fullName} successfully processed & queued for Doctor.`,
+        ),
       );
 
       // Clean form states & sync queue
@@ -382,8 +370,8 @@ export function OpdExaminationRoom() {
       dispatch(
         toast.error(
           "Operation Failed",
-          err.message || "Something went wrong while marking patient ready."
-        )
+          err.message || "Something went wrong while marking patient ready.",
+        ),
       );
     } finally {
       setSubmitting(false);
@@ -426,7 +414,10 @@ export function OpdExaminationRoom() {
             title="Refresh queue"
             disabled={loading}
           >
-            <RefreshCw size={14} className={`${loading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              size={14}
+              className={`${loading ? "animate-spin" : ""}`}
+            />
           </button>
         </div>
       </div>
@@ -464,7 +455,10 @@ export function OpdExaminationRoom() {
 
             {loading ? (
               <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                <Loader2 size={24} className="animate-spin text-teal-600 mb-2" />
+                <Loader2
+                  size={24}
+                  className="animate-spin text-teal-600 mb-2"
+                />
                 <span className="text-xs font-medium">Loading patients...</span>
               </div>
             ) : queue.length === 0 ? (
@@ -477,7 +471,9 @@ export function OpdExaminationRoom() {
                 {queue.map((item) => {
                   const isActive = selectedPatient?.id === item.id;
                   const patientAge = `${item.patient.age} ${
-                    item.patient.ageUnit === "years" ? "Y" : item.patient.ageUnit[0]?.toUpperCase() || "Y"
+                    item.patient.ageUnit === "years"
+                      ? "Y"
+                      : item.patient.ageUnit[0]?.toUpperCase() || "Y"
                   }`;
                   return (
                     <div
@@ -499,12 +495,15 @@ export function OpdExaminationRoom() {
                         {item.patient.fullName}
                       </div>
                       <div className="text-sm text-gray-500 mb-2">
-                        {item.patient.uhid} • {patientAge} • {item.patient.gender}
+                        {item.patient.uhid} • {patientAge} •{" "}
+                        {item.patient.gender}
                       </div>
 
                       {item.reasonForVisit && (
                         <div className="bg-slate-50 border border-slate-100 rounded px-2 py-1.5 text-xs text-gray-700">
-                          <span className="font-medium text-gray-500">Complaint:</span>{" "}
+                          <span className="font-medium text-gray-500">
+                            Complaint:
+                          </span>{" "}
                           {item.reasonForVisit}
                         </div>
                       )}
@@ -552,7 +551,8 @@ export function OpdExaminationRoom() {
                     </h2>
                     <div className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-3">
                       <span>
-                        {selectedPatient.patient.age} {selectedPatient.patient.ageUnit},{" "}
+                        {selectedPatient.patient.age}{" "}
+                        {selectedPatient.patient.ageUnit},{" "}
                         {selectedPatient.patient.gender}
                       </span>
                       <span className="w-1 h-1 rounded-full bg-gray-300 hidden sm:inline-block"></span>
@@ -570,21 +570,27 @@ export function OpdExaminationRoom() {
                     <div className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs">
                       <CheckCircle2 size={14} />
                     </div>
-                    <span className="text-[10px] text-teal-700 font-medium mt-1">Reg</span>
+                    <span className="text-[10px] text-teal-700 font-medium mt-1">
+                      Reg
+                    </span>
                   </div>
                   <div className="w-8 h-px bg-teal-600 mb-3"></div>
                   <div className="flex flex-col items-center">
                     <div className="w-6 h-6 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs font-bold ring-2 ring-teal-100">
                       2
                     </div>
-                    <span className="text-[10px] text-teal-700 font-bold mt-1">Vitals</span>
+                    <span className="text-[10px] text-teal-700 font-bold mt-1">
+                      Vitals
+                    </span>
                   </div>
                   <div className="w-8 h-px bg-gray-200 mb-3"></div>
                   <div className="flex flex-col items-center">
                     <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-400 border border-gray-200 flex items-center justify-center text-xs font-bold">
                       3
                     </div>
-                    <span className="text-[10px] text-gray-400 font-medium mt-1">Consult</span>
+                    <span className="text-[10px] text-gray-400 font-medium mt-1">
+                      Consult
+                    </span>
                   </div>
                 </div>
               </div>
@@ -630,7 +636,9 @@ export function OpdExaminationRoom() {
                         {painScore !== null && painScore > 6 ? (
                           <span className="text-red-600">😫 Severe Pain</span>
                         ) : painScore !== null && painScore > 3 ? (
-                          <span className="text-orange-500">😐 Moderate Pain</span>
+                          <span className="text-orange-500">
+                            😐 Moderate Pain
+                          </span>
                         ) : painScore !== null ? (
                           <span className="text-teal-600">🙂 Mild/No Pain</span>
                         ) : (
@@ -700,8 +708,12 @@ export function OpdExaminationRoom() {
                         BMI
                       </div>
                       <div className="flex items-baseline gap-1">
-                        <div className="text-xl font-bold text-slate-900">{bmi || "--"}</div>
-                        <span className="text-slate-500 text-xs font-medium">kg/m²</span>
+                        <div className="text-xl font-bold text-slate-900">
+                          {bmi || "--"}
+                        </div>
+                        <span className="text-slate-500 text-xs font-medium">
+                          kg/m²
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -709,7 +721,11 @@ export function OpdExaminationRoom() {
               </div>
 
               <div className="p-4 border-t border-gray-200 bg-slate-50 flex justify-end gap-3">
-                <Button variant="outline" onClick={handleClear} disabled={submitting}>
+                <Button
+                  variant="outline"
+                  onClick={handleClear}
+                  disabled={submitting}
+                >
                   Clear Form
                 </Button>
                 <Button onClick={handleMarkReady} disabled={submitting}>
@@ -730,9 +746,12 @@ export function OpdExaminationRoom() {
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
               <Users size={48} className="text-slate-300 mb-4" />
-              <h3 className="text-lg font-bold text-gray-800 mb-1">No Patient Selected</h3>
+              <h3 className="text-lg font-bold text-gray-800 mb-1">
+                No Patient Selected
+              </h3>
               <p className="text-sm text-gray-500 max-w-sm">
-                Select a patient from the queue column on the left to start recording vitals and nursing assessments.
+                Select a patient from the queue column on the left to start
+                recording vitals and nursing assessments.
               </p>
             </div>
           )}
@@ -747,7 +766,8 @@ export function OpdExaminationRoom() {
               {selectedPatient?.patient.allergies ? (
                 <div className="bg-red-50 border border-red-100 rounded-lg p-3">
                   <div className="flex items-center gap-2 text-red-800 font-bold text-xs uppercase tracking-wider mb-1">
-                    <AlertCircle size={14} className="shrink-0" /> Drug / Allergy Alert
+                    <AlertCircle size={14} className="shrink-0" /> Drug /
+                    Allergy Alert
                   </div>
                   <p className="text-xs text-red-700 font-medium pl-5">
                     {selectedPatient.patient.allergies}
@@ -759,7 +779,8 @@ export function OpdExaminationRoom() {
               {selectedPatient?.patient.chronicDiseases ? (
                 <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
                   <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase tracking-wider mb-1">
-                    <AlertCircle size={14} className="shrink-0" /> Chronic Conditions
+                    <AlertCircle size={14} className="shrink-0" /> Chronic
+                    Conditions
                   </div>
                   <p className="text-xs text-amber-700 font-medium pl-5">
                     {selectedPatient.patient.chronicDiseases}
@@ -773,7 +794,9 @@ export function OpdExaminationRoom() {
                   <div className="flex items-center gap-2 text-red-800 font-bold text-sm mb-0.5">
                     <AlertCircle size={14} /> High Blood Pressure
                   </div>
-                  <p className="text-xs text-red-600 font-medium ml-6">{vitals.bp} mmHg</p>
+                  <p className="text-xs text-red-600 font-medium ml-6">
+                    {vitals.bp} mmHg
+                  </p>
                 </div>
               )}
 
@@ -782,7 +805,9 @@ export function OpdExaminationRoom() {
                   <div className="flex items-center gap-2 text-orange-800 font-bold text-sm mb-0.5">
                     Low Grade Fever
                   </div>
-                  <p className="text-xs text-orange-600 font-medium ml-6">{vitals.temp} °F</p>
+                  <p className="text-xs text-orange-600 font-medium ml-6">
+                    {vitals.temp} °F
+                  </p>
                 </div>
               )}
 
@@ -800,9 +825,14 @@ export function OpdExaminationRoom() {
             <SectionHeader title="Previous Visits" />
             <div className="space-y-0">
               {DUMMY_HISTORY.map((visit) => (
-                <div key={visit.date} className="py-3 border-b border-gray-100 last:border-0">
+                <div
+                  key={visit.date}
+                  className="py-3 border-b border-gray-100 last:border-0"
+                >
                   <div className="flex justify-between items-start mb-1">
-                    <span className="font-bold text-sm text-gray-900">{visit.date}</span>
+                    <span className="font-bold text-sm text-gray-900">
+                      {visit.date}
+                    </span>
                     <span className="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded font-medium border border-slate-200 uppercase tracking-wider">
                       {visit.type}
                     </span>
@@ -811,7 +841,8 @@ export function OpdExaminationRoom() {
                     {visit.doctor} • {visit.dept}
                   </p>
                   <p className="text-xs text-gray-600">
-                    <span className="text-gray-400 font-medium">Dx:</span> {visit.dx}
+                    <span className="text-gray-400 font-medium">Dx:</span>{" "}
+                    {visit.dx}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <button
@@ -821,8 +852,8 @@ export function OpdExaminationRoom() {
                         dispatch(
                           toast.info(
                             visit.action,
-                            `${visit.date} · ${selectedPatient?.patient.fullName || "Patient"}`
-                          )
+                            `${visit.date} · ${selectedPatient?.patient.fullName || "Patient"}`,
+                          ),
                         )
                       }
                     >
@@ -848,7 +879,14 @@ interface VitalInputProps {
   disabled?: boolean;
 }
 
-function VitalInput({ label, unit, value, onChange, isAlert = false, disabled = false }: VitalInputProps) {
+function VitalInput({
+  label,
+  unit,
+  value,
+  onChange,
+  isAlert = false,
+  disabled = false,
+}: VitalInputProps) {
   return (
     <div className="flex flex-col">
       <label className="text-xs font-medium text-gray-600 mb-1 uppercase tracking-wide">
@@ -862,7 +900,9 @@ function VitalInput({ label, unit, value, onChange, isAlert = false, disabled = 
         <input
           type="text"
           value={value}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            onChange(e.target.value)
+          }
           disabled={disabled}
           className={`w-full px-3 py-2 text-sm font-medium outline-none bg-transparent ${
             isAlert ? "text-red-700" : "text-gray-900"

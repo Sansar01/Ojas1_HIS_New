@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm, type Rule } from "@/hooks/useForm";
-import { departmentsApi, patientsApi } from "@/features/slices";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import {
+  createPatient,
+  fetchPatient,
+  updatePatient,
+} from "@/store/slices/patientSlice";
 import {
   Emptyish,
   FormRow,
@@ -80,7 +85,7 @@ export function PatientsFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const patient = useRootSelector((state) =>
+  const patient = useAppSelector((state) =>
     (state.patients?.items ?? []).find(
       (item) => item && String(item.id) === id,
     ),
@@ -95,7 +100,7 @@ export function PatientsFormPage() {
     }
 
     setLoadingPatient(true);
-    dispatch(patientsApi.thunks.getOne(id) as any)
+    dispatch(fetchPatient(id) as any)
       .unwrap()
       .catch(() => undefined)
       .finally(() => setLoadingPatient(false));
@@ -120,7 +125,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isEdit = Boolean(patient?.id);
-  const departments = useRootSelector(
+  const departments = useAppSelector(
     (state) =>
       state.departments.items &&
       state.departments.items.filter((x) => x.isActive === true),
@@ -128,7 +133,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
   // department options for the dropdown
   useEffect(() => {
-    dispatch(departmentsApi.thunks.fetchAll() as any);
+    dispatch(fetchDepartments() as any);
   }, [dispatch]);
 
   const displayBloodGroup = (bloodGroup?: string) => {
@@ -345,7 +350,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
     if (isEdit) {
       await dispatch(
-        patientsApi.thunks.updateOne({
+        updatePatient({
           id: String(patient!.id),
           data: payload,
           successMessage: "Patient updated successfully",
@@ -353,7 +358,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       ).unwrap();
     } else {
       await dispatch(
-        patientsApi.thunks.createOne({
+        createPatient({
           data: payload,
           successMessage: "Patient registered successfully",
         } as any),

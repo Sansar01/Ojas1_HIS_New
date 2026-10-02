@@ -10,16 +10,14 @@ import {
   fieldClasses,
 } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
 
-// Import Service Master API
-import {
-  serviceMasterService,
-  type ServiceMasterItem,
-  type ServiceCategory,
-} from "@/features/masters/serviceMasterService";
+// Service Master API
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
+import type { ServiceMasterItem, ServiceCategory } from "@/types";
 
 // Service Categories Dropdown Options
 const CATEGORY_OPTIONS: { value: ServiceCategory; label: string }[] = [
@@ -58,7 +56,9 @@ export function ServiceMaster({
   // Form State
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof FormState, string>>
+  >({});
 
   // Filter States
   const [search, setSearch] = useState("");
@@ -68,7 +68,9 @@ export function ServiceMaster({
   const loadServices = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await serviceMasterService.list();
+      const data: any = await apiClient(API_ENDPOINTS.masters.services.list, {
+        method: "GET",
+      });
       setServices(data);
     } catch (error: any) {
       dispatch(toast.error("Failed to load services", error?.message));
@@ -122,20 +124,26 @@ export function ServiceMaster({
     try {
       if (editingId) {
         // Edit Mode
-        await serviceMasterService.update(editingId, {
-          serviceCode: form.serviceCode.toUpperCase().trim(),
-          serviceName: form.serviceName.trim(),
-          category: form.category,
-          baseRate: form.baseRate,
+        await apiClient(API_ENDPOINTS.masters.services.byId(editingId), {
+          method: "PATCH",
+          body: {
+            serviceCode: form.serviceCode.toUpperCase().trim(),
+            serviceName: form.serviceName.trim(),
+            category: form.category,
+            baseRate: form.baseRate,
+          },
         });
         dispatch(toast.success("Service updated successfully"));
       } else {
         // Create Mode
-        await serviceMasterService.create({
-          serviceCode: form.serviceCode.toUpperCase().trim(),
-          serviceName: form.serviceName.trim(),
-          category: form.category,
-          baseRate: form.baseRate,
+        await apiClient(API_ENDPOINTS.masters.services.list, {
+          method: "POST",
+          body: {
+            serviceCode: form.serviceCode.toUpperCase().trim(),
+            serviceName: form.serviceName.trim(),
+            category: form.category,
+            baseRate: form.baseRate,
+          },
         });
         dispatch(toast.success("Service added successfully"));
       }
@@ -162,10 +170,13 @@ export function ServiceMaster({
 
   // ─── 5. Soft Delete Handler ───────────────────────────────────────
   const handleDelete = async (row: ServiceMasterItem) => {
-    if (!confirm(`Are you sure you want to delete '${row.serviceName}'?`)) return;
+    if (!confirm(`Are you sure you want to delete '${row.serviceName}'?`))
+      return;
 
     try {
-      await serviceMasterService.remove(row.id);
+      await apiClient(API_ENDPOINTS.masters.services.byId(row.id), {
+        method: "DELETE",
+      });
       dispatch(toast.success("Service deleted"));
       loadServices();
     } catch (error: any) {

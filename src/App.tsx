@@ -6,12 +6,12 @@ import {
   restoreSession,
   refreshSession,
   selectMustChangePassword,
-} from "@/features/auth/authSlice";
+} from "@/store/slices/authSlice";
 import {
   registerRefreshHandler,
   registerSessionGate,
   startSessionWatchdog,
-} from "@/services/apiClient";
+} from "@/api/apiClient";
 import { AppRoutes } from "@/routes";
 import { TooltipProvider } from "@/components/ui/overlays";
 import { ToastHost } from "@/components/ui/feedback";
@@ -21,7 +21,7 @@ function Root() {
   const toasts = useSelector((state: RootState) => state.ui.toasts);
 
   useEffect(() => {
-    // 1. Sirf session restore trigger karo (Listener khud fetchEntitlements call karega)
+    // 1. Sirf session restore trigger karo (Listener khud fetchModules call karega)
     store.dispatch(restoreSession() as any);
 
     // 2. Session gate register

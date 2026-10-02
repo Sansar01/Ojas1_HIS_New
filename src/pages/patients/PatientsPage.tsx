@@ -10,13 +10,13 @@ import {
   Users,
 } from "lucide-react";
 import { BLOOD_GROUPS, GENDERS } from "@/constants";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
 import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
-import { patientsApi } from "@/features/slices";
+  deletePatient,
+  fetchPatients,
+  togglePatientStatus,
+} from "@/store/slices/patientSlice";
 import { calcAge, formatDate, fullName } from "@/utils";
 import type { Patient, Status } from "@/types";
 import {
@@ -45,8 +45,8 @@ const bloodGroupApiValue = (bloodGroup: string) =>
 export function PatientsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { items: patients, status } = useRootSelector((s) => s.patients);
-  const appointments = useRootSelector((s) => s.appointments.items);
+  const { items: patients, status } = useAppSelector((s) => s.patients);
+  const appointments = useAppSelector((s) => s.appointments.items);
   const { canEdit, canDelete, canCreate } = usePermission();
   const [filters, setFilters] = useState({
     gender: "all",
@@ -77,7 +77,7 @@ export function PatientsPage() {
   });
 
   useEffect(() => {
-    dispatch(patientsApi.thunks.fetchAll() as any);
+    dispatch(fetchPatients() as any);
   }, [dispatch]);
 
   const visits = useMemo(() => {
@@ -91,7 +91,7 @@ export function PatientsPage() {
   const toggle = (p: Patient) => {
     const next: Status = p?.status === "active" ? "inactive" : "active";
     dispatch(
-      patientsApi.thunks.toggleActive({
+      togglePatientStatus({
         id: p.id,
         status: next,
         label: fullName(p),
@@ -113,7 +113,7 @@ export function PatientsPage() {
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
-              onClick={() => dispatch(patientsApi.thunks.fetchAll() as any)}
+              onClick={() => dispatch(fetchPatients() as any)}
             >
               Refresh
             </Button>
@@ -288,7 +288,7 @@ export function PatientsPage() {
                 ? "error"
                 : "loading"
           }
-          onRetry={() => dispatch(patientsApi.thunks.fetchAll() as any)}
+          onRetry={() => dispatch(fetchPatients() as any)}
           sort={{
             sortBy: table.query.sortBy,
             sortDir: table.query.sortDir,
@@ -328,7 +328,7 @@ export function PatientsPage() {
                       confirmLabel: "Delete patient",
                       action: async () => {
                         await dispatch(
-                          patientsApi.thunks.removeOne({
+                          deletePatient({
                             id: p.id,
                             label: fullName(p),
                           } as any),

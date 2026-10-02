@@ -1,27 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import type { AppDispatch, RootState } from "@/store/types";
-import { selectUser } from "@/features/auth/authSlice";
+import type { RootState } from "@/store/types";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { selectUser } from "@/store/slices/authSlice";
 import {
   hideLoader,
   pushToast,
   showLoader,
   toast,
   type ToastVariant,
-} from "@/features/ui/uiSlice";
+} from "@/store/slices/uiSlice";
 import type { Permission } from "@/types";
 import { canAccessModule, hasFeature } from "@/utils/permissions";
-import type { Entitlements } from "@/types/entitlement";
+import { selectPermissionSource } from "@/store/slices/permissionSlice";
+import type { Entitlements } from "@/types";
 
 /* ------------------------------ redux plumbing ----------------------------- */
+// The generic typed hooks live in `@/store/hooks` — re-exported here so the
+// feature hooks below (and older call sites) can share one import.
 
-export const useAppDispatch = () => useDispatch<AppDispatch>();
-export const useRootSelector = <T>(selector: (state: RootState) => T): T =>
-  useSelector<RootState, T>(selector);
+export { useAppDispatch, useAppSelector, useRootSelector } from "@/store/hooks";
 
-export const useSession = () => useRootSelector((s) => s.auth.session);
-export const useCurrentUser = () => useRootSelector(selectUser);
-export const useAuthStatus = () => useRootSelector((s) => s.auth.status);
+export const useSession = () => useAppSelector((s) => s.auth.session);
+export const useCurrentUser = () => useAppSelector(selectUser);
+export const useAuthStatus = () => useAppSelector((s) => s.auth.status);
 
 /* ------------------------------ notifications ------------------------------ */
 
@@ -50,8 +51,8 @@ export function useToast() {
 
 export function useLoader() {
   const dispatch = useAppDispatch();
-  const visible = useRootSelector((s) => s.ui.loader.count > 0);
-  const label = useRootSelector((s) => s.ui.loader.label);
+  const visible = useAppSelector((s) => s.ui.loader.count > 0);
+  const label = useAppSelector((s) => s.ui.loader.label);
   return {
     visible,
     label,
@@ -69,14 +70,13 @@ export function useLoader() {
 
 export function usePermission() {
   const user = useCurrentUser();
-  // Single runtime source per cleanup plan: entitlementSlice.modules
-  // auth/session is for authentication only, not permissions
-  const dynamicModules = useRootSelector(
-    (state) => state.entitlement.modules ?? [],
-  );
-  const error = useRootSelector((state) => state.entitlement.error);
-  const status = useRootSelector((state) => state.entitlement.status);
-  const sessionEntitlements = useRootSelector(
+  // Single runtime source: permissionSlice resolves the effective
+  // entitlements (module catalogue + session). auth/session is for
+  // authentication only, not permissions.
+  const entitlements = useAppSelector(selectPermissionSource);
+  const error = useAppSelector((state) => state.modules.error);
+  const status = useAppSelector((state) => state.modules.status);
+  const sessionEntitlements = useAppSelector(
     (state) => state.auth.session?.entitlements ?? null,
   ) as Entitlements | null;
 
@@ -92,10 +92,6 @@ export function usePermission() {
     (user as any)?.role?.slug ??
     (user as any)?.role?.name ??
     null;
-
-  const entitlements: Entitlements | null = dynamicModules.length
-    ? { userType, modules: dynamicModules }
-    : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
 
   const can = useCallback(
     (module: string, action: Permission = "view") =>
@@ -140,15 +136,15 @@ export function useResource<T>(
   const [nonce, setNonce] = useState(0);
   const done = useRef<Set<string>>(new Set());
   const key = String(fetchThunk?.typePrefix ?? "");
-  const items = useRootSelector((s: RootState) => {
+  const items = useAppSelector((s: RootState) => {
     const sliceName = key.split("/")[0];
     return ((s as any)[sliceName]?.items ?? []) as T[];
   });
-  const status = useRootSelector((s: RootState) => {
+  const status = useAppSelector((s: RootState) => {
     const sliceName = key.split("/")[0];
     return (s as any)[sliceName]?.status ?? "idle";
   });
-  const error = useRootSelector(
+  const error = useAppSelector(
     (s: RootState) => (s as any)[key.split("/")[0]]?.error ?? null,
   );
 

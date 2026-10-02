@@ -13,8 +13,16 @@ export const STATIC_SPECIALIZATIONS: StaticSpecialization[] = [
   { id: "Orthopedics", name: "Orthopedics", code: "ORTHO" },
   { id: "Dermatology", name: "Dermatology", code: "DERM" },
   { id: "Neurology", name: "Neurology", code: "NEURO" },
-  { id: "Gynecology & Obstetrics", name: "Gynecology & Obstetrics", code: "OBGYN" },
-  { id: "ENT (Ear, Nose, Throat)", name: "ENT (Ear, Nose, Throat)", code: "ENT" },
+  {
+    id: "Gynecology & Obstetrics",
+    name: "Gynecology & Obstetrics",
+    code: "OBGYN",
+  },
+  {
+    id: "ENT (Ear, Nose, Throat)",
+    name: "ENT (Ear, Nose, Throat)",
+    code: "ENT",
+  },
   { id: "Ophthalmology", name: "Ophthalmology", code: "EYE" },
   { id: "Gastroenterology", name: "Gastroenterology", code: "GASTRO" },
   { id: "Pulmonology", name: "Pulmonology", code: "PULMO" },

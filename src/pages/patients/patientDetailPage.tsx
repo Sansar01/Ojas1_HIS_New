@@ -6,12 +6,18 @@ import {
   PageIntro,
   DetailGrid,
 } from "@/components/common";
-import { Panel, Avatar, StatusBadge, Button } from "@/components/ui/primitives";
+import {
+  Panel,
+  Avatar,
+  StatusBadge,
+  Button,
+  Badge,
+} from "@/components/ui/primitives";
 import { DataTable } from "@/components/ui/table";
-import { useRootSelector, usePermission } from "@/hooks";
-import { useAppDispatch } from "@/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePermission } from "@/hooks";
 import { Patient } from "@/types";
-import { patientsApi } from "@/features/slices";
+import { fetchPatient } from "@/store/slices/patientSlice";
 import { fullName, formatDate, calcAge, formatMoney } from "@/utils";
 import { cn } from "@/utils/cn";
 import {
@@ -24,18 +30,17 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Badge } from "@/components/ui/primitives";
 
 export function PatientDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const patients = useRootSelector((s) => s.patients.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const consultations = useRootSelector((s) => s.consultations.items);
-  const invoices = useRootSelector((s) => s.invoices.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const departments = useRootSelector((s) => s.departments.items);
+  const patients = useAppSelector((s) => s.patients.items);
+  const appointments = useAppSelector((s) => s.appointments.items);
+  const consultations = useAppSelector((s) => s.consultations.items);
+  const invoices = useAppSelector((s) => s.invoices.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const departments = useAppSelector((s) => s.departments.items);
   const { canCreate } = usePermission();
   const [tab, setTab] = useState("overview");
   const [isLoadingPatient, setIsLoadingPatient] = useState(true);
@@ -56,7 +61,7 @@ export function PatientDetailPage() {
     fetchedPatientId.current = id;
 
     setIsLoadingPatient(true);
-    dispatch(patientsApi.thunks.getOne(id) as any)
+    dispatch(fetchPatient(id) as any)
       .unwrap()
       .catch(() => undefined)
       .finally(() => {

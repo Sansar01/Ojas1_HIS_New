@@ -9,12 +9,13 @@ import {
   SearchX,
   X,
   XCircle,
+  ShieldAlert,
+  FileQuestion,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { useAppDispatch } from "@/hooks";
-import { dismissToast, type Toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { dismissToast, type Toast } from "@/store/slices/uiSlice";
 import { Button } from "@/components/ui/primitives";
-import { ShieldAlert, FileQuestion } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 /* ------------------------------- Skeletons --------------------------------- */

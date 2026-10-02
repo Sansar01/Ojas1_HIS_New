@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
-import { useAppDispatch, useRootSelector, useSidebarSync } from "@/hooks";
-import { setMobileNav, setSidebar } from "@/features/ui/uiSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useSidebarSync } from "@/hooks";
+import { setMobileNav, setSidebar } from "@/store/slices/uiSlice";
 import { bootstrapResources } from "@/store";
-import { useEffect } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
 import { LoaderOverlay } from "@/components/ui/feedback";
@@ -12,10 +12,10 @@ import { createPortal } from "react-dom";
 
 export function DashboardLayout() {
   const dispatch = useAppDispatch();
-  const collapsed = useRootSelector((s) => s.ui.sidebarCollapsed);
-  const mobileNavOpen = useRootSelector((s) => s.ui.mobileNavOpen);
-  const loaderCount = useRootSelector((s) => s.ui.loader.count);
-  const loaderLabel = useRootSelector((s) => s.ui.loader.label);
+  const collapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
+  const mobileNavOpen = useAppSelector((s) => s.ui.mobileNavOpen);
+  const loaderCount = useAppSelector((s) => s.ui.loader.count);
+  const loaderLabel = useAppSelector((s) => s.ui.loader.label);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));

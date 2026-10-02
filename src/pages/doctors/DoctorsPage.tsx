@@ -18,19 +18,17 @@ import {
   UserCog,
 } from "lucide-react";
 import { GENDERS, WEEKDAYS_SHORT, STATIC_SPECIALIZATIONS } from "@/constants";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import {
-  doctorsApi,
+  deleteDoctor,
+  fetchDoctors,
   onboardDoctor,
   setDoctorAvailability,
-} from "@/features/slices";
-import { getDoctorById } from "@/services/doctorsService";
+  toggleDoctorStatus,
+  updateDoctor,
+} from "@/store/slices/doctorSlice";
 import { addDays } from "@/data/db";
 import {
   calcAge,
@@ -73,7 +71,8 @@ import {
 } from "@/components/common";
 
 // Centralized API Imports
-import { buildApiUrl, API_ENDPOINTS } from "@/config/api";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
 
 /* ------------------------- Helper Functions -------------------------------- */
 
@@ -89,47 +88,71 @@ const toISODateString = (d: Date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
-/* ------------------------- API Centralized Requests ----------------------- */
+/* ------------------------- Profile mapping -------------------------------- */
 
-const createLeaveAPI = async (id: string, payload: any, token: string) => {
-  const res = await fetch(buildApiUrl(API_ENDPOINTS.doctorLeaves(id)), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
+function mapAvailabilityToUi(availability: any[] = []): ScheduleDay[] {
+  const safeList = Array.isArray(availability) ? availability : [];
+  const availMap = new Map(safeList.map((a: any) => [Number(a.dayOfWeek), a]));
+
+  return [0, 1, 2, 3, 4, 5, 6].map((day) => {
+    const item = availMap.get(day);
+    return {
+      day,
+      enabled: item ? Boolean(item.isActive) : false,
+      start: item?.startTime || "09:00",
+      end: item?.endTime || "17:00",
+      breakStartTime: item?.breakStartTime || "",
+      breakEndTime: item?.breakEndTime || "",
+    };
   });
-  if (!res.ok) throw new Error(await res.text() || "Failed to mark leave");
-  return res.json();
-};
+}
 
-const fetchLeavesAPI = async (id: string, fromDate: string, toDate: string, token: string) => {
-  const res = await fetch(
-    `${buildApiUrl(API_ENDPOINTS.doctorLeaves(id))}?fromDate=${fromDate}&toDate=${toDate}`,
-    {
-      headers: {
-        "Authorization": `Bearer ${token}`,
-      },
-    }
+async function getDoctorById(doctorProfileId: string): Promise<Doctor> {
+  const res: any = await apiClient(
+    API_ENDPOINTS.doctors.getById(doctorProfileId),
+    { method: "GET" },
   );
-  if (!res.ok) throw new Error("Failed to fetch leaves");
-  const json = await res.json();
-  return Array.isArray(json?.data) ? json.data : Array.isArray(json) ? json : [];
-};
 
-const updateAvailabilityAPI = async (id: string, payload: any, token: string) => {
-  const res = await fetch(buildApiUrl(API_ENDPOINTS.doctorAvailability(id)), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await res.text() || "Failed to save availability");
-  return res.json();
-};
+  const profile = res?.data ?? res;
+  if (!profile?.id) throw new Error("Doctor profile not found");
+
+  const qualifications =
+    typeof profile.qualifications === "string"
+      ? profile.qualifications
+          .split(",")
+          .map((q: string) => q.trim())
+          .filter(Boolean)
+      : Array.isArray(profile.qualifications)
+        ? profile.qualifications
+        : [];
+
+  return {
+    id: String(profile.id),
+    userId: profile.hospitalUserId ?? null,
+    hospitalUserId: profile.hospitalUserId ?? "",
+    firstName: profile.firstName ?? "Doctor",
+    lastName: profile.lastName ?? "",
+    gender: profile.gender ?? "Male",
+    dateOfBirth: profile.dateOfBirth ?? "1985-01-01",
+    joinedAt: profile.createdAt ?? new Date().toISOString(),
+    email: profile.email ?? "",
+    mobile: profile.mobile ?? "",
+    registrationNumber: profile.registrationNumber ?? "—",
+    departmentId: profile.departmentId ?? "",
+    specializationId: profile.specialization ?? "",
+    consultationFee: Number(profile.consultationFee) || 0,
+    slotDuration: Number(profile.slotDurationMins) || 15,
+    bufferTime: Number(profile.bufferTimeMins) || 0,
+    maxPatientsPerDay: Number(profile.maxPatientsPerDay) || 20,
+    qualifications,
+    experienceYears: Number(profile.experienceYears) || 0,
+    rating: Number(profile.rating) || 0,
+    mode: profile.mode ?? "In-clinic",
+    status: profile.isActive ? "active" : "inactive",
+    about: profile.about ?? "",
+    schedule: mapAvailabilityToUi(profile.availability ?? []),
+  } as Doctor;
+}
 
 /* ------------------------- initial doctor state ---------------------------- */
 
@@ -168,17 +191,12 @@ export const getInitialDoctorForUser = (authUser: any): Partial<Doctor> => ({
   email: authUser?.email ?? "",
 });
 
-
-
-
-
-
 /* ------------------------- Schedule Payload Transformers ------------------- */
 
 /** UI ScheduleDay[] -> Backend API Payload Transformer */
 export const toAvailabilityPayload = (
   schedule: ScheduleDay[],
-  slotDurationMins: number
+  slotDurationMins: number,
 ) => {
   return {
     slotDurationMins: Number(slotDurationMins),
@@ -207,7 +225,9 @@ export const toAvailabilityPayload = (
 };
 
 /** Backend GET Doctor response -> UI ScheduleDay[] Transformer */
-export const mapAvailabilityToSchedule = (availability: any[] = []): ScheduleDay[] => {
+export const mapAvailabilityToSchedule = (
+  availability: any[] = [],
+): ScheduleDay[] => {
   const availMap = new Map<number, any>();
   if (Array.isArray(availability)) {
     availability.forEach((a) => availMap.set(a.dayOfWeek, a));
@@ -389,12 +409,12 @@ function DoctorForm({
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
 
-  const authUser = useRootSelector((s: any) => s.auth?.session?.user);
+  const authUser = useAppSelector((s: any) => s.auth?.session?.user);
   const isDoctorRole = authUser?.userType === "DOCTOR";
 
   const isEdit = Boolean(initial.id);
-  const departments = useRootSelector((s) => s.departments.items);
-  const reduxSpecializations = useRootSelector((s) => s.specializations.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const reduxSpecializations = useAppSelector((s) => s.specializations.items);
 
   const specializations = useMemo(() => {
     if (reduxSpecializations && reduxSpecializations.length > 0) {
@@ -416,7 +436,7 @@ function DoctorForm({
         initial.specializationId ?? specializations[0]?.id ?? "",
       qualifications: Array.isArray(initial.qualifications)
         ? initial.qualifications.join(", ")
-        : (initial.qualifications as any) ?? "",
+        : ((initial.qualifications as any) ?? ""),
       experienceYears: initial.experienceYears ?? 5,
       registrationNumber: initial.registrationNumber ?? "",
       consultationFee: initial.consultationFee ?? 900,
@@ -477,14 +497,11 @@ function DoctorForm({
         .filter(Boolean)
         .join(", ");
 
-      const doctorProfileId =
-        initial.id ||
-        authUser?.doctorProfileId ||
-        null;
+      const doctorProfileId = initial.id || authUser?.doctorProfileId || null;
 
       if (isEdit && doctorProfileId) {
         await dispatch(
-          doctorsApi.thunks.updateOne({
+          updateDoctor({
             id: doctorProfileId,
             data: {
               specialization: specializationName,
@@ -527,10 +544,7 @@ function DoctorForm({
         const result: any = await dispatch(onboardDoctor(payload)).unwrap();
 
         const newDoctorProfileId =
-          result?.doctorId ||
-          result?.id ||
-          result?.data?.id ||
-          null;
+          result?.doctorId || result?.id || result?.data?.id || null;
 
         onClose();
 
@@ -608,7 +622,7 @@ function DoctorForm({
                 onChange={(v) => form.setValue("dateOfBirth", v)}
                 hint={calcAge(form.values.dateOfBirth)}
               />
-             
+
               <Select
                 name="specializationId"
                 label="Specialization"
@@ -817,15 +831,15 @@ export function DoctorsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
 
-  const authUser = useRootSelector((s: any) => s.auth?.session?.user);
-  const authStatus = useRootSelector((s: any) => s.auth?.status);
+  const authUser = useAppSelector((s: any) => s.auth?.session?.user);
+  const authStatus = useAppSelector((s: any) => s.auth?.status);
   const isDoctorRole = authUser?.userType === "DOCTOR";
   const doctorProfileId: string | null = authUser?.doctorProfileId ?? null;
 
-  const { items: doctors, status } = useRootSelector((s) => s.doctors);
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
+  const { items: doctors, status } = useAppSelector((s) => s.doctors);
+  const appointments = useAppSelector((s) => s.appointments.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const specializations = useAppSelector((s) => s.specializations.items);
   const { canCreate, canEdit, canDelete } = usePermission();
 
   const [filters, setFilters] = useState({
@@ -837,7 +851,7 @@ export function DoctorsPage() {
 
   useEffect(() => {
     if (!isDoctorRole && status === "idle") {
-      dispatch(doctorsApi.thunks.fetchAll() as any);
+      dispatch(fetchDoctors() as any);
     }
   }, [isDoctorRole, status, dispatch]);
 
@@ -895,12 +909,7 @@ export function DoctorsPage() {
           description="Complete your profile, consultation fees and weekly clinic schedule to activate appointment booking for your patients."
           module="doctors"
         />
-        {editing && (
-          <DoctorForm
-            initial={editing}
-            onClose={() => {}}
-          />
-        )}
+        {editing && <DoctorForm initial={editing} onClose={() => {}} />}
       </div>
     );
   }
@@ -1148,7 +1157,7 @@ export function DoctorsPage() {
                   hidden: !canEdit("doctors"),
                   onClick: () =>
                     dispatch(
-                      doctorsApi.thunks.toggleActive({
+                      toggleDoctorStatus({
                         id: d.id,
                         status: (d.status === "active"
                           ? "inactive"
@@ -1164,7 +1173,7 @@ export function DoctorsPage() {
                   hidden: !canDelete("doctors"),
                   onClick: () =>
                     dispatch(
-                      doctorsApi.thunks.removeOne({
+                      deleteDoctor({
                         id: d.id,
                         label: `Dr. ${fullName(d)}`,
                       } as any),
@@ -1221,7 +1230,7 @@ export function DoctorsPage() {
 //   const [leaves, setLeaves] = useState<any[]>([]);
 //   const [leavesLoading, setLeavesLoading] = useState(false);
 //   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  
+
 //   // Schedule States
 //   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 //   const [workingSchedule, setWorkingSchedule] = useState<ScheduleDay[]>([]);
@@ -1235,13 +1244,13 @@ export function DoctorsPage() {
 //   const [leaveReason, setLeaveReason] = useState("");
 //   const [isSavingLeave, setIsSavingLeave] = useState(false);
 
-//   const appointments = useRootSelector((s) => s.appointments.items);
-//   const patients = useRootSelector((s) => s.patients.items);
+//   const appointments = useAppSelector((s) => s.appointments.items);
+//   const patients = useAppSelector((s) => s.patients.items);
 //   const { canEdit } = usePermission();
 
 //   // Get active session credentials from Redux Root Store
-//   const authUser = useRootSelector((s: any) => s.auth?.session?.user);
-//   const token = useRootSelector((s: any) => s.auth?.session?.accessToken);
+//   const authUser = useAppSelector((s: any) => s.auth?.session?.user);
+//   const token = useAppSelector((s: any) => s.auth?.session?.accessToken);
 //   const isDoctorRole = authUser?.userType === "DOCTOR";
 //   const doctorProfileId = authUser?.doctorProfileId ?? null;
 
@@ -1441,7 +1450,7 @@ export function DoctorsPage() {
 //   return (
 //     <div className="space-y-4">
 //       <div className="grid gap-4 xl:grid-cols-[minmax(0,21rem)_1fr]">
-        
+
 //         {/* LEFT: profile */}
 //         <div className="space-y-4">
 //           <Panel className="overflow-hidden">
@@ -1893,9 +1902,6 @@ export function DoctorsPage() {
 //   );
 // }
 
-
-
-
 /* ------------------------------- profile page ------------------------------- */
 
 export function DoctorDetailPage() {
@@ -1915,11 +1921,15 @@ export function DoctorDetailPage() {
   const [leaves, setLeaves] = useState<any[]>([]);
   const [leavesLoading, setLeavesLoading] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  
+
   // 🔥 NEW: Enhanced Schedule & Slot States
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [workingSchedule, setWorkingSchedule] = useState<ScheduleDay[]>([]);
-  const [slotSettings, setSlotSettings] = useState({ duration: 15, buffer: 0, max: 40 });
+  const [slotSettings, setSlotSettings] = useState({
+    duration: 15,
+    buffer: 0,
+    max: 40,
+  });
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   // Leave Form State
@@ -1930,12 +1940,12 @@ export function DoctorDetailPage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [isSavingLeave, setIsSavingLeave] = useState(false);
 
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const patients = useRootSelector((s) => s.patients.items);
+  const appointments = useAppSelector((s) => s.appointments.items);
+  const patients = useAppSelector((s) => s.patients.items);
   const { canEdit } = usePermission();
 
-  const authUser = useRootSelector((s: any) => s.auth?.session?.user);
-  const token = useRootSelector((s: any) => s.auth?.session?.accessToken);
+  const authUser = useAppSelector((s: any) => s.auth?.session?.user);
+  const token = useAppSelector((s: any) => s.auth?.session?.accessToken);
   const isDoctorRole = authUser?.userType === "DOCTOR";
   const doctorProfileId = authUser?.doctorProfileId ?? null;
 
@@ -1958,15 +1968,30 @@ export function DoctorDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  useEffect(() => { loadDoctorProfile(); }, [loadDoctorProfile]);
+  useEffect(() => {
+    loadDoctorProfile();
+  }, [loadDoctorProfile]);
 
   const loadLeaves = useCallback(async () => {
     if (!id || !token) return;
     try {
       setLeavesLoading(true);
-      const pastDate = new Date(); pastDate.setDate(pastDate.getDate() - 30);
-      const futureDate = new Date(); futureDate.setDate(futureDate.getDate() + 120);
-      const list = await fetchLeavesAPI(id, toISODateString(pastDate), toISODateString(futureDate), token);
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 30);
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 120);
+      const json: any = await apiClient(API_ENDPOINTS.doctors.leaves(id), {
+        method: "GET",
+        params: {
+          fromDate: toISODateString(pastDate),
+          toDate: toISODateString(futureDate),
+        },
+      });
+      const list = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json)
+          ? json
+          : [];
       setLeaves(list);
     } catch (err) {
       setLeaves([]);
@@ -1979,7 +2004,10 @@ export function DoctorDetailPage() {
     if (id && token) loadLeaves();
   }, [id, token, loadLeaves]);
 
-  const patientMap = useMemo(() => new Map(patients.map((p: any) => [p.id, p])), [patients]);
+  const patientMap = useMemo(
+    () => new Map(patients.map((p: any) => [p.id, p])),
+    [patients],
+  );
 
   const activeLeavesForDate = useMemo(() => {
     if (!Array.isArray(leaves)) return [];
@@ -1994,7 +2022,11 @@ export function DoctorDetailPage() {
     if (!doctor) return [];
     const baseSlots = generateSlots(doctor, date, appointments as any);
     if (isFullDayLeave) {
-      return baseSlots.map((s) => ({ ...s, state: "unavailable" as const, label: "On Leave" }));
+      return baseSlots.map((s) => ({
+        ...s,
+        state: "unavailable" as const,
+        label: "On Leave",
+      }));
     }
     return baseSlots.map((s) => {
       const slotMin = toMin(s.time);
@@ -2004,13 +2036,17 @@ export function DoctorDetailPage() {
         }
         return false;
       });
-      if (isBlocked) return { ...s, state: "unavailable" as const, label: "Leave Blocked" };
+      if (isBlocked)
+        return { ...s, state: "unavailable" as const, label: "Leave Blocked" };
       return s;
     });
   }, [doctor, date, appointments, activeLeavesForDate, isFullDayLeave]);
 
   const dayAppointments = useMemo(
-    () => appointments.filter((a: any) => a.doctorId === id && a.date === date).sort((a: any, b: any) => a.time.localeCompare(b.time)),
+    () =>
+      appointments
+        .filter((a: any) => a.doctorId === id && a.date === date)
+        .sort((a: any, b: any) => a.time.localeCompare(b.time)),
     [appointments, id, date],
   );
 
@@ -2019,9 +2055,23 @@ export function DoctorDetailPage() {
     if (!id || !token) return;
     try {
       setIsSavingLeave(true);
-      const payload: any = { blockDate: leaveDate, reason: leaveReason || "Personal Leave" };
-      if (leaveType === "partial") { payload.startTime = leaveStart; payload.endTime = leaveEnd; }
-      await createLeaveAPI(id, payload, token);
+      const payload: any = {
+        blockDate: leaveDate,
+        reason: leaveReason || "Personal Leave",
+      };
+      if (leaveType === "partial") {
+        payload.startTime = leaveStart;
+        payload.endTime = leaveEnd;
+      }
+      const leaveOut: any = await apiClient(API_ENDPOINTS.doctors.leaves(id), {
+        method: "POST",
+        body: payload,
+      }).catch((e: any) => {
+        if (e?.status)
+          throw new Error((e.rawText as string) || "Failed to mark leave");
+        throw e;
+      });
+      if (leaveOut?.cancelled) throw new Error("Failed to mark leave");
       await loadLeaves();
       setIsLeaveModalOpen(false);
       setLeaveReason("");
@@ -2036,16 +2086,32 @@ export function DoctorDetailPage() {
     if (!id || !token || !doctor) return;
     try {
       setIsSavingSchedule(true);
-      
+
       // 1. Convert UI state to Backend Payload format
-      const payload = toAvailabilityPayload(workingSchedule, slotSettings.duration);
+      const payload = toAvailabilityPayload(
+        workingSchedule,
+        slotSettings.duration,
+      );
 
       // 2. Submit to API (POST /api/opd/doctors/{id}/availability) -> WORKING!
-      await updateAvailabilityAPI(id, payload, token);
+      const availOut: any = await apiClient(
+        API_ENDPOINTS.doctors.availability(id),
+        {
+          method: "POST",
+          body: payload,
+        },
+      ).catch((e: any) => {
+        if (e?.status)
+          throw new Error(
+            (e.rawText as string) || "Failed to save availability",
+          );
+        throw e;
+      });
+      if (availOut?.cancelled) throw new Error("Failed to save availability");
 
       // 3. Reload doctor profile (PUT API call hata diya hai kyunki backend me PUT route nahi hai)
       await loadDoctorProfile();
-      
+
       setIsScheduleModalOpen(false);
     } catch (err: any) {
       alert(err.message || "Failed to save schedule & slots");
@@ -2065,7 +2131,12 @@ export function DoctorDetailPage() {
     setIsScheduleModalOpen(true);
   };
 
-  if (loading) return <div className="flex justify-center py-20 text-ink-400"><Loader2 className="animate-spin" /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center py-20 text-ink-400">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
   if (!doctor || error) return <div>Profile unavailable</div>;
 
   const bookedCount = slots.filter((s) => s.state === "booked").length;
@@ -2074,7 +2145,6 @@ export function DoctorDetailPage() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,21rem)_1fr]">
-        
         {/* LEFT: Profile & Schedule Summary */}
         <div className="space-y-4">
           <Panel className="overflow-hidden">
@@ -2082,10 +2152,21 @@ export function DoctorDetailPage() {
             <div className="relative bg-ink-950 px-5 pb-12 pt-5 text-white">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(64,190,174,.35),transparent_60%)]" />
               <div className="relative flex items-center gap-3">
-                <Avatar name={fullName(doctor)} size="lg" color="bg-brand-500" ring />
+                <Avatar
+                  name={fullName(doctor)}
+                  size="lg"
+                  color="bg-brand-500"
+                  ring
+                />
                 <div className="min-w-0">
-                  <p className="font-display text-[18px] font-bold leading-tight">Dr. {fullName(doctor)}</p>
-                  <p className="text-[12px] text-white/55">{doctor.specializationId || (doctor as any).specialization || "—"}</p>
+                  <p className="font-display text-[18px] font-bold leading-tight">
+                    Dr. {fullName(doctor)}
+                  </p>
+                  <p className="text-[12px] text-white/55">
+                    {doctor.specializationId ||
+                      (doctor as any).specialization ||
+                      "—"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -2095,12 +2176,22 @@ export function DoctorDetailPage() {
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[
                     { k: "Fee", v: formatMoney(doctor.consultationFee) },
-                    { k: "Slot", v: `${doctor.slotDuration ?? (doctor as any).slotDurationMins ?? 15}m` },
-                    { k: "Buffer", v: `${doctor.bufferTime ?? (doctor as any).bufferTimeMins ?? 0}m` },
+                    {
+                      k: "Slot",
+                      v: `${doctor.slotDuration ?? (doctor as any).slotDurationMins ?? 15}m`,
+                    },
+                    {
+                      k: "Buffer",
+                      v: `${doctor.bufferTime ?? (doctor as any).bufferTimeMins ?? 0}m`,
+                    },
                   ].map((s) => (
                     <div key={s.k}>
-                      <p className="num text-[14px] font-bold text-ink-900">{s.v}</p>
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-ink-400">{s.k}</p>
+                      <p className="num text-[14px] font-bold text-ink-900">
+                        {s.v}
+                      </p>
+                      <p className="text-[10px] uppercase tracking-[0.12em] text-ink-400">
+                        {s.k}
+                      </p>
                     </div>
                   ))}
                 </div>
@@ -2134,11 +2225,15 @@ export function DoctorDetailPage() {
                   key={s.day}
                   className={cn(
                     "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]",
-                    s.enabled ? "bg-white ring-1 ring-inset ring-ink-100" : "bg-ink-25/60 text-ink-400"
+                    s.enabled
+                      ? "bg-white ring-1 ring-inset ring-ink-100"
+                      : "bg-ink-25/60 text-ink-400",
                   )}
                 >
                   <span className="font-semibold">{WEEKDAYS_SHORT[s.day]}</span>
-                  <span className="num">{s.enabled ? `${s.start} – ${s.end}` : "No clinic"}</span>
+                  <span className="num">
+                    {s.enabled ? `${s.start} – ${s.end}` : "No clinic"}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -2161,20 +2256,28 @@ export function DoctorDetailPage() {
         {/* RIGHT: slots workspace */}
         <div className="space-y-4">
           <Panel>
-             {/* Same Tab System as before (Availability, Appointments, Leaves) */}
-             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-2.5">
+            {/* Same Tab System as before (Availability, Appointments, Leaves) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-2.5">
               <div className="flex gap-1">
                 {[
                   { value: "schedule", label: "Availability & slots" },
-                  { value: "appointments", label: `Appointments (${appointments.filter((a: any) => a.doctorId === id).length})` },
-                  { value: "leaves", label: `Leaves (${Array.isArray(leaves) ? leaves.length : 0})` },
+                  {
+                    value: "appointments",
+                    label: `Appointments (${appointments.filter((a: any) => a.doctorId === id).length})`,
+                  },
+                  {
+                    value: "leaves",
+                    label: `Leaves (${Array.isArray(leaves) ? leaves.length : 0})`,
+                  },
                 ].map((t) => (
                   <button
                     key={t.value}
                     onClick={() => setTab(t.value)}
                     className={cn(
                       "rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors cursor-pointer",
-                      tab === t.value ? "bg-brand-600 text-white" : "text-ink-500 hover:bg-ink-50"
+                      tab === t.value
+                        ? "bg-brand-600 text-white"
+                        : "text-ink-500 hover:bg-ink-50",
                     )}
                   >
                     {t.label}
@@ -2183,7 +2286,12 @@ export function DoctorDetailPage() {
               </div>
 
               {canEdit("doctors") && (
-                <Button size="xs" variant="outline" icon={<CalendarPlus className="size-3.5" />} onClick={() => setIsLeaveModalOpen(true)}>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  icon={<CalendarPlus className="size-3.5" />}
+                  onClick={() => setIsLeaveModalOpen(true)}
+                >
                   Mark leave
                 </Button>
               )}
@@ -2193,19 +2301,34 @@ export function DoctorDetailPage() {
             {tab === "schedule" && (
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <DatePicker label="Viewing slots for" value={date} onChange={setDate} />
+                  <DatePicker
+                    label="Viewing slots for"
+                    value={date}
+                    onChange={setDate}
+                  />
                   <div className="flex gap-2 text-[12px]">
-                    <Badge tone="mint" size="xs">{openCount} open</Badge>
-                    <Badge tone="neutral" size="xs">{bookedCount} booked</Badge>
+                    <Badge tone="mint" size="xs">
+                      {openCount} open
+                    </Badge>
+                    <Badge tone="neutral" size="xs">
+                      {bookedCount} booked
+                    </Badge>
                   </div>
                 </div>
 
                 {activeLeavesForDate.length > 0 && (
                   <div className="rounded-xl border border-coral-200 bg-coral-25 p-3 text-[12.5px] text-coral-800">
-                    <p className="font-semibold">Doctor leave marked for this date</p>
+                    <p className="font-semibold">
+                      Doctor leave marked for this date
+                    </p>
                     <ul className="mt-1 list-inside list-disc text-[12px] text-coral-600">
                       {activeLeavesForDate.map((l, i) => (
-                        <li key={i}>{l.startTime && l.endTime ? `Partial: ${l.startTime} to ${l.endTime}` : "Full Day Leave"} ({l.reason})</li>
+                        <li key={i}>
+                          {l.startTime && l.endTime
+                            ? `Partial: ${l.startTime} to ${l.endTime}`
+                            : "Full Day Leave"}{" "}
+                          ({l.reason})
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -2213,7 +2336,8 @@ export function DoctorDetailPage() {
 
                 {slots.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-ink-200 px-4 py-10 text-center text-[13px] text-ink-400">
-                    No clinic scheduled on {formatDate(date)}. Update weekly availability.
+                    No clinic scheduled on {formatDate(date)}. Update weekly
+                    availability.
                   </p>
                 ) : (
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
@@ -2222,21 +2346,27 @@ export function DoctorDetailPage() {
                         key={s.time}
                         className={cn(
                           "rounded-lg border px-2 py-2 text-center",
-                          s.state === "available" && "border-brand-200 bg-brand-25 text-brand-700",
-                          s.state === "booked" && "border-ink-100 bg-ink-50 text-ink-400",
-                          s.state === "past" && "border-ink-100 text-ink-300 line-through",
-                          s.label === "Leave Blocked" && "border-coral-100 bg-coral-50/50 text-coral-500",
+                          s.state === "available" &&
+                            "border-brand-200 bg-brand-25 text-brand-700",
+                          s.state === "booked" &&
+                            "border-ink-100 bg-ink-50 text-ink-400",
+                          s.state === "past" &&
+                            "border-ink-100 text-ink-300 line-through",
+                          s.label === "Leave Blocked" &&
+                            "border-coral-100 bg-coral-50/50 text-coral-500",
                         )}
                       >
                         <p className="num text-[13px] font-bold">{s.time}</p>
-                        <p className="text-[10px] uppercase font-semibold">{s.label || s.state}</p>
+                        <p className="text-[10px] uppercase font-semibold">
+                          {s.label || s.state}
+                        </p>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
             )}
-            
+
             {/* ... Other Tabs remain identical ... */}
           </Panel>
         </div>
@@ -2271,31 +2401,41 @@ export function DoctorDetailPage() {
               <NumberInput
                 label="Slot duration (min)"
                 value={slotSettings.duration}
-                onValueChange={(v) => setSlotSettings(s => ({ ...s, duration: v }))}
-                min={5} step={5}
+                onValueChange={(v) =>
+                  setSlotSettings((s) => ({ ...s, duration: v }))
+                }
+                min={5}
+                step={5}
               />
               <NumberInput
                 label="Buffer time (min)"
                 value={slotSettings.buffer}
-                onValueChange={(v) => setSlotSettings(s => ({ ...s, buffer: v }))}
-                min={0} step={5}
+                onValueChange={(v) =>
+                  setSlotSettings((s) => ({ ...s, buffer: v }))
+                }
+                min={0}
+                step={5}
               />
               <NumberInput
                 label="Max patients / day"
                 value={slotSettings.max}
-                onValueChange={(v) => setSlotSettings(s => ({ ...s, max: v }))}
+                onValueChange={(v) =>
+                  setSlotSettings((s) => ({ ...s, max: v }))
+                }
                 min={1}
               />
             </div>
 
             {/* Weekly Grid Editor */}
             <ScheduleEditor
-              doctor={{
-                ...doctor,
-                slotDuration: slotSettings.duration,
-                bufferTime: slotSettings.buffer,
-                maxPatientsPerDay: slotSettings.max
-              } as Doctor}
+              doctor={
+                {
+                  ...doctor,
+                  slotDuration: slotSettings.duration,
+                  bufferTime: slotSettings.buffer,
+                  maxPatientsPerDay: slotSettings.max,
+                } as Doctor
+              }
               schedule={workingSchedule}
               onChange={setWorkingSchedule}
             />
@@ -2304,7 +2444,6 @@ export function DoctorDetailPage() {
       )}
 
       {/* MODAL 3: Mark Leave - (Keep exactly as it was) */}
-         
 
       {/* MODAL 3: Mark Leave */}
       {isLeaveModalOpen && (
@@ -2327,7 +2466,7 @@ export function DoctorDetailPage() {
                   "py-1 text-[12px] font-semibold rounded-md transition-colors cursor-pointer",
                   leaveType === "full"
                     ? "bg-white text-ink-900 shadow-sm"
-                    : "text-ink-400 hover:text-ink-600"
+                    : "text-ink-400 hover:text-ink-600",
                 )}
                 onClick={() => setLeaveType("full")}
               >
@@ -2339,7 +2478,7 @@ export function DoctorDetailPage() {
                   "py-1 text-[12px] font-semibold rounded-md transition-colors cursor-pointer",
                   leaveType === "partial"
                     ? "bg-white text-ink-900 shadow-sm"
-                    : "text-ink-400 hover:text-ink-600"
+                    : "text-ink-400 hover:text-ink-600",
                 )}
                 onClick={() => setLeaveType("partial")}
               >
@@ -2386,9 +2525,6 @@ export function DoctorDetailPage() {
           </div>
         </FormDialog>
       )}
-
-
-
     </div>
   );
 }

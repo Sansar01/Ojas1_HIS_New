@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { useAppDispatch, useAuthStatus } from "@/hooks";
-import { login, verifyOtp } from "@/features/auth/authSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { useAuthStatus } from "@/hooks";
+import { login, verifyOtp } from "@/store/slices/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
-import { toast } from "@/features/ui/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 
 export function LoginPage() {
   const dispatch = useAppDispatch();

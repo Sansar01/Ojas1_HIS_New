@@ -11,13 +11,30 @@ import {
   Checkbox,
   SearchInput,
 } from "@/components/ui/fields";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
-import { INVESTIGATIONS, YES_NO, toOptions, type ItemType } from "@/types/masterConfig.data";
+import {
+  INVESTIGATIONS,
+  YES_NO,
+  toOptions,
+  type ItemType,
+} from "@/types/masterConfig.data";
 
-const SUB_DEPTS = toOptions(["BIOCHEMISTRY", "HEMATOLOGY", "MICROBIOLOGY", "SEROLOGY", "PATHOLOGY"]);
-const DEPARTMENTS = toOptions(["ALL", "Biochemistry", "Hematology", "Pathology", "Radiology"]);
+const SUB_DEPTS = toOptions([
+  "BIOCHEMISTRY",
+  "HEMATOLOGY",
+  "MICROBIOLOGY",
+  "SEROLOGY",
+  "PATHOLOGY",
+]);
+const DEPARTMENTS = toOptions([
+  "ALL",
+  "Biochemistry",
+  "Hematology",
+  "Pathology",
+  "Radiology",
+]);
 const GENDERS = toOptions(["Both", "Male", "Female"]);
 const REPORT_TYPES = toOptions(["Path Numeric", "Path Text", "Template"]);
 const SAMPLE_TYPES = toOptions(["Blood", "Urine", "Stool", "Swab", "Tissue"]);
@@ -60,13 +77,20 @@ export function InvestigationMaster({
   const [flags, setFlags] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(FLAGS.map((f) => [f.key, f.def])),
   );
-  const [errors, setErrors] = useState<{ investigation?: string; sampleType?: string }>({});
+  const [errors, setErrors] = useState<{
+    investigation?: string;
+    sampleType?: string;
+  }>({});
 
-  const typeLabel = itemType ? itemType.charAt(0).toUpperCase() + itemType.slice(1) : "Item";
+  const typeLabel = itemType
+    ? itemType.charAt(0).toUpperCase() + itemType.slice(1)
+    : "Item";
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return q ? INVESTIGATIONS.filter((i:any) => i.toLowerCase().includes(q)) : INVESTIGATIONS;
+    return q
+      ? INVESTIGATIONS.filter((i: any) => i.toLowerCase().includes(q))
+      : INVESTIGATIONS;
   }, [search]);
 
   const handleSave = () => {
@@ -91,7 +115,9 @@ export function InvestigationMaster({
       description="Define investigations, sample requirements and report behaviour"
       footer={
         <>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={handleSave}>Save Investigation</Button>
         </>
       }
@@ -115,13 +141,23 @@ export function InvestigationMaster({
       <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
         {/* Investigation list */}
         <aside className="rounded-xl border border-ink-100 bg-ink-25/40 p-3">
-          <h4 className="mb-3 text-[13px] font-semibold text-ink-900">Investigations</h4>
-          <SearchInput value={search} onChange={setSearch} placeholder="Search…" className="mb-3" />
+          <h4 className="mb-3 text-[13px] font-semibold text-ink-900">
+            Investigations
+          </h4>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search…"
+            className="mb-3"
+          />
           <div className="max-h-[22rem] space-y-0.5 overflow-y-auto rounded-lg border border-ink-100 bg-white p-1">
             {filtered.length === 0 ? (
-              <EmptyState title="No matches" description="Try a different search term." />
+              <EmptyState
+                title="No matches"
+                description="Try a different search term."
+              />
             ) : (
-              filtered.map((inv:any) => (
+              filtered.map((inv: any) => (
                 <button
                   key={inv}
                   type="button"
@@ -144,7 +180,12 @@ export function InvestigationMaster({
         <div className="min-w-0 space-y-5">
           <SectionPanel title="Detail">
             <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-              <Select label="Sub Department" value={subDept} onChange={setSubDept} options={SUB_DEPTS} />
+              <Select
+                label="Sub Department"
+                value={subDept}
+                onChange={setSubDept}
+                options={SUB_DEPTS}
+              />
               <Input
                 name="investigation"
                 label="Investigation"
@@ -157,8 +198,18 @@ export function InvestigationMaster({
               <Input name="description" label="Description" />
               <Input name="method" label="Method" />
 
-              <Select label="Gender" value={gender} onChange={setGender} options={GENDERS} />
-              <Select label="Report Type" value={reportType} onChange={setReportType} options={REPORT_TYPES} />
+              <Select
+                label="Gender"
+                value={gender}
+                onChange={setGender}
+                options={GENDERS}
+              />
+              <Select
+                label="Report Type"
+                value={reportType}
+                onChange={setReportType}
+                options={REPORT_TYPES}
+              />
 
               <Select
                 label="Sample Type"
@@ -168,16 +219,40 @@ export function InvestigationMaster({
                 options={SAMPLE_TYPES}
                 error={errors.sampleType}
               />
-              <NumberInput label="Print Sequence" value={printSequence} onValueChange={setPrintSequence} max={999} />
+              <NumberInput
+                label="Print Sequence"
+                value={printSequence}
+                onValueChange={setPrintSequence}
+                max={999}
+              />
 
               <Input name="lisTestCode" label="LIS Test Code" />
               <div className="grid grid-cols-[1fr_9rem] items-end gap-2">
-                <Input name="tatTime" label="TAT Time" value={tatTime} onChange={(e) => setTatTime(e.target.value)} />
-                <Select value={tatUnit} onChange={setTatUnit} options={TAT_UNITS} />
+                <Input
+                  name="tatTime"
+                  label="TAT Time"
+                  value={tatTime}
+                  onChange={(e) => setTatTime(e.target.value)}
+                />
+                <Select
+                  value={tatUnit}
+                  onChange={setTatUnit}
+                  options={TAT_UNITS}
+                />
               </div>
 
-              <RadioGroup label="Is Discountable" value={isDiscountable} onChange={setIsDiscountable} options={YES_NO} />
-              <RadioGroup label="Rate Editable" value={rateEditable} onChange={setRateEditable} options={YES_NO} />
+              <RadioGroup
+                label="Is Discountable"
+                value={isDiscountable}
+                onChange={setIsDiscountable}
+                options={YES_NO}
+              />
+              <RadioGroup
+                label="Rate Editable"
+                value={rateEditable}
+                onChange={setRateEditable}
+                options={YES_NO}
+              />
             </div>
           </SectionPanel>
 
@@ -187,7 +262,9 @@ export function InvestigationMaster({
                 <Checkbox
                   key={f.key}
                   checked={!!flags[f.key]}
-                  onCheckedChange={(v) => setFlags((p) => ({ ...p, [f.key]: v }))}
+                  onCheckedChange={(v) =>
+                    setFlags((p) => ({ ...p, [f.key]: v }))
+                  }
                   label={f.label}
                 />
               ))}

@@ -1,7 +1,7 @@
 // src/utils/permissions.ts — tightened per cleanup plan
 
 import type { Permission } from "@/types";
-import type { EntitlementModule, Entitlements } from "@/types/entitlement";
+import type { EntitlementModule, Entitlements } from "@/types";
 
 const normalize = (value: string = "") =>
   value

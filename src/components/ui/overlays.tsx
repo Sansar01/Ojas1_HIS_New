@@ -85,7 +85,9 @@ export function Dialog({
             <div
               className={cn(
                 "px-5 py-4",
-                height ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[calc(100vh-13rem)] overflow-y-auto",
+                height
+                  ? "min-h-0 flex-1 overflow-y-auto"
+                  : "max-h-[calc(100vh-13rem)] overflow-y-auto",
               )}
               style={height ? { height } : undefined}
               data-height={height ? "custom" : undefined}

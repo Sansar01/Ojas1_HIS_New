@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/fields";
 import { DataTable, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
 
 // Modals
@@ -30,10 +30,9 @@ import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
 
 // Live Panel API
-import {
-  panelService,
-  type PanelMasterItem,
-} from "@/features/masters/panelService";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
+import type { PanelMasterItem } from "@/types";
 
 import {
   LAB_ITEMS,
@@ -128,15 +127,15 @@ const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
   {
     key: "active",
     header: "Status",
-    render: (r) => (
-      <StatusBadge status={r.isActive ? "Active" : "Inactive"} />
-    ),
+    render: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} />,
   },
 ];
 
 export function MasterConfigurationPage() {
   const dispatch = useAppDispatch();
-  const [activeModal, setActiveModal] = useState<ModalType | "service-master" | "rate-managment" | "">("");
+  const [activeModal, setActiveModal] = useState<
+    ModalType | "service-master" | "rate-managment" | ""
+  >("");
   const [itemType, setItemType] = useState<ItemType | "">("");
 
   // ─── LIVE PANEL STATE ──────────────────────────────────────────
@@ -147,7 +146,10 @@ export function MasterConfigurationPage() {
   const fetchPanels = useCallback(async () => {
     setPanelsLoading(true);
     try {
-      const res = await panelService.list({ limit: 50 });
+      const res: any = await apiClient(API_ENDPOINTS.masters.panels.list, {
+        method: "GET",
+        params: { limit: "50" },
+      });
       setPanels(res.data ?? []);
       setPanelCount(res.meta?.total ?? res.data?.length ?? 0);
     } catch (error: any) {

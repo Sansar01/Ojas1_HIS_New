@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   CalendarClock,
   CalendarDays,
@@ -16,24 +15,25 @@ import {
   UserRound,
   XCircle,
   Banknote,
+  Loader2,
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/data/db";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import {
-  appointmentsApi,
-  departmentsApi,
-  doctorsApi,
-  patientsApi,
-} from "@/features/slices";
-import { appointmentApi } from "@/services/apiClient";
-import { toast } from "@/features/ui/uiSlice";
+  cancelAppointment,
+  createAppointment,
+  deleteAppointment,
+  fetchAppointments,
+  updateAppointment,
+} from "@/store/slices/appointmentSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchPatients } from "@/store/slices/patientSlice";
+
+import { toast } from "@/store/slices/uiSlice";
 import {
   formatDate,
   formatMoney,
@@ -51,7 +51,6 @@ import {
   Panel,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { Loader2 } from "lucide-react";
 import {
   Input,
   Segmented,
@@ -94,7 +93,7 @@ export function SlotPicker({
   /** slots returned live from the doctor availability API (overrides generated ones) */
   remoteSlots?: SlotOption[] | null;
 }) {
-  const doctors = useRootSelector((s) => s.doctors.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
   const doctor = doctors.find((d: any) => d.id === doctorId) as any;
   const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
@@ -190,13 +189,11 @@ function AppointmentForm({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
-  const existing = useRootSelector(
-    (s) => s.appointments.items,
-  ) as Appointment[];
+  const patients = useAppSelector((s) => s.patients.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const specializations = useAppSelector((s) => s.specializations.items);
+  const existing = useAppSelector((s) => s.appointments.items) as Appointment[];
   const isReschedule = initial.mode === "reschedule";
   const record = isReschedule
     ? existing.find((a) => a.id === initial.id)
@@ -280,7 +277,7 @@ function AppointmentForm({
     };
     if (isReschedule && record) {
       await dispatch(
-        appointmentsApi.thunks.updateOne({
+        updateAppointment({
           id: record.id,
           data: {
             ...payload,
@@ -292,7 +289,7 @@ function AppointmentForm({
     } else {
       const sequence = 1000 + Math.floor(Math.random() * 8999);
       await dispatch(
-        appointmentsApi.thunks.createOne({
+        createAppointment({
           data: {
             ...payload,
             code: `APT-${9000 + sequence}`,
@@ -471,12 +468,10 @@ export function AppointmentsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { items: appointments, status } = useRootSelector(
-    (s) => s.appointments,
-  );
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const departments = useRootSelector((s) => s.departments.items);
+  const { items: appointments, status } = useAppSelector((s) => s.appointments);
+  const patients = useAppSelector((s) => s.patients.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const departments = useAppSelector((s) => s.departments.items);
   const { canCreate, canEdit, canDelete } = usePermission();
 
   const [view, setView] = useState<"list" | "board">("list");
@@ -499,7 +494,7 @@ export function AppointmentsPage() {
   /** re-run the appointment list API (e.g. after a cancel) without the full loader flash */
   const refreshList = async () => {
     setRefreshing(true);
-    await dispatch(appointmentsApi.thunks.fetchAll() as any);
+    await dispatch(fetchAppointments() as any);
     setRefreshing(false);
   };
 
@@ -508,9 +503,9 @@ export function AppointmentsPage() {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
-      await appointmentApi.cancel(cancelTarget.id, {
-        cancelReason: cancelReason,
-      });
+      await dispatch(
+        cancelAppointment({ id: cancelTarget.id, cancelReason }),
+      ).unwrap();
       dispatch(
         toast.success(
           "Appointment cancelled",
@@ -533,11 +528,11 @@ export function AppointmentsPage() {
 
   useEffect(() => {
     // fetch every list this page (and the booking modal) depends on
-    dispatch(appointmentsApi.thunks.fetchAll() as any);
-    dispatch(patientsApi.thunks.fetchAll() as any);
-    dispatch(doctorsApi.thunks.fetchAll() as any);
-    dispatch(departmentsApi.thunks.fetchAll() as any);
-    // dispatch(specializationsApi.thunks.fetchAll() as any);
+    dispatch(fetchAppointments() as any);
+    dispatch(fetchPatients() as any);
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchDepartments() as any);
+    // dispatch(fetchSpecializations() as any);
   }, [dispatch]);
 
   const patientMap = useMemo(
@@ -586,7 +581,7 @@ export function AppointmentsPage() {
 
   const advance = (a: Appointment, next: AppointmentStatus) =>
     dispatch(
-      appointmentsApi.thunks.updateOne({
+      updateAppointment({
         id: a.id,
         data: { status: next },
         successMessage: `${a.code} → ${next}`,
@@ -1008,7 +1003,7 @@ export function AppointmentsPage() {
                   ? "error"
                   : "loading"
             }
-            onRetry={() => dispatch(appointmentsApi.thunks.fetchAll() as any)}
+            onRetry={() => dispatch(fetchAppointments() as any)}
             sort={{
               sortBy: table.query.sortBy,
               sortDir: table.query.sortDir,
@@ -1080,7 +1075,7 @@ export function AppointmentsPage() {
                     hidden: !canDelete("appointments"),
                     onClick: () =>
                       dispatch(
-                        appointmentsApi.thunks.removeOne({
+                        deleteAppointment({
                           id: a.id,
                           label: a.code,
                         } as any),

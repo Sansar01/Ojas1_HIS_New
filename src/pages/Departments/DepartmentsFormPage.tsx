@@ -1,9 +1,12 @@
-﻿﻿import { FormRow } from "@/components/common";
+﻿﻿﻿import { FormRow } from "@/components/common";
 import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlays";
 import { Button } from "@/components/ui/primitives";
-import { departmentsApi } from "@/features/slices";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+import {
+  createDepartment,
+  updateDepartment,
+} from "@/store/slices/departmentSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import { Department } from "@/types";
 import { fullName } from "@/utils";
@@ -16,7 +19,7 @@ export function DepartmentFormDialog({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const doctors = useRootSelector((s) => s.doctors.items)
+  const doctors = useAppSelector((s) => s.doctors.items);
   const form = useForm({
     initialValues: {
       name: initial.name ?? "",
@@ -52,7 +55,7 @@ export function DepartmentFormDialog({
     };
     if (initial.id)
       await dispatch(
-        departmentsApi.thunks.updateOne({
+        updateDepartment({
           id: initial.id,
           data,
           successMessage: "Department updated",
@@ -60,7 +63,7 @@ export function DepartmentFormDialog({
       );
     else
       await dispatch(
-        departmentsApi.thunks.createOne({
+        createDepartment({
           data,
           successMessage: "Department created",
         } as any),

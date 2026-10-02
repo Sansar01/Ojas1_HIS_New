@@ -1,7 +1,7 @@
 // src/features/entitlement/entitlementSlice.ts
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import { entitlementApi } from "@/services/apiClient";
-import type { EntitlementModule } from "@/types/entitlement";
+import type { EntitlementModule } from "@/types/moduleTypes";
 import { hideLoader, showLoader, toast } from "../ui/uiSlice";
 
 interface EntitlementState {

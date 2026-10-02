@@ -1,6 +1,6 @@
 import { API_BASE_URL, API_ENDPOINTS } from "@/config/api";
 import type { ApiResponse, ListQuery, Paginated, Session } from "@/types";
-import { EntitlementModule } from "@/types/entitlement";
+import { EntitlementModule } from "@/types/moduleTypes";
 
 
 export const TOKEN_KEY = "authUserToken";

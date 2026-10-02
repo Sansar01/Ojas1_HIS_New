@@ -10,18 +10,14 @@ import {
   Checkbox,
   DatePicker,
 } from "@/components/ui/fields";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { YES_NO } from "@/types/masterConfig.data";
 
-// ─── API Services ────────────────────────────────────────────────
-import {
-  panelService,
-  type CreatePanelPayload,
-  type CoPaymentOn,
-} from "@/features/masters/panelService";
-import { globalMasterService } from "@/features/masters/globalMasterService";
-import { tariffService } from "@/features/masters/tariffService";
+// ─── API access ──────────────────────────────────────────────────
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
+import type { CreatePanelPayload, CoPaymentOn } from "@/types";
 
 // ─── Types ───────────────────────────────────────────────────────
 interface DropdownOption {
@@ -113,7 +109,9 @@ export function PanelMaster({
 }) {
   const dispatch = useAppDispatch();
   const [form, setForm] = useState<PanelForm>(EMPTY);
-  const [errors, setErrors] = useState<Partial<Record<keyof PanelForm, string>>>({});
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof PanelForm, string>>
+  >({});
   const [saving, setSaving] = useState(false);
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
 
@@ -128,20 +126,28 @@ export function PanelMaster({
   const loadDropdowns = useCallback(async () => {
     setLoadingDropdowns(true);
     try {
-      const [gt, pm, pt, cur, tar] = await Promise.all([
-        globalMasterService.getDropdown("GROUP_TYPE"),
-        globalMasterService.getDropdown("PAYMENT_MODE"),
-        globalMasterService.getDropdown("PANEL_TYPE"),
-        globalMasterService.getDropdown("CURRENCY"),
-        tariffService.getDropdown(),
-      ]);
+      const [gt, pm, pt, cur, tar] = (await Promise.all([
+        apiClient(API_ENDPOINTS.masters.global.dropdown("GROUP_TYPE"), {
+          method: "GET",
+        }),
+        apiClient(API_ENDPOINTS.masters.global.dropdown("PAYMENT_MODE"), {
+          method: "GET",
+        }),
+        apiClient(API_ENDPOINTS.masters.global.dropdown("PANEL_TYPE"), {
+          method: "GET",
+        }),
+        apiClient(API_ENDPOINTS.masters.global.dropdown("CURRENCY"), {
+          method: "GET",
+        }),
+        apiClient(API_ENDPOINTS.masters.tariffs.dropdown, { method: "GET" }),
+      ])) as any[];
 
-      setGroupTypes(gt.map((i) => ({ value: i.id, label: i.value })));
-      setPaymentModes(pm.map((i) => ({ value: i.id, label: i.value })));
-      setPanelTypes(pt.map((i) => ({ value: i.id, label: i.value })));
-      setCurrencies(cur.map((i) => ({ value: i.id, label: i.value })));
+      setGroupTypes(gt.map((i: any) => ({ value: i.id, label: i.value })));
+      setPaymentModes(pm.map((i: any) => ({ value: i.id, label: i.value })));
+      setPanelTypes(pt.map((i: any) => ({ value: i.id, label: i.value })));
+      setCurrencies(cur.map((i: any) => ({ value: i.id, label: i.value })));
       setTariffs(
-        tar.map((i) => ({
+        tar.map((i: any) => ({
           value: i.id,
           label: `${i.tariffCode} — ${i.tariffName}`,
         })),
@@ -150,8 +156,10 @@ export function PanelMaster({
       // Auto-select first defaults if form is empty
       setForm((prev) => {
         if (prev.panelName) return prev; // don't overwrite if user already typed
-        const inr = cur.find((c) => c.value === "INR");
-        const credit = pt.find((p) => p.value.toUpperCase().includes("CREDIT"));
+        const inr = cur.find((c: any) => c.value === "INR");
+        const credit = pt.find((p: any) =>
+          p.value.toUpperCase().includes("CREDIT"),
+        );
         return {
           ...prev,
           groupTypeId: prev.groupTypeId || gt[0]?.id || "",
@@ -238,7 +246,10 @@ export function PanelMaster({
 
     setSaving(true);
     try {
-      await panelService.create(payload);
+      await apiClient(API_ENDPOINTS.masters.panels.list, {
+        method: "POST",
+        body: payload,
+      });
       dispatch(toast.success("Panel saved successfully", form.panelName));
       setForm(EMPTY);
       onOpenChange(false);
@@ -258,10 +269,18 @@ export function PanelMaster({
       description="Register a new insurance / corporate panel"
       footer={
         <>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
             Cancel
           </Button>
-          <Button onClick={handleSave} loading={saving} disabled={loadingDropdowns}>
+          <Button
+            onClick={handleSave}
+            loading={saving}
+            disabled={loadingDropdowns}
+          >
             Save Panel
           </Button>
         </>
@@ -364,7 +383,9 @@ export function PanelMaster({
               onChange={(v) => set("opdTariffId", v)}
               options={tariffs}
               clearable
-              placeholder={loadingDropdowns ? "Loading..." : "Select OPD tariff"}
+              placeholder={
+                loadingDropdowns ? "Loading..." : "Select OPD tariff"
+              }
             />
             <Select
               label="Refer Rate (IPD)"
@@ -372,7 +393,9 @@ export function PanelMaster({
               onChange={(v) => set("ipdTariffId", v)}
               options={tariffs}
               clearable
-              placeholder={loadingDropdowns ? "Loading..." : "Select IPD tariff"}
+              placeholder={
+                loadingDropdowns ? "Loading..." : "Select IPD tariff"
+              }
             />
             <NumberInput
               label="Credit Limit"

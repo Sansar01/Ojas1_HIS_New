@@ -38,8 +38,10 @@ import {
   formatMoney,
   fullName,
   relativeTime,
+  invoiceTotals,
 } from "@/utils";
-import { usePermission, useRootSelector } from "@/hooks";
+import { useAppSelector } from "@/store/hooks";
+import { usePermission } from "@/hooks";
 import {
   Badge,
   Panel,
@@ -48,7 +50,6 @@ import {
 } from "@/components/ui/primitives";
 import { CardSkeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
-import { invoiceTotals } from "@/utils";
 import { APPT_TYPE_COLORS } from "@/constants";
 
 ChartJS.register(
@@ -177,14 +178,14 @@ function KpiCard({
 export function DashboardPage() {
   const navigate = useNavigate();
   const { can, canCreate, isSuperAdmin } = usePermission();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const consultations = useRootSelector((s) => s.consultations.items);
-  const invoices = useRootSelector((s) => s.invoices.items);
-  const activities = useRootSelector((s) => s.activities.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const loading = useRootSelector((s) => s.appointments.status) === "loading";
+  const patients = useAppSelector((s) => s.patients.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const appointments = useAppSelector((s) => s.appointments.items);
+  const consultations = useAppSelector((s) => s.consultations.items);
+  const invoices = useAppSelector((s) => s.invoices.items);
+  const activities = useAppSelector((s) => s.activities.items);
+  const departments = useAppSelector((s) => s.departments.items);
+  const loading = useAppSelector((s) => s.appointments.status) === "loading";
 
   const today = addDays(new Date(), 0);
   const patientMap = useMemo(

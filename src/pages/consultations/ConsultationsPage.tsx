@@ -19,9 +19,10 @@ import {
   History,
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
-import { fetchPatientHistory } from "@/features/consultations/consultationSlice";
+import { fetchPatientHistory } from "@/store/slices/consultationSlice";
 import { idGen } from "@/data/db";
-import { useAppDispatch, usePermission, useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { formatDate, formatTime } from "@/utils";
 import { cn } from "@/utils/cn";
@@ -40,48 +41,10 @@ import {
 } from "@/components/ui/table";
 import { PageIntro, PrescriptionPrintPreview } from "@/components/common";
 import { EmptyState } from "@/components/ui/feedback";
-import { buildApiUrl } from "@/config/api";
+import { apiClient } from "@/api/apiClient";
+import { API_ENDPOINTS } from "@/api/endpoints";
 
 import { Select } from "@/components/ui/fields";
-
-/* ==========================================================================
-   1. AUTH & API HELPERS
-   ========================================================================== */
-const getAuthHeaders = (): Record<string, string> => {
-  try {
-    const stored = JSON.parse(localStorage.getItem("authUserToken") || "null");
-    const token = stored?.accessToken ?? stored?.token ?? null;
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
-};
-
-const apiHeaders = () => ({
-  "Content-Type": "application/json",
-  ...getAuthHeaders(),
-});
-
-async function api<T = any>(
-  path: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; data: T; error?: string }> {
-  try {
-    const res = await fetch(buildApiUrl(path), {
-      ...options,
-      headers: { ...apiHeaders(), ...(options.headers as any) },
-    });
-    const json = await res.json().catch(() => ({}));
-    return {
-      ok: res.ok,
-      status: res.status,
-      data: json.data ?? json,
-      error: json.message || json.error,
-    };
-  } catch (err: any) {
-    return { ok: false, status: 0, data: null as any, error: err.message };
-  }
-}
 
 /* ==========================================================================
    2. CONSTANTS & FORMAT HELPERS
@@ -183,8 +146,7 @@ export function ConsultationsPage() {
   const { canCreate, canEdit, canDelete } = usePermission();
 
   const activeDoctorId =
-    JSON.parse(localStorage.getItem("authUserToken") || "{}")?.user
-      ?.doctorProfileId || null;
+    useAppSelector((s: any) => s.auth?.session?.user?.doctorProfileId) || null;
 
   const [consultations, setConsultations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -234,7 +196,14 @@ export function ConsultationsPage() {
       if (filters.from) params.set("from", filters.from);
       if (filters.to) params.set("to", filters.to);
 
-      const res = await api(`/api/opd/consultations?${params}`);
+      const res = await apiClient(
+        `${API_ENDPOINTS.consultations.list}?${params}`,
+      )
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (res.ok) {
         setConsultations(res.data || []);
         setTotalItems(res.data?.meta?.total ?? 0);
@@ -249,9 +218,14 @@ export function ConsultationsPage() {
     if (!activeDoctorId) return;
     setLoadingQueue(true);
     try {
-      const res = await api(
-        `/api/opd/queue/doctor/${activeDoctorId}?date=${queueDate}`,
-      );
+      const res = await apiClient(
+        `${API_ENDPOINTS.queue.byDoctor(activeDoctorId)}?date=${queueDate}`,
+      )
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (res.ok) setQueueData(res.data);
     } finally {
       setLoadingQueue(false);
@@ -273,9 +247,14 @@ export function ConsultationsPage() {
 
     try {
       if (token.status === TOKEN_STATUSES.WAITING) {
-        const callRes = await api(`/api/opd/queue/${tokenId}/call`, {
+        const callRes = await apiClient(API_ENDPOINTS.queue.call(tokenId), {
           method: "PATCH",
-        });
+        })
+          .then((body: any) => ({
+            ok: !body?.cancelled,
+            data: body?.data ?? body,
+          }))
+          .catch(() => ({ ok: false, data: null as any }));
         if (!callRes.ok) {
           setActiveError({
             patientName,
@@ -287,10 +266,15 @@ export function ConsultationsPage() {
       }
 
       let consultationId: string | null = null;
-      const postRes = await api("/api/opd/consultations", {
+      const postRes = await apiClient(API_ENDPOINTS.consultations.create, {
         method: "POST",
-        body: JSON.stringify({ appointmentId }),
-      });
+        body: { appointmentId },
+      })
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (postRes.ok && postRes.data?.id) consultationId = postRes.data.id;
       if (!consultationId) consultationId = token.consultationId;
       if (!consultationId)
@@ -321,17 +305,27 @@ export function ConsultationsPage() {
     setActionLoadingId("call-next");
     setActiveError(null);
     try {
-      const res = await api(
-        `/api/opd/queue/call-next/${activeDoctorId}?date=${queueDate}`,
+      const res = await apiClient(
+        `${API_ENDPOINTS.queue.callNext(activeDoctorId)}?date=${queueDate}`,
         { method: "PATCH" },
-      );
+      )
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
 
       if (res.ok && res.data?.appointmentId) {
         const calledToken = res.data;
-        const postRes = await api("/api/opd/consultations", {
+        const postRes = await apiClient(API_ENDPOINTS.consultations.create, {
           method: "POST",
-          body: JSON.stringify({ appointmentId: calledToken.appointmentId }),
-        });
+          body: { appointmentId: calledToken.appointmentId },
+        })
+          .then((body: any) => ({
+            ok: !body?.cancelled,
+            data: body?.data ?? body,
+          }))
+          .catch(() => ({ ok: false, data: null as any }));
         if (postRes.ok && postRes.data?.id) {
           saveConsultationMapping(calledToken.appointmentId, postRes.data.id);
           navigate(`/consultation/${postRes.data.id}`);
@@ -355,18 +349,22 @@ export function ConsultationsPage() {
 
   const handleSkip = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await api(`/api/opd/queue/${tokenId}/skip`, {
+    const res = await apiClient(API_ENDPOINTS.queue.skip(tokenId), {
       method: "PATCH",
-    });
+    })
+      .then((body: any) => ({ ok: !body?.cancelled, data: body?.data ?? body }))
+      .catch(() => ({ ok: false, data: null as any }));
     if (res.ok) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
   const handleRequeue = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await api(`/api/opd/queue/${tokenId}/requeue`, {
+    const res = await apiClient(API_ENDPOINTS.queue.requeue(tokenId), {
       method: "PATCH",
-    });
+    })
+      .then((body: any) => ({ ok: !body?.cancelled, data: body?.data ?? body }))
+      .catch(() => ({ ok: false, data: null as any }));
     if (res.ok) fetchDoctorQueue();
     setActionLoadingId(null);
   };
@@ -677,9 +675,17 @@ export function ConsultationsPage() {
                   hidden: !canDelete("consultations"),
                   onClick: async () => {
                     if (confirm("Delete this record?")) {
-                      const res = await api(`/api/opd/consultations/${c.id}`, {
-                        method: "DELETE",
-                      });
+                      const res = await apiClient(
+                        API_ENDPOINTS.consultations.update(c.id),
+                        {
+                          method: "DELETE",
+                        },
+                      )
+                        .then((body: any) => ({
+                          ok: !body?.cancelled,
+                          data: body?.data ?? body,
+                        }))
+                        .catch(() => ({ ok: false, data: null as any }));
                       if (res.ok) fetchConsultations();
                     }
                   },
@@ -737,7 +743,7 @@ export function ConsultationWorkspacePage() {
   const [completing, setCompleting] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [cardTab, setCardTab] = useState<"details" | "history">("details");
-  const hospital = useRootSelector((state) => state.hospital.data);
+  const hospital = useAppSelector((state) => state.hospital.data);
 
   const isCompleted = record?.status === CONSULT_STATUSES.COMPLETED;
   const readOnly = !canEdit("consultations") || isCompleted;
@@ -745,11 +751,11 @@ export function ConsultationWorkspacePage() {
   const form = useForm({
     initialValues: {
       chiefComplaint: "",
-      history: "",
-      examination: "",
+      historyOfIllness: "",
+      systemicExamination: "",
       diagnosis: "",
       advice: "",
-      internalNotes: "",
+      followUpNotes: "",
       followUpDate: "",
       bp: "",
       pulse: "",
@@ -767,18 +773,23 @@ export function ConsultationWorkspacePage() {
     if (!id) return;
     setLoadingRecord(true);
     try {
-      const res = await api(`/api/opd/consultations/${id}`);
+      const res = await apiClient(API_ENDPOINTS.consultations.getById(id))
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (!res.ok) throw new Error("Failed");
       const d = res.data;
       setRecord(d);
 
       form.setValues({
         chiefComplaint: d.chiefComplaints || "",
-        history: d.history || "", // Mapping assumption
-        examination: d.examination || "", // Mapping assumption
+        historyOfIllness: d.history || "", // Mapping assumption
+        systemicExamination: d.examination || "", // Mapping assumption
         diagnosis: d.provisionalDiagnosis || d.finalDiagnosis || "",
         advice: d.specialInstructions || "",
-        internalNotes: d.internalNotes || "", // Mapping assumption
+        followUpNotes: d.internalNotes || "", // Mapping assumption
         followUpDate: d.followUpDate ? String(d.followUpDate).slice(0, 10) : "",
         bp: "",
         pulse: "",
@@ -803,7 +814,14 @@ export function ConsultationWorkspacePage() {
 
   const fetchVitals = useCallback(async (appointmentId: string) => {
     try {
-      const res = await api(`/api/opd/vitals/appointment/${appointmentId}`);
+      const res = await apiClient(
+        API_ENDPOINTS.vitals.byAppointment(appointmentId),
+      )
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (!res.ok || !res.data) return;
       setVitalsId(res.data.id || null);
       form.setValues((prev) => ({
@@ -833,18 +851,18 @@ export function ConsultationWorkspacePage() {
     if (readOnly || !record?.id) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
-      await api(`/api/opd/consultations/${record.id}`, {
+      await apiClient(API_ENDPOINTS.consultations.update(record.id), {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           chiefComplaints: form.values.chiefComplaint,
-          history: form.values.history,
-          examination: form.values.examination,
+          historyOfIllness: form.values.historyOfIllness,
+          systemicExamination: form.values.systemicExamination,
           provisionalDiagnosis: form.values.diagnosis,
           specialInstructions: form.values.advice,
-          internalNotes: form.values.internalNotes,
+          followUpNotes: form.values.followUpNotes,
           followUpDate: form.values.followUpDate || null,
-        }),
-      });
+        },
+      }).catch(() => {});
     }, 1500);
   };
 
@@ -852,18 +870,18 @@ export function ConsultationWorkspacePage() {
     if (!record?.id) return;
     setSaving(true);
     try {
-      await api(`/api/opd/consultations/${record.id}`, {
+      await apiClient(API_ENDPOINTS.consultations.update(record.id), {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           chiefComplaints: form.values.chiefComplaint,
-          history: form.values.history, // Assuming backend supports this, otherwise will be ignored
-          examination: form.values.examination,
+          historyOfIllness: form.values.historyOfIllness, // Assuming backend supports this, otherwise will be ignored
+          examination: form.values.systemicExamination, // Assuming backend supports this, otherwise will be ignored
           provisionalDiagnosis: form.values.diagnosis,
           specialInstructions: form.values.advice,
-          internalNotes: form.values.internalNotes,
+          followUpNotes: form.values.followUpNotes,
           followUpDate: form.values.followUpDate || null,
-        }),
-      });
+        },
+      }).catch(() => {});
 
       if (record.appointmentId) {
         const { sys, dia } = parseBpString(form.values.bp);
@@ -878,15 +896,15 @@ export function ConsultationWorkspacePage() {
           spO2: parseInt(form.values.spo2) || null,
         };
         if (vitalsId)
-          await api(`/api/opd/vitals/${vitalsId}`, {
+          await apiClient(API_ENDPOINTS.vitals.byId(vitalsId), {
             method: "PATCH",
-            body: JSON.stringify(payload),
-          });
+            body: payload,
+          }).catch(() => {});
         else
-          await api("/api/opd/vitals", {
+          await apiClient(API_ENDPOINTS.vitals.create, {
             method: "POST",
-            body: JSON.stringify(payload),
-          });
+            body: payload,
+          }).catch(() => {});
       }
 
       for (const line of rx.filter((r) => r.medicine.trim())) {
@@ -898,15 +916,18 @@ export function ConsultationWorkspacePage() {
           mealRelation: line.instructions || "AFTER_FOOD",
         };
         if (!line.id.startsWith("rx_"))
-          await api(
-            `/api/opd/consultations/${record.id}/prescriptions/${line.id}`,
-            { method: "PATCH", body: JSON.stringify(py) },
-          );
+          await apiClient(
+            API_ENDPOINTS.consultations.prescriptionLine(record.id, line.id),
+            { method: "PATCH", body: py },
+          ).catch(() => {});
         else
-          await api(`/api/opd/consultations/${record.id}/prescriptions`, {
-            method: "POST",
-            body: JSON.stringify(py),
-          });
+          await apiClient(
+            API_ENDPOINTS.consultations.prescriptions(record.id),
+            {
+              method: "POST",
+              body: py,
+            },
+          ).catch(() => {});
       }
     } finally {
       setSaving(false);
@@ -919,9 +940,17 @@ export function ConsultationWorkspacePage() {
     setCompleting(true);
     try {
       await handleSaveNote();
-      const res = await api(`/api/opd/consultations/${record.id}/complete`, {
-        method: "PATCH",
-      });
+      const res = await apiClient(
+        API_ENDPOINTS.consultations.complete(record.id),
+        {
+          method: "PATCH",
+        },
+      )
+        .then((body: any) => ({
+          ok: !body?.cancelled,
+          data: body?.data ?? body,
+        }))
+        .catch(() => ({ ok: false, data: null as any }));
       if (res.ok) navigate("/consultations");
     } finally {
       setCompleting(false);
@@ -1260,8 +1289,10 @@ export function ConsultationWorkspacePage() {
               <textarea
                 className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
                 placeholder="Onset, aggravating factors, prior treatment, medications..."
-                value={form.values.history}
-                onChange={(e) => handleSoapChange("history", e.target.value)}
+                value={form.values.historyOfIllness}
+                onChange={(e) =>
+                  handleSoapChange("historyOfIllness", e.target.value)
+                }
                 disabled={readOnly}
               />
             </div>
@@ -1276,8 +1307,10 @@ export function ConsultationWorkspacePage() {
             <textarea
               className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
               placeholder="Systemic examination, findings, investigations reviewed..."
-              value={form.values.examination}
-              onChange={(e) => handleSoapChange("examination", e.target.value)}
+              value={form.values.systemicExamination}
+              onChange={(e) =>
+                handleSoapChange("systemicExamination", e.target.value)
+              }
               disabled={readOnly}
             />
           </div>
@@ -1463,9 +1496,9 @@ export function ConsultationWorkspacePage() {
                 <textarea
                   className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[60px] bg-amber-50/30"
                   placeholder="Referrals, coding notes, insurance remarks..."
-                  value={form.values.internalNotes}
+                  value={form.values.followUpNotes}
                   onChange={(e) =>
-                    handleSoapChange("internalNotes", e.target.value)
+                    handleSoapChange("followUpNotes", e.target.value)
                   }
                   disabled={readOnly}
                 />
@@ -1521,12 +1554,16 @@ function PatientHistoryPanel({
 }) {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const history = useRootSelector((s: any) => s.consultationsHistory.patientHistory);
+  const history = useAppSelector(
+    (s: any) => s.consultationsHistory.patientHistory,
+  );
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     if (!patientKey) return;
-    dispatch(fetchPatientHistory("b9d13667-4c66-4630-9c94-9ca031a4668e") as any);
+    dispatch(
+      fetchPatientHistory("b9d13667-4c66-4630-9c94-9ca031a4668e") as any,
+    );
   }, [patientKey, dispatch]);
 
   const rows = (history?.items ?? [])

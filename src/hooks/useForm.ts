@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAppDispatch } from "@/hooks";
-import { FORM_INVALID } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { FORM_INVALID } from "@/store/slices/uiSlice";
 
 /* ---------------------------------------------------------------------------
  * useForm — schema validation, error mapping, invalid-field focus and
@@ -279,9 +279,7 @@ export function useForm<T extends Record<string, any>>({
         const key = String(name);
         const shouldValidate =
           validateNow &&
-          (validateOnChange ||
-            touchedRef.current[key] ||
-            attemptedRef.current);
+          (validateOnChange || touchedRef.current[key] || attemptedRef.current);
 
         if (shouldValidate) {
           const message = validateField(name, value, nextValues);

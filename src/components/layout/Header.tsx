@@ -13,10 +13,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { APP_NAME } from "@/constants";
-import { useAppDispatch, useCurrentUser, useRootSelector } from "@/hooks";
-import { setMobileNav } from "@/features/ui/uiSlice";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useCurrentUser, usePermission } from "@/hooks";
+import { setMobileNav } from "@/store/slices/uiSlice";
 import { bootstrapResources } from "@/store";
-import { Badge, Button, IconButton } from "@/components/ui/primitives";
+import { Badge, Button, IconButton, Avatar } from "@/components/ui/primitives";
 import {
   DropdownMenu,
   MenuLabel,
@@ -24,10 +25,8 @@ import {
   Tooltip,
   menuItemClass,
 } from "@/components/ui/overlays";
-import { Avatar } from "@/components/ui/primitives";
 import { relativeTime } from "@/utils";
-import { logoutUser } from "@/features/auth/authSlice";
-import { usePermission } from "@/hooks";
+import { logoutUser } from "@/store/slices/authSlice";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -43,12 +42,12 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useCurrentUser();
-  const activities = useRootSelector((s) => s.activities.items);
+  const activities = useAppSelector((s) => s.activities.items);
   const { isSuperAdmin } = usePermission();
   const now = useClock();
 
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
   const trail = useMemo(() => {
     const segments = location.pathname.split("/").filter(Boolean);
@@ -291,9 +290,9 @@ export function GlobalSearch({
 }) {
   const [term, setTerm] = useState("");
   const navigate = useNavigate();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const invoices = useRootSelector((s) => s.invoices.items);
+  const patients = useAppSelector((s) => s.patients.items);
+  const doctors = useAppSelector((s) => s.doctors.items);
+  const invoices = useAppSelector((s) => s.invoices.items);
   const [results, setResults] = useState<any[]>([]);
 
   useEffect(() => {

@@ -7,16 +7,18 @@ import {
   changePassword,
   logoutUser,
   logout,
-} from "@/features/auth/authSlice";
+} from "./slices/authSlice";
+import { fetchModules, clearModules } from "./slices/moduleSlice";
 import {
-  fetchEntitlements,
-  clearEntitlements,
-} from "@/features/entitlement/entitlementSlice";
-import type { RootState } from "./index";
+  loadUserPermissions,
+  clearPermissions,
+} from "./slices/permissionSlice";
+import type { RootState } from "./types";
 
 export const authListenerMiddleware = createListenerMiddleware();
 
-// 1. Trigger fetchEntitlements on Login, Restore, or Password Change
+// 1. Keep authorization data (modules + permissions) in sync with the session:
+//    fire on Login, 2FA Verify, Restore and Password Change.
 authListenerMiddleware.startListening({
   // verifyOtp included: a 2FA sign-in must load modules exactly like a normal one
   matcher: isAnyOf(
@@ -37,17 +39,20 @@ authListenerMiddleware.startListening({
       session?.forcePasswordChange || session?.user?.forcePasswordChange,
     );
 
-    if (session && !mustChangePassword && !state.entitlement.loading) {
-      // Background me entitlements fetch karo (agar already loading nahi hai)
-      listenerApi.dispatch(fetchEntitlements() as any);
+    if (session && !mustChangePassword && !state.modules.loading) {
+      // Background me modules fetch karo (agar already loading nahi hai)
+      listenerApi.dispatch(fetchModules() as any);
     }
+    // snapshot the user's permission map for permissionSlice
+    listenerApi.dispatch(loadUserPermissions() as any);
   },
 });
 
-// 2. Clear entitlements automatically on Logout
+// 2. Clear authorization data automatically on Logout
 authListenerMiddleware.startListening({
   matcher: isAnyOf(logoutUser.fulfilled, logout),
   effect: async (_, listenerApi) => {
-    listenerApi.dispatch(clearEntitlements());
+    listenerApi.dispatch(clearModules());
+    listenerApi.dispatch(clearPermissions());
   },
 });

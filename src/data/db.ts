@@ -14,7 +14,7 @@ import type {
 
 /* ------------------------------------------------------------------ *
  * Deterministic demo dataset. Acts as the "database" behind the mock
- * API layer (src/services/apiClient.ts) so every module is wired for
+ * API layer (src/api/apiClient.ts) so every module is wired for
  * a real backend without touching component code.
  * ------------------------------------------------------------------ */
 
