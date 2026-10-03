@@ -37,14 +37,13 @@ import {
   Textarea,
 } from "@/components/ui/fields";
 import {
-  FormDialog,
   FormRow,
   FormSection,
   PageIntro,
   SectionPanel,
 } from "@/components/common";
 import { Banner } from "@/components/ui/feedback";
-import { useConfirmDialog } from "@/components/ui/overlays";
+import { Dialog, useConfirmDialog } from "@/components/ui/overlays";
 
 /* -------------------------------- Roles & RBAC ------------------------------- */
 
@@ -546,170 +545,201 @@ function RoleForm({
       ).unwrap();
 
       const createdRoleId = String(created?.id ?? created?.data?.id ?? "");
-      if (createdRoleId && entitlementModules.length) {
-        const moduleFeatures = Object.entries(values.permissions).flatMap(
-          ([moduleCode, actions]) => {
-            const requestedModule = moduleCode.toUpperCase().replace(/S$/, "");
-            const module = entitlementModules.find(
-              (item) =>
-                item.code.toUpperCase().replace(/S$/, "") === requestedModule ||
-                String(item.route ?? "")
-                  .replace(/^\/+/, "")
-                  .split("/")[0]
-                  .toUpperCase()
-                  .replace(/S$/, "") === requestedModule,
-            );
-            if (!module) return [];
-            return (actions ?? []).flatMap((action) => {
-              const feature = module.features?.find((item) =>
-                featureMatchesAction(item.code, item.name, action),
+      try {
+        if (createdRoleId && entitlementModules.length) {
+          const moduleFeatures = Object.entries(values.permissions).flatMap(
+            ([moduleCode, actions]) => {
+              const requestedModule = moduleCode
+                .toUpperCase()
+                .replace(/S$/, "");
+              const module = entitlementModules.find(
+                (item) =>
+                  item.code.toUpperCase().replace(/S$/, "") ===
+                    requestedModule ||
+                  String(item.route ?? "")
+                    .replace(/^\/+/, "")
+                    .split("/")[0]
+                    .toUpperCase()
+                    .replace(/S$/, "") === requestedModule,
               );
-              return feature
-                ? [
-                    {
-                      moduleId: Number(module.id),
-                      featureId: Number(feature.id),
-                    },
-                  ]
-                : [];
-            });
-          },
-        );
-        await dispatch(
-          updateRolePermissions({
-            roleId: createdRoleId,
-            moduleFeatures,
-            successMessage: "Role permissions saved",
-          }),
-        ).unwrap();
+              if (!module) return [];
+              return (actions ?? []).flatMap((action) => {
+                const feature = module.features?.find((item) =>
+                  featureMatchesAction(item.code, item.name, action),
+                );
+                return feature
+                  ? [
+                      {
+                        moduleId: Number(module.id),
+                        featureId: Number(feature.id),
+                      },
+                    ]
+                  : [];
+              });
+            },
+          );
+          await dispatch(
+            updateRolePermissions({
+              roleId: createdRoleId,
+              moduleFeatures,
+              successMessage: "Role permissions saved",
+            }),
+          ).unwrap();
+        }
+      } finally {
+        // createHospitalRole has no local list reducer, so reload the server
+        // list after creation, even if permission assignment subsequently fails.
+        await dispatch(fetchRoles(true) as any);
       }
     }
     onClose();
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="lg"
       title={initial.id ? `Edit ${initial.name}` : "Create role"}
       description="Roles bundle module access with default permissions. Assign the role to users to apply it."
-      onSubmit={save}
-      loading={form.submitting}
-      submitLabel={initial.id ? "Save role" : "Create role"}
+      footer={
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            disabled={form.submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="role-form"
+            size="sm"
+            loading={form.submitting}
+          >
+            {initial.id ? "Save role" : "Create role"}
+          </Button>
+        </>
+      }
     >
-      <FormSection title="Identity">
-        <FormRow>
-          {!initial.id && (
-            <Select
-              name="roleMode"
-              label="Role source"
-              value={roleMode}
-              onChange={(value) => {
-                setRoleMode(value as "master" | "custom");
-                form.setMany({ roleNameId: "", name: "", roleCode: "" });
-              }}
-              options={[
-                { value: "master", label: "Existing master role" },
-                { value: "custom", label: "Create custom role" },
-              ]}
-            />
-          )}
-          {!initial.id && roleMode === "master" ? (
-            <Select
-              name="roleNameId"
-              label="Master role"
-              required
-              value={form.values.roleNameId}
-              disabled={catalogLoading}
-              onChange={(value) => {
-                const selected = masterRoles.find(
-                  (item) => String(item.id) === value,
-                );
-                form.setMany({
-                  roleNameId: value,
-                  name: selected?.name ?? "",
-                  slug: selected?.code.toLowerCase() ?? "",
-                });
-              }}
-              options={masterRoles
-                .filter((item) => item.isActivatedInHospital)
-                .map((item) => ({ value: String(item.id), label: item.name }))}
-              error={form.errors.roleNameId}
-            />
-          ) : (
+      <form id="role-form" onSubmit={save} className="space-y-1">
+        <FormSection title="Identity">
+          <FormRow>
+            {!initial.id && (
+              <Select
+                name="roleMode"
+                label="Role source"
+                value={roleMode}
+                onChange={(value) => {
+                  setRoleMode(value as "master" | "custom");
+                  form.setMany({ roleNameId: "", name: "", roleCode: "" });
+                }}
+                options={[
+                  { value: "master", label: "Existing master role" },
+                  { value: "custom", label: "Create custom role" },
+                ]}
+              />
+            )}
+            {!initial.id && roleMode === "master" ? (
+              <Select
+                name="roleNameId"
+                label="Master role"
+                required
+                value={form.values.roleNameId}
+                disabled={catalogLoading}
+                onChange={(value) => {
+                  const selected = masterRoles.find(
+                    (item) => String(item.id) === value,
+                  );
+                  form.setMany({
+                    roleNameId: value,
+                    name: selected?.name ?? "",
+                    slug: selected?.code.toLowerCase() ?? "",
+                  });
+                }}
+                options={masterRoles
+                  .filter((item) => item.isActivatedInHospital)
+                  .map((item) => ({
+                    value: String(item.id),
+                    label: item.name,
+                  }))}
+                error={form.errors.roleNameId}
+              />
+            ) : (
+              <Input
+                name="name"
+                label="Role name"
+                required
+                placeholder="Night Shift Nurse"
+                value={form.values.name}
+                onChange={(e) => form.setValue("name", e.target.value)}
+                error={form.errors.name}
+              />
+            )}
+            {!initial.id && roleMode === "custom" && (
+              <Input
+                name="roleCode"
+                label="Role code"
+                placeholder="NIGHT_NURSE"
+                value={form.values.roleCode}
+                onChange={(e) =>
+                  form.setValue("roleCode", e.target.value.toUpperCase())
+                }
+              />
+            )}
             <Input
-              name="name"
-              label="Role name"
+              name="slug"
+              label="Slug"
               required
-              placeholder="Night Shift Nurse"
-              value={form.values.name}
-              onChange={(e) => form.setValue("name", e.target.value)}
-              error={form.errors.name}
-            />
-          )}
-          {!initial.id && roleMode === "custom" && (
-            <Input
-              name="roleCode"
-              label="Role code"
-              placeholder="NIGHT_NURSE"
-              value={form.values.roleCode}
+              placeholder="ward_supervisor"
+              hint="lowercase, underscore, 3–25 chars"
+              value={form.values.slug}
               onChange={(e) =>
-                form.setValue("roleCode", e.target.value.toUpperCase())
+                form.setValue("slug", e.target.value.toLowerCase())
+              }
+              error={form.errors.slug}
+            />
+            <Textarea
+              name="description"
+              label="Description"
+              required
+              rows={2}
+              placeholder="What this role is responsible for…"
+              value={form.values.description}
+              onChange={(e) => form.setValue("description", e.target.value)}
+              error={form.errors.description}
+            />
+          </FormRow>
+        </FormSection>
+        <FormSection title="Modules & permissions">
+          <div className="mt-3 space-y-3">
+            <MultiSelect
+              label="Allowed modules"
+              required
+              values={form.values.modules as string[]}
+              options={entitlementModules.map((m: any) => ({
+                value: m.code.toLowerCase(),
+                label: m.name,
+                description:
+                  m.features?.map((f: any) => f.name).join(", ") || m.route,
+              }))}
+              onChange={(vals) => form.setValue("modules", vals as string[])}
+              error={
+                form.values.modules.length
+                  ? undefined
+                  : "Choose at least one module"
               }
             />
-          )}
-          <Input
-            name="slug"
-            label="Slug"
-            required
-            placeholder="ward_supervisor"
-            hint="lowercase, underscore, 3–25 chars"
-            value={form.values.slug}
-            onChange={(e) =>
-              form.setValue("slug", e.target.value.toLowerCase())
-            }
-            error={form.errors.slug}
-          />
-          <Textarea
-            name="description"
-            label="Description"
-            required
-            rows={2}
-            placeholder="What this role is responsible for…"
-            value={form.values.description}
-            onChange={(e) => form.setValue("description", e.target.value)}
-            error={form.errors.description}
-          />
-        </FormRow>
-      </FormSection>
-      <FormSection title="Modules & permissions">
-        <div className="mt-3 space-y-3">
-          <MultiSelect
-            label="Allowed modules"
-            required
-            values={form.values.modules as string[]}
-            options={entitlementModules.map((m: any) => ({
-              value: m.code.toLowerCase(),
-              label: m.name,
-              description:
-                m.features?.map((f: any) => f.name).join(", ") || m.route,
-            }))}
-            onChange={(vals) => form.setValue("modules", vals as string[])}
-            error={
-              form.values.modules.length
-                ? undefined
-                : "Choose at least one module"
-            }
-          />
-          <PermissionMatrix
-            modules={form.values.modules}
-            permissions={form.values.permissions}
-            onToggle={toggle}
-          />
-        </div>
-      </FormSection>
-    </FormDialog>
+            <PermissionMatrix
+              modules={form.values.modules}
+              permissions={form.values.permissions}
+              onToggle={toggle}
+            />
+          </div>
+        </FormSection>
+      </form>
+    </Dialog>
   );
 }
 

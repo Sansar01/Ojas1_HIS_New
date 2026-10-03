@@ -6,11 +6,11 @@ import type {
   Doctor,
   Invoice,
   Specialization,
-  User,
   Role,
   HospitalInfo,
   ISODate,
 } from "@/types";
+import { User } from "@/types/userTypes";
 
 /* ------------------------------------------------------------------ *
  * Deterministic demo dataset. Acts as the "database" behind the mock

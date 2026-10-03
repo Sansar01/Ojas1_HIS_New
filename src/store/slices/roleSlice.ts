@@ -36,7 +36,7 @@ const map = (raw: any): Role => raw as Role;
 
 export const fetchRoles = createAsyncThunk(
   "roles/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
       const res = await apiClient<Role[]>(API_ENDPOINTS.roles.list, {
@@ -56,9 +56,9 @@ export const fetchRoles = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+    condition: (force, { getState }) => {
       const state = getState() as RootState;
-      return state.roles.status !== "loading";
+      return Boolean(force) || state.roles.status !== "loading";
     },
   },
 );
@@ -191,7 +191,8 @@ const roleSlice = createSlice({
     saving: false,
     error: null,
     lastSync: null,
-  } as CrudState<Role>,
+    rolesRequestId: null,
+  } as CrudState<Role> & { rolesRequestId: string | null },
   reducers: {
     patchRole(s, action: PayloadAction<Partial<Role> & { id: string }>) {
       const index = s.items.findIndex((i) => i.id === action.payload.id);
@@ -208,22 +209,28 @@ const roleSlice = createSlice({
     clearRoles(s) {
       s.items = [];
       s.status = "idle";
+      s.rolesRequestId = null;
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchRoles.pending, (s) => {
+      .addCase(fetchRoles.pending, (s, action) => {
         s.status = "loading";
         s.error = null;
+        s.rolesRequestId = action.meta.requestId;
       })
       .addCase(fetchRoles.fulfilled, (s, action) => {
+        if (s.rolesRequestId !== action.meta.requestId) return;
         s.status = "ready";
         s.items = action.payload as Role[];
         s.lastSync = new Date().toISOString();
+        s.rolesRequestId = null;
       })
       .addCase(fetchRoles.rejected, (s, action) => {
+        if (s.rolesRequestId !== action.meta.requestId) return;
         s.status = "error";
         s.error = (action.error.message as string) ?? "Request failed";
+        s.rolesRequestId = null;
       })
       .addCase(fetchRole.fulfilled, (s, action) => {
         const index = s.items.findIndex((i) => i.id === (action.payload as any)?.id);
