@@ -1126,7 +1126,8 @@ export function SettingsPage() {
 export function NotFoundPage() {
   const navigate = useNavigate();
   return (
-    <div className="grid min-h-[70vh] place-items-center">
+    // No layout around it — it owns the whole viewport.
+    <div className="grid min-h-screen place-items-center bg-brand-25/40 px-5">
       <div className="max-w-md text-center">
         <p className="font-display text-[64px] font-bold leading-none text-brand-500">
           404

@@ -271,10 +271,13 @@ export function AppRoutes() {
               </ModuleRoute>
             }
           />
-
-          <Route path="*" element={<NotFoundPage />} />
         </Route>
 
+        {/*
+          One catch-all, deliberately OUTSIDE the dashboard layout: an unknown
+          path renders the 404 full screen, without the sidebar and header (a
+          layout-wrapped 404 made it look like a broken page inside the app).
+        */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
