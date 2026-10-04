@@ -24,6 +24,7 @@ import {
   updateRole,
   updateRolePermissions,
 } from "@/store/slices/roleSlice";
+import { fetchUsers } from "@/store/slices/userSlice";
 import type { RoleMasterCatalogItem, RolePermissionAssignment } from "@/types";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, Permission, Role } from "@/types";
@@ -62,7 +63,9 @@ export function RolesPage() {
   const { ask, confirmNode } = useConfirmDialog();
 
   useEffect(() => {
-    if (status === "idle") dispatch(fetchRoles() as any);
+    dispatch(fetchRoles() as any);
+    // the role cards show how many users hold each role
+    dispatch(fetchUsers() as any);
   }, [status, dispatch]);
 
   const selected = roles.find(
@@ -754,7 +757,7 @@ export function SettingsPage() {
   const editable = canEdit("settings");
 
   useEffect(() => {
-    if (!hospital.data) dispatch(fetchHospital() as any);
+    dispatch(fetchHospital() as any);
   }, [hospital.data, dispatch]);
 
   const form = useForm({
@@ -1073,11 +1076,3 @@ export function NotFoundPage() {
     </div>
   );
 }
-
-export const DebugPanel = ({ items }: { items: Record<string, unknown> }) => (
-  <Panel className="p-3">
-    <pre className="num overflow-auto text-[11px] text-ink-400">
-      {JSON.stringify(items, null, 2)}
-    </pre>
-  </Panel>
-);

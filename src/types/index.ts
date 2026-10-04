@@ -11,7 +11,8 @@
 export * from "./commonTypes";
 export * from "./permissionTypes";
 export * from "./authTypes";
-export * from "./authTypes";
+export * from "./moduleTypes";
+export * from "./userTypes";
 export * from "./activityTypes";
 export * from "./roleTypes";
 export * from "./hospitalTypes";
@@ -22,5 +23,4 @@ export * from "./patientTypes";
 export * from "./appointmentTypes";
 export * from "./consultationTypes";
 export * from "./billingTypes";
-export * from "./activityTypes";
 export * from "./masterTypes";

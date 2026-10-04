@@ -30,8 +30,16 @@ import {
   Tooltip,
 } from "chart.js";
 import { Bar, Doughnut, Line } from "react-chartjs-2";
+import { useAppDispatch } from "@/store/hooks";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
+import { fetchConsultations } from "@/store/slices/consultationSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchPatients } from "@/store/slices/patientSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchInvoices } from "@/store/slices/billingSlice";
+import { fetchActivities } from "@/store/slices/activitySlice";
 import { cn } from "@/utils/cn";
-import { addDays } from "@/data/db";
+import { addDays } from "@/utils";
 import {
   formatCompact,
   formatDate,
@@ -66,6 +74,26 @@ ChartJS.register(
 
 const GRID = { color: "rgba(45,78,86,.08)", drawBorder: false } as const;
 const FONT = { family: "'IBM Plex Sans', sans-serif", size: 11 } as const;
+
+/**
+ * The Dashboard reads shared collections straight from Redux; it owns the load
+ * for the datasets no other screen needs (doc §16 — the thunk guards decide
+ * whether a request is actually made, so mounting this page twice, or landing
+ * on it after another page, never doubles a call).
+ */
+function useDashboardData() {
+  const dispatch = useAppDispatch();
+  useEffect(() => {
+    dispatch(fetchAppointments() as any);
+    dispatch(fetchConsultations() as any);
+    dispatch(fetchDepartments() as any);
+    // the shell already loaded these; the guards make them no-ops
+    dispatch(fetchPatients() as any);
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchInvoices() as any);
+    dispatch(fetchActivities() as any);
+  }, [dispatch]);
+}
 
 function useCountUp(target: number, duration = 900) {
   const [value, setValue] = useState(0);
@@ -178,6 +206,7 @@ function KpiCard({
 export function DashboardPage() {
   const navigate = useNavigate();
   const { can, canCreate, isSuperAdmin } = usePermission();
+  useDashboardData();
   const patients = useAppSelector((s) => s.patients.items);
   const doctors = useAppSelector((s) => s.doctors.items);
   const appointments = useAppSelector((s) => s.appointments.items);

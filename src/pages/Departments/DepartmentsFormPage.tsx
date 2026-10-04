@@ -7,6 +7,8 @@ import {
   updateDepartment,
 } from "@/store/slices/departmentSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { useEffect } from "react";
 import { useForm } from "@/hooks/useForm";
 import { Department } from "@/types";
 import { fullName } from "@/utils";
@@ -20,6 +22,11 @@ export function DepartmentFormDialog({
 }) {
   const dispatch = useAppDispatch();
   const doctors = useAppSelector((s) => s.doctors.items);
+
+  useEffect(() => {
+    dispatch(fetchDoctors() as any);
+  }, [dispatch]);
+
   const form = useForm({
     initialValues: {
       name: initial.name ?? "",

@@ -16,8 +16,8 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { appointmentApi } from "@/api/appointmentApi";
+import { consultationApi } from "@/api/consultationApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Appointment, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -76,15 +76,10 @@ const map = (raw: any): Appointment =>
 
 export const fetchAppointments = createAsyncThunk(
   "appointments/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Appointment[]>(
-        API_ENDPOINTS.appointments.list,
-        {
-          method: "GET",
-        },
-      );
+      const res = await appointmentApi.getAll();
       dispatch(hideLoader());
 
       const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -99,9 +94,12 @@ export const fetchAppointments = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+        condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return state.appointments.status !== "loading";
+      if (state.appointments.status === "loading") return false;   // in flight
+      if (force) return true;                                 // manual refresh
+      // shared list: idle -> fetch, ready -> reuse (§13)
+      return state.appointments.status === "idle" || state.appointments.status === "error";
     },
   },
 );
@@ -111,12 +109,7 @@ export const fetchAppointment = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading appointments record"));
     try {
-      const res = await apiClient<Appointment>(
-        API_ENDPOINTS.appointments.getById(id),
-        {
-          method: "GET",
-        },
-      );
+      const res = await appointmentApi.getById(id);
       dispatch(hideLoader());
       const responseData: any = (res as any)?.data ?? res;
       return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -135,13 +128,7 @@ export const createAppointment = createAsyncThunk(
   async (payload: WritePayload<Appointment>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Appointment>(
-        API_ENDPOINTS.appointments.create,
-        {
-          method: "POST",
-          body: payload.data,
-        },
-      );
+      const res = await appointmentApi.create(payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
       return map((res as any).data ?? res);
@@ -158,10 +145,7 @@ export const updateAppointment = createAsyncThunk(
   async (payload: WritePayload<Appointment> & { id: string }, { dispatch }) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Appointment>(
-        API_ENDPOINTS.appointments.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await appointmentApi.update(payload.id, payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
       return map((res as any).data ?? res);
@@ -178,9 +162,7 @@ export const deleteAppointment = createAsyncThunk(
   async (payload: { id: string; label?: string }, { dispatch }) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.appointments.delete(payload.id), {
-        method: "DELETE",
-      });
+      await appointmentApi.remove(payload.id);
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -206,10 +188,7 @@ export const toggleAppointmentStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Appointment>(
-        API_ENDPOINTS.appointments.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await appointmentApi.update(payload.id, { status: payload.status });
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",
@@ -325,10 +304,7 @@ export const fetchConsultationTypes = createAsyncThunk(
   async (_: void, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Loading visit types"));
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.masters.global.dropdown("CONSULTATION_TYPE"),
-        { method: "GET" },
-      );
+      const response: any = await appointmentApi.getVisitTypes();
       dispatch(hideLoader());
       return response?.data ?? response;
     } catch (error: any) {
@@ -347,10 +323,7 @@ export const cancelAppointment = createAsyncThunk(
   "appointments/cancel",
   async (payload: { id: string; cancelReason: string }) => {
     // throws on failure so the caller surfaces the backend message
-    const response: any = await apiClient(
-      API_ENDPOINTS.appointments.cancel(payload.id),
-      { method: "PATCH", body: { cancelReason: payload.cancelReason } },
-    );
+    const response: any = await appointmentApi.cancel(payload);
     return response?.data ?? response;
   },
 );
@@ -368,10 +341,7 @@ export const generateOpdToken = createAsyncThunk(
   async (payload: GenerateOpdTokenPayload, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Generating queue token..."));
     try {
-      const response: any = await apiClient(API_ENDPOINTS.queue.generateToken, {
-        method: "POST",
-        body: payload,
-      });
+      const response: any = await consultationApi.generateToken(payload);
       dispatch(hideLoader());
 
       // Extract token details if available in response to show in the toast

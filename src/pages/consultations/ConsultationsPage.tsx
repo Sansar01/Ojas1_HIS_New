@@ -1,7 +1,6 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  Activity,
   CheckCheck,
   CircleDot,
   Plus,
@@ -20,7 +19,8 @@ import {
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
 import { fetchPatientHistory } from "@/store/slices/consultationSlice";
-import { idGen } from "@/data/db";
+import { fetchHospital } from "@/store/slices/hospitalSlice";
+import { idGen } from "@/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
@@ -41,10 +41,21 @@ import {
 } from "@/components/ui/table";
 import { PageIntro, PrescriptionPrintPreview } from "@/components/common";
 import { EmptyState } from "@/components/ui/feedback";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { consultationApi } from "@/api/consultationApi";
 
 import { Select } from "@/components/ui/fields";
+
+/* ==========================================================================
+   1. UI UTILITIES
+   ========================================================================== */
+/** Standard debounce — keeps auto-save from firing on every keystroke. */
+function debounce<T extends (...args: any[]) => void>(func: T, delay: number) {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  };
+}
 
 /* ==========================================================================
    2. CONSTANTS & FORMAT HELPERS
@@ -154,23 +165,17 @@ export function ConsultationsPage() {
   const fetchConsultations = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
-      params.set("limit", String(limit));
-      if (search.trim()) params.set("search", search.trim());
-      if (filters.status !== "all") params.set("status", toApiStatus(filters.status));
-      if (filters.doctor !== "all") params.set("doctorId", filters.doctor);
-      if (filters.from) params.set("from", filters.from);
-      if (filters.to) params.set("to", filters.to);
+      const params: Record<string, string> = {
+        page: String(page),
+        limit: String(limit),
+      };
+      if (search.trim()) params.search = search.trim();
+      if (filters.status !== "all") params.status = toApiStatus(filters.status);
+      if (filters.doctor !== "all") params.doctorId = filters.doctor;
+      if (filters.from) params.from = filters.from;
+      if (filters.to) params.to = filters.to;
 
-      const res = await apiClient(
-        `${API_ENDPOINTS.consultations.list}?${params}`,
-      )
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.list(params);
       if (res.ok) {
         setConsultations(res.data || []);
         setTotalItems(res.data?.meta?.total ?? 0);
@@ -185,14 +190,7 @@ export function ConsultationsPage() {
     if (!activeDoctorId) return;
     setLoadingQueue(true);
     try {
-      const res = await apiClient(
-        `${API_ENDPOINTS.queue.byDoctor(activeDoctorId)}?date=${queueDate}`,
-      )
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.getDoctorQueue(activeDoctorId, queueDate);
       if (res.ok) setQueueData(res.data);
     } finally {
       setLoadingQueue(false);
@@ -215,14 +213,7 @@ export function ConsultationsPage() {
 
     try {
       if (token.status === TOKEN_STATUSES.WAITING) {
-        const callRes = await apiClient(API_ENDPOINTS.queue.call(tokenId), {
-          method: "PATCH",
-        })
-          .then((body: any) => ({
-            ok: !body?.cancelled,
-            data: body?.data ?? body,
-          }))
-          .catch(() => ({ ok: false, data: null as any }));
+        const callRes = await consultationApi.callToken(tokenId);
         if (!callRes.ok) {
           setActiveError({
             patientName,
@@ -234,15 +225,7 @@ export function ConsultationsPage() {
       }
 
       let consultationId: string | null = null;
-      const postRes = await apiClient(API_ENDPOINTS.consultations.create, {
-        method: "POST",
-        body: { appointmentId },
-      })
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const postRes = await consultationApi.create({ appointmentId });
       if (postRes.ok && postRes.data?.id) consultationId = postRes.data.id;
       if (!consultationId) consultationId = token.consultationId;
       if (!consultationId)
@@ -270,27 +253,13 @@ export function ConsultationsPage() {
     setActionLoadingId("call-next");
     setActiveError(null);
     try {
-      const res = await apiClient(
-        `${API_ENDPOINTS.queue.callNext(activeDoctorId)}?date=${queueDate}`,
-        { method: "PATCH" },
-      )
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.callNext(activeDoctorId, queueDate);
 
       if (res.ok && res.data?.appointmentId) {
         const calledToken = res.data;
-        const postRes = await apiClient(API_ENDPOINTS.consultations.create, {
-          method: "POST",
-          body: { appointmentId: calledToken.appointmentId },
-        })
-          .then((body: any) => ({
-            ok: !body?.cancelled,
-            data: body?.data ?? body,
-          }))
-          .catch(() => ({ ok: false, data: null as any }));
+        const postRes = await consultationApi.create({
+          appointmentId: calledToken.appointmentId,
+        });
         if (postRes.ok && postRes.data?.id) {
           saveConsultationMapping(calledToken.appointmentId, postRes.data.id);
           navigate(`/consultation/${postRes.data.id}`);
@@ -307,22 +276,14 @@ export function ConsultationsPage() {
 
   const handleSkip = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await apiClient(API_ENDPOINTS.queue.skip(tokenId), {
-      method: "PATCH",
-    })
-      .then((body: any) => ({ ok: !body?.cancelled, data: body?.data ?? body }))
-      .catch(() => ({ ok: false, data: null as any }));
+    const res = await consultationApi.skipToken(tokenId);
     if (res.ok) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
   const handleRequeue = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await apiClient(API_ENDPOINTS.queue.requeue(tokenId), {
-      method: "PATCH",
-    })
-      .then((body: any) => ({ ok: !body?.cancelled, data: body?.data ?? body }))
-      .catch(() => ({ ok: false, data: null as any }));
+    const res = await consultationApi.requeueToken(tokenId);
     if (res.ok) fetchDoctorQueue();
     setActionLoadingId(null);
   };
@@ -547,17 +508,7 @@ export function ConsultationsPage() {
                   hidden: !canDelete("consultations"),
                   onClick: async () => {
                     if (confirm("Delete this record?")) {
-                      const res = await apiClient(
-                        API_ENDPOINTS.consultations.update(c.id),
-                        {
-                          method: "DELETE",
-                        },
-                      )
-                        .then((body: any) => ({
-                          ok: !body?.cancelled,
-                          data: body?.data ?? body,
-                        }))
-                        .catch(() => ({ ok: false, data: null as any }));
+                      const res = await consultationApi.remove(c.id);
                       if (res.ok) fetchConsultations();
                     }
                   },
@@ -597,7 +548,6 @@ const SectionDivider = ({ title }: { title: string }) => (
 export function ConsultationWorkspacePage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
   const { canEdit } = usePermission();
 
   const [record, setRecord] = useState<any>(null);
@@ -609,10 +559,15 @@ export function ConsultationWorkspacePage() {
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [cardTab, setCardTab] = useState<"details" | "history">("details");
   const hospital = useAppSelector((state) => state.hospital.data);
+  const dispatchHospital = useAppDispatch();
+
+  // facility profile for the print sheet (guarded shared data, §16)
+  useEffect(() => {
+    dispatchHospital(fetchHospital() as any);
+  }, [dispatchHospital]);
 
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
-  
-  const hospital = useRootSelector((state) => state.hospital.data);
+
   const isCompleted = record?.status === CONSULT_STATUSES.COMPLETED;
   const readOnly = !canEdit("consultations") || isCompleted;
 
@@ -642,12 +597,7 @@ export function ConsultationWorkspacePage() {
     if (!id) return;
     setLoadingRecord(true);
     try {
-      const res = await apiClient(API_ENDPOINTS.consultations.getById(id))
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.getById(id);
       if (!res.ok) throw new Error("Failed");
       const d = res.data;
       setRecord(d);
@@ -684,14 +634,7 @@ export function ConsultationWorkspacePage() {
   // Fetch Vitals data separately
   const fetchVitals = useCallback(async (appointmentId: string) => {
     try {
-      const res = await apiClient(
-        API_ENDPOINTS.vitals.byAppointment(appointmentId),
-      )
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.getVitalsByAppointment(appointmentId);
       if (!res.ok || !res.data) return;
       setVitalsId(res.data.id || null);
       form.setValues((prev) => ({
@@ -726,10 +669,7 @@ export function ConsultationWorkspacePage() {
         followUpDate: values.followUpDate || null,
       };
 
-      await api(`/api/opd/consultations/${consultationId}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      await consultationApi.updateNote(consultationId, payload);
     }, 1500),
     [],
   );
@@ -737,22 +677,10 @@ export function ConsultationWorkspacePage() {
   const handleSoapChange = (field: string, value: string) => {
     form.setValue(field as any, value);
     if (readOnly || !record?.id) return;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      await apiClient(API_ENDPOINTS.consultations.update(record.id), {
-        method: "PATCH",
-        body: {
-          chiefComplaints: form.values.chiefComplaint,
-          historyOfIllness: form.values.historyOfIllness,
-          systemicExamination: form.values.systemicExamination,
-          provisionalDiagnosis: form.values.diagnosis,
-          specialInstructions: form.values.advice,
-          followUpNotes: form.values.followUpNotes,
-          followUpDate: form.values.followUpDate || null,
-        },
-      }).catch(() => {});
-    }, 1500);
 
+    // ONE auto-save path (debounced). The previous duplicate timer issued a
+    // second PATCH for the same edit — exactly the duplicate-request pattern
+    // the architecture standard forbids (Rule 8).
     // Trigger debounced save with updated snapshot
     const updatedValues = { ...form.values, [field]: value };
     runAutoSave(record.id, updatedValues);
@@ -767,52 +695,13 @@ export function ConsultationWorkspacePage() {
     setErrorBanner(null);
 
     try {
-      await apiClient(API_ENDPOINTS.consultations.update(record.id), {
-        method: "PATCH",
-        body: {
-          chiefComplaints: form.values.chiefComplaint,
-          historyOfIllness: form.values.historyOfIllness, // Assuming backend supports this, otherwise will be ignored
-          examination: form.values.systemicExamination, // Assuming backend supports this, otherwise will be ignored
-          provisionalDiagnosis: form.values.diagnosis,
-          specialInstructions: form.values.advice,
-          followUpNotes: form.values.followUpNotes,
-          followUpDate: form.values.followUpDate || null,
-        },
-      }).catch(() => {});
-
-      if (record.appointmentId) {
-        const { sys, dia } = parseBpString(form.values.bp);
-        const payload = {
-          appointmentId: record.appointmentId,
-          patientId: record.patient?.id,
-          bloodPressureSys: sys,
-          bloodPressureDia: dia,
-          pulseRate: parseInt(form.values.pulse) || null,
-          temperatureF: celsiusToFahrenheit(form.values.temp),
-          weightKg: parseFloat(form.values.weight) || null,
-          spO2: parseInt(form.values.spo2) || null,
-        };
-        if (vitalsId)
-          await apiClient(API_ENDPOINTS.vitals.byId(vitalsId), {
-            method: "PATCH",
-            body: payload,
-          }).catch(() => {});
-        else
-          await apiClient(API_ENDPOINTS.vitals.create, {
-            method: "POST",
-            body: payload,
-          }).catch(() => {});
-      // 1. Save Consultation (Allowed properties only)
-      const consultPayload = {
+      // 1. Save consultation note — only the properties the backend's
+      //    validation accepts (extra fields get a 400 back).
+      const consultRes = await consultationApi.updateNote(record.id, {
         chiefComplaints: form.values.chiefComplaint || "",
         provisionalDiagnosis: form.values.diagnosis || "",
         specialInstructions: form.values.advice || "",
         followUpDate: form.values.followUpDate || null,
-      };
-
-      const consultRes = await api(`/api/opd/consultations/${record.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(consultPayload),
       });
 
       if (!consultRes.ok) {
@@ -820,7 +709,7 @@ export function ConsultationWorkspacePage() {
         return false;
       }
 
-      // 2. Save Vitals (Lowercase 'spo2', strictly omit 'patientId')
+      // 2. Save vitals (lowercase 'spo2', 'patientId' intentionally omitted)
       if (record.appointmentId) {
         const { sys, dia } = parseBpString(form.values.bp);
         const pulse = parseInt(form.values.pulse);
@@ -839,18 +728,17 @@ export function ConsultationWorkspacePage() {
         if (!isNaN(weight)) vitalsPayload.weightKg = weight;
         if (!isNaN(spo2)) vitalsPayload.spo2 = spo2;
 
-        const vitalsUrl = vitalsId ? `/api/opd/vitals/${vitalsId}` : "/api/opd/vitals";
-        const vitalsRes = await api(vitalsUrl, {
-          method: vitalsId ? "PATCH" : "POST",
-          body: JSON.stringify(vitalsPayload),
-        });
+        const vitalsRes = await consultationApi.saveVitals(
+          vitalsPayload,
+          vitalsId,
+        );
 
         if (vitalsRes.ok && vitalsRes.data?.id) {
           setVitalsId(vitalsRes.data.id);
         }
       }
 
-      // 3. Save Prescription Medicines
+      // 3. Save prescription medicines (new rows POST, existing rows PATCH)
       for (const line of rx.filter((r) => r.medicine.trim())) {
         const py = {
           medicineName: line.medicine,
@@ -859,19 +747,10 @@ export function ConsultationWorkspacePage() {
           durationDays: parseInt(line.duration) || 3,
           mealRelation: line.instructions || "AFTER_FOOD",
         };
-        if (!line.id.startsWith("rx_"))
-          await apiClient(
-            API_ENDPOINTS.consultations.prescriptionLine(record.id, line.id),
-            { method: "PATCH", body: py },
-          ).catch(() => {});
+        if (line.id.startsWith("rx_"))
+          await consultationApi.addPrescriptionLine(record.id, py);
         else
-          await apiClient(
-            API_ENDPOINTS.consultations.prescriptions(record.id),
-            {
-              method: "POST",
-              body: py,
-            },
-          ).catch(() => {});
+          await consultationApi.updatePrescriptionLine(record.id, line.id, py);
       }
 
       return true;
@@ -898,17 +777,7 @@ export function ConsultationWorkspacePage() {
     setCompleting(true);
     try {
       await handleSaveNote();
-      const res = await apiClient(
-        API_ENDPOINTS.consultations.complete(record.id),
-        {
-          method: "PATCH",
-        },
-      )
-        .then((body: any) => ({
-          ok: !body?.cancelled,
-          data: body?.data ?? body,
-        }))
-        .catch(() => ({ ok: false, data: null as any }));
+      const res = await consultationApi.complete(record.id);
       if (res.ok) navigate("/consultations");
     } finally {
       setCompleting(false);
@@ -1241,7 +1110,7 @@ export function ConsultationWorkspacePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {rx.map((line, index) => (
+                {rx.map((line) => (
                   <div key={line.id} className="flex gap-3 items-start p-3 border border-ink-100 rounded-lg bg-ink-50/30 relative group">
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
                       <div className="md:col-span-5">

@@ -2,8 +2,9 @@ import { CircleDollarSign } from "lucide-react";
 import { useForm } from "@/hooks/useForm";
 import { formatMoney } from "@/utils";
 import { Input, NumberInput, Select } from "@/components/ui/fields";
-import { FormDialog } from "@/components/common";
-import { billingService } from "@/features/billing/billingService";
+
+import { billingApi } from "@/api/billingApi";
+import { Dialog } from "@/components/ui/overlays";
 
 export function PaymentDialog({
   bill,
@@ -36,7 +37,7 @@ export function PaymentDialog({
 
   const save = form.handleSubmit(async (values) => {
     try {
-      await billingService.collectPayment(bill.id, {
+      await billingApi.collectPayment(bill.id, {
         amount: Number(values.amount),
         paymentMode: values.method,
         transactionId: values.reference || undefined,
@@ -49,7 +50,7 @@ export function PaymentDialog({
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="sm"
@@ -98,6 +99,6 @@ export function PaymentDialog({
           onChange={(e) => form.setValue("notes", e.target.value)}
         />
       </div>
-    </FormDialog>
+    </Dialog>
   );
 }

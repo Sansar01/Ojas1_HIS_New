@@ -9,7 +9,10 @@ import {
   generateOpdToken,
   updateAppointment,
 } from "@/store/slices/appointmentSlice";
-import { fetchDoctorSlots } from "@/store/slices/doctorSlice";
+import { fetchDoctorSlots, fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchPatients } from "@/store/slices/patientSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchSpecializations } from "@/store/slices/specializationSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
@@ -153,6 +156,14 @@ export function AppointmentFormModal({
     if (!open) return;
     let cancelled = false;
     dispatch(fetchConsultationTypes() as any)
+      .then(() => null)
+      .catch(() => null);
+    // option lists for the booking fields (guarded shared data, §16)
+    dispatch(fetchPatients() as any);
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchDepartments() as any);
+    dispatch(fetchSpecializations() as any);
+    dispatch(fetchAppointments() as any)
       .unwrap()
       .then((data: any) => {
         if (cancelled) return;
@@ -175,7 +186,7 @@ export function AppointmentFormModal({
   }, [open]);
 
   /* --------------------- edit mode: load record by id --------------------- */
-  const [editLoading, setEditLoading] = useState(false);
+  const [, setEditLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // single appointments getById call — the patient/doctor lists are already in
   // the store from the page, so we don't re-fetch them here
@@ -214,15 +225,6 @@ export function AppointmentFormModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit]);
-
-  /* default to the first active doctor once the doctors list arrives */
-  // useEffect(() => {
-  //   if (!form.values.doctorId) {
-  //     const first = doctors.find((d: any) => d.isActive === true);
-  //     if (first) form.setValue("doctorId", first.id, false);
-  //   }
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [doctors]);
 
   /* ------- runtime: doctor slot-by-id API whenever doctor/date changes ------ */
   const [slotLoading, setSlotLoading] = useState(false);
@@ -325,8 +327,8 @@ export function AppointmentFormModal({
       console.error("Booking process chain encountered an error:", err);
     }
 
-    // 3. Re-sync table list and close the form
-    dispatch(fetchAppointments() as any);
+    // 3. Re-sync table list and close the form (explicit refresh after a write)
+    dispatch(fetchAppointments(true) as any);
     form.reset();
     onOpenChange(false);
   });

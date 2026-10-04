@@ -2,7 +2,6 @@ import * as React from "react";
 import { useEffect } from "react";
 import {
   AlertTriangle,
-  ArchiveX,
   CheckCircle2,
   Info,
   RefreshCw,
@@ -429,4 +428,3 @@ export function Banner({
   );
 }
 
-export const NoResults = ArchiveX;

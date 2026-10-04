@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/overlays";
 import { Button } from "@/components/ui/primitives";
 import { SectionPanel } from "@/components/common";
@@ -10,13 +10,16 @@ import {
   Checkbox,
   DatePicker,
 } from "@/components/ui/fields";
-import { useAppDispatch } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
+import {
+  fetchMasterDropdown,
+  invalidateMasterDropdowns,
+} from "@/store/slices/masterSlice";
 import { YES_NO } from "@/types/masterConfig.data";
 
 // ─── API access ──────────────────────────────────────────────────
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { masterApi } from "@/api/masterApi";
 import type { CreatePanelPayload, CoPaymentOn } from "@/types";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -108,6 +111,9 @@ export function PanelMaster({
   onOpenChange: (v: boolean) => void;
 }) {
   const dispatch = useAppDispatch();
+  // Reference lists come from the shared master cache (doc §21) instead of
+  // five private copies fetched on every dialog open.
+  const dd = useAppSelector((s) => s.master.dropdowns);
   const [form, setForm] = useState<PanelForm>(EMPTY);
   const [errors, setErrors] = useState<
     Partial<Record<keyof PanelForm, string>>
@@ -115,50 +121,52 @@ export function PanelMaster({
   const [saving, setSaving] = useState(false);
   const [loadingDropdowns, setLoadingDropdowns] = useState(false);
 
-  // ─── Dropdown Options (from API) ───────────────────────────────
-  const [groupTypes, setGroupTypes] = useState<DropdownOption[]>([]);
-  const [paymentModes, setPaymentModes] = useState<DropdownOption[]>([]);
-  const [panelTypes, setPanelTypes] = useState<DropdownOption[]>([]);
-  const [currencies, setCurrencies] = useState<DropdownOption[]>([]);
-  const [tariffs, setTariffs] = useState<DropdownOption[]>([]);
+  // ─── Dropdown Options (shared cache → Select options) ──────────
+  const groupTypes = useMemo<DropdownOption[]>(
+    () => (dd.GROUP_TYPE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
+    [dd.GROUP_TYPE],
+  );
+  const paymentModes = useMemo<DropdownOption[]>(
+    () => (dd.PAYMENT_MODE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
+    [dd.PAYMENT_MODE],
+  );
+  const panelTypes = useMemo<DropdownOption[]>(
+    () => (dd.PANEL_TYPE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
+    [dd.PANEL_TYPE],
+  );
+  const currencies = useMemo<DropdownOption[]>(
+    () => (dd.CURRENCY?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
+    [dd.CURRENCY],
+  );
+  const tariffs = useMemo<DropdownOption[]>(
+    () =>
+      (dd.TARIFFS?.items ?? []).map((i: any) => ({
+        value: i.id,
+        label: `${i.tariffCode} — ${i.tariffName}`,
+      })),
+    [dd.TARIFFS],
+  );
 
   // ─── Load all dropdowns when dialog opens ──────────────────────
+  // Each thunk reuses its cached list unless it is missing or stale; one
+  // aggregated toast keeps the failure UX identical to before (doc §13/§16).
   const loadDropdowns = useCallback(async () => {
     setLoadingDropdowns(true);
     try {
-      const [gt, pm, pt, cur, tar] = (await Promise.all([
-        apiClient(API_ENDPOINTS.masters.global.dropdown("GROUP_TYPE"), {
-          method: "GET",
-        }),
-        apiClient(API_ENDPOINTS.masters.global.dropdown("PAYMENT_MODE"), {
-          method: "GET",
-        }),
-        apiClient(API_ENDPOINTS.masters.global.dropdown("PANEL_TYPE"), {
-          method: "GET",
-        }),
-        apiClient(API_ENDPOINTS.masters.global.dropdown("CURRENCY"), {
-          method: "GET",
-        }),
-        apiClient(API_ENDPOINTS.masters.tariffs.dropdown, { method: "GET" }),
+      const [gt, , pt, cur] = (await Promise.all([
+        dispatch(fetchMasterDropdown({ key: "GROUP_TYPE" })).unwrap(),
+        dispatch(fetchMasterDropdown({ key: "PAYMENT_MODE" })).unwrap(),
+        dispatch(fetchMasterDropdown({ key: "PANEL_TYPE" })).unwrap(),
+        dispatch(fetchMasterDropdown({ key: "CURRENCY" })).unwrap(),
+        dispatch(fetchMasterDropdown({ key: "TARIFFS" })).unwrap(),
       ])) as any[];
-
-      setGroupTypes(gt.map((i: any) => ({ value: i.id, label: i.value })));
-      setPaymentModes(pm.map((i: any) => ({ value: i.id, label: i.value })));
-      setPanelTypes(pt.map((i: any) => ({ value: i.id, label: i.value })));
-      setCurrencies(cur.map((i: any) => ({ value: i.id, label: i.value })));
-      setTariffs(
-        tar.map((i: any) => ({
-          value: i.id,
-          label: `${i.tariffCode} — ${i.tariffName}`,
-        })),
-      );
 
       // Auto-select first defaults if form is empty
       setForm((prev) => {
         if (prev.panelName) return prev; // don't overwrite if user already typed
         const inr = cur.find((c: any) => c.value === "INR");
         const credit = pt.find((p: any) =>
-          p.value.toUpperCase().includes("CREDIT"),
+          String(p.value ?? "").toUpperCase().includes("CREDIT"),
         );
         return {
           ...prev,
@@ -169,7 +177,12 @@ export function PanelMaster({
         };
       });
     } catch (error: any) {
-      dispatch(toast.error("Failed to load dropdowns", error?.message));
+      dispatch(
+        toast.error(
+          "Failed to load dropdowns",
+          typeof error === "string" ? error : error?.message,
+        ),
+      );
     } finally {
       setLoadingDropdowns(false);
     }
@@ -246,10 +259,9 @@ export function PanelMaster({
 
     setSaving(true);
     try {
-      await apiClient(API_ENDPOINTS.masters.panels.list, {
-        method: "POST",
-        body: payload,
-      });
+      await masterApi.createPanel(payload);
+      // the patient form's panel list is stale now (§3.7)
+      dispatch(invalidateMasterDropdowns(["PANELS"]));
       dispatch(toast.success("Panel saved successfully", form.panelName));
       setForm(EMPTY);
       onOpenChange(false);

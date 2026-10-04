@@ -16,8 +16,7 @@ import {
     createSlice,
     type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { activityApi } from "@/api/activityApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, ActivityLog, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -29,12 +28,10 @@ const map = (raw: any): ActivityLog => raw as ActivityLog;
 
 export const fetchActivities = createAsyncThunk(
     "activities/fetchAll",
-    async (_: void, { dispatch }) => {
+    async (_force: boolean | void, { dispatch }) => {
         dispatch(showLoader("Loading"));
         try {
-            const res = await apiClient<ActivityLog[]>(API_ENDPOINTS.activities.list, {
-                method: "GET",
-            });
+            const res = await activityApi.getAll();
             dispatch(hideLoader());
 
             const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -49,10 +46,13 @@ export const fetchActivities = createAsyncThunk(
         }
     },
     {
-        condition: (_, { getState }) => {
-            const state = getState() as RootState;
-            return state.activities.status !== "loading";
-        },
+            condition: (force: boolean | void, { getState }) => {
+      const state = getState() as RootState;
+      if (state.activities.status === "loading") return false;   // in flight
+      if (force) return true;                                 // manual refresh
+      // shared list: idle -> fetch, ready -> reuse (§13)
+      return state.activities.status === "idle" || state.activities.status === "error";
+    },
     },
 );
 
@@ -61,9 +61,7 @@ export const fetchActivity = createAsyncThunk(
     async (id: string, { dispatch }) => {
         dispatch(showLoader("Loading activities record"));
         try {
-            const res = await apiClient<ActivityLog>(API_ENDPOINTS.activities.getById(id), {
-                method: "GET",
-            });
+            const res = await activityApi.getById(id);
             dispatch(hideLoader());
             const responseData: any = (res as any)?.data ?? res;
             return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -80,10 +78,7 @@ export const createActivity = createAsyncThunk(
     async (payload: WritePayload<ActivityLog>, { dispatch }) => {
         dispatch(showLoader("Creating record"));
         try {
-            const res = await apiClient<ActivityLog>(API_ENDPOINTS.activities.create, {
-                method: "POST",
-                body: payload.data,
-            });
+            const res = await activityApi.create(payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Record created"));
             return map((res as any).data ?? res);
@@ -103,10 +98,7 @@ export const updateActivity = createAsyncThunk(
     ) => {
         dispatch(showLoader("Saving changes"));
         try {
-            const res = await apiClient<ActivityLog>(
-                API_ENDPOINTS.activities.update(payload.id),
-                { method: "PATCH", body: payload.data },
-            );
+            const res = await activityApi.update(payload.id, payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Changes saved"));
             return map((res as any).data ?? res);
@@ -126,9 +118,7 @@ export const deleteActivity = createAsyncThunk(
     ) => {
         dispatch(showLoader("Deleting record"));
         try {
-            await apiClient(API_ENDPOINTS.activities.delete(payload.id), {
-                method: "DELETE",
-            });
+            await activityApi.remove(payload.id);
             dispatch(hideLoader());
             dispatch(
                 toast.success(
@@ -154,10 +144,7 @@ export const toggleActivityStatus = createAsyncThunk(
         { dispatch },
     ) => {
         try {
-            const res = await apiClient<ActivityLog>(
-                API_ENDPOINTS.activities.update(payload.id),
-                { method: "PATCH", body: { status: payload.status } },
-            );
+            const res = await activityApi.update(payload.id, { status: payload.status });
             dispatch(
                 toast.info(
                     payload.status === "active" ? "Marked active" : "Marked inactive",

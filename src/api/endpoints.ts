@@ -157,6 +157,9 @@ export const API_ENDPOINTS = {
     edit: (id: string | number) => `/api/opd/appointments/${id}/edit`,
     cancel: (id: string | number) => `/api/opd/appointments/${id}/cancel`,
     checkIn: (id: string | number) => `/api/opd/appointments/${id}/check-in`,
+    /** visit/consultation-type dropdown (global master reference data) */
+    getConsultationType: (type: string) =>
+      `/api/hospital/masters/global/dropdown/${type}`,
   },
 
   // =========================

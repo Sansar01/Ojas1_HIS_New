@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import {
   RequireAuth,
+  RequireBootstrap,
   PublicOnly,
   RequirePasswordChange,
   ModuleRoute,
@@ -30,6 +31,7 @@ import {
 import { PatientsFormPage } from "@/pages/patients/patientFormPage";
 import { PatientDetailPage } from "@/pages/patients/patientDetailPage";
 import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
+import { PermissionBootstrapPage } from "@/pages/auth/PermissionBootstrapPage";
 import { OpdExaminationRoom } from "@/pages/opd/Opd";
 import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
 import { SpecializationsPage } from "@/pages/Specializations/SpecializationPage";
@@ -90,11 +92,27 @@ export function AppRoutes() {
           }
         />
 
+        {/*
+          Authentication success lands here — never on the Dashboard (doc §37,
+          §38, §49). This route owns modules → permissions and forwards the
+          user to the page they asked for once the store is ready.
+        */}
+        <Route
+          path="/permission"
+          element={
+            <RequireAuth>
+              <PermissionBootstrapPage />
+            </RequireAuth>
+          }
+        />
+
         <Route
           path="/"
           element={
             <RequireAuth>
-              <DashboardLayout />
+              <RequireBootstrap>
+                <DashboardLayout />
+              </RequireBootstrap>
             </RequireAuth>
           }
         >

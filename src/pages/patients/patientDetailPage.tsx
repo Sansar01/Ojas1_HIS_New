@@ -17,7 +17,12 @@ import { DataTable } from "@/components/ui/table";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { Patient } from "@/types";
-import { fetchPatient } from "@/store/slices/patientSlice";
+import { fetchPatient, fetchPatients } from "@/store/slices/patientSlice";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
+import { fetchConsultations } from "@/store/slices/consultationSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchInvoices } from "@/store/slices/billingSlice";
 import { fullName, formatDate, calcAge, formatMoney } from "@/utils";
 import { cn } from "@/utils/cn";
 import {
@@ -49,6 +54,21 @@ export function PatientDetailPage() {
   const patient = patients.find((p: any) => String(p.id) === id) as
     | Patient
     | undefined;
+
+  /**
+   * Every shared collection this page renders comes from Redux, so the page
+   * asks for each one through its guarded thunk (doc §16): already-loaded
+   * datasets cost nothing, and the shell/Dashboard have usually loaded them
+   * already. The patient record itself is a page-scoped detail fetch.
+   */
+  useEffect(() => {
+    dispatch(fetchPatients() as any);
+    dispatch(fetchAppointments() as any);
+    dispatch(fetchConsultations() as any);
+    dispatch(fetchInvoices() as any);
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchDepartments() as any);
+  }, [dispatch]);
 
   useEffect(() => {
     let mounted = true;

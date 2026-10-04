@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
-import { Button, IconButton } from "@/components/ui/primitives";
+import { IconButton } from "@/components/ui/primitives";
 import {
   EmptyState,
   ErrorState,
@@ -426,6 +426,3 @@ export function TableToolbar({
   );
 }
 
-export const ToolbarGhostButton = (
-  props: React.ComponentProps<typeof Button>,
-) => <Button variant="outline" size="sm" {...props} />;

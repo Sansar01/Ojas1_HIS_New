@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
-  CalendarClock,
   CalendarDays,
   CheckCheck,
   CircleSlash,
@@ -18,18 +17,17 @@ import {
   Loader2,
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
-import { addDays } from "@/data/db";
+import { addDays } from "@/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
-import { useForm } from "@/hooks/useForm";
 import {
   cancelAppointment,
-  createAppointment,
   deleteAppointment,
   fetchAppointments,
   updateAppointment,
 } from "@/store/slices/appointmentSlice";
 import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchSpecializations } from "@/store/slices/specializationSlice";
 import { fetchDoctors } from "@/store/slices/doctorSlice";
 import { fetchPatients } from "@/store/slices/patientSlice";
 
@@ -51,13 +49,7 @@ import {
   Panel,
   StatusBadge,
 } from "@/components/ui/primitives";
-import {
-  Input,
-  Segmented,
-  Select,
-  DatePicker,
-  Textarea,
-} from "@/components/ui/fields";
+import { Segmented, Select, DatePicker } from "@/components/ui/fields";
 import {
   DataTable,
   Pagination,
@@ -67,9 +59,6 @@ import {
 import { Dialog, Sheet, Tooltip } from "@/components/ui/overlays";
 import {
   DetailGrid,
-  FormDialog,
-  FormRow,
-  FormSection,
   PageIntro,
   SectionPanel,
 } from "@/components/common";
@@ -171,299 +160,6 @@ export function SlotPicker({
   );
 }
 
-/* ------------------------------- create dialog ------------------------------ */
-
-function AppointmentForm({
-  initial,
-  onClose,
-}: {
-  initial: {
-    patientId?: string;
-    doctorId?: string;
-    date?: string;
-    id?: string;
-    mode?: "new" | "reschedule";
-    time?: string;
-    reason?: string;
-  };
-  onClose: () => void;
-}) {
-  const dispatch = useAppDispatch();
-  const patients = useAppSelector((s) => s.patients.items);
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const departments = useAppSelector((s) => s.departments.items);
-  const specializations = useAppSelector((s) => s.specializations.items);
-  const existing = useAppSelector((s) => s.appointments.items) as Appointment[];
-  const isReschedule = initial.mode === "reschedule";
-  const record = isReschedule
-    ? existing.find((a) => a.id === initial.id)
-    : undefined;
-
-  const form = useForm({
-    initialValues: {
-      patientId:
-        initial.patientId ??
-        record?.patientId ??
-        patients.find((p: any) => p.status === "ACTIVE")?.id ??
-        "",
-      doctorId:
-        initial.doctorId ??
-        record?.doctorId ??
-        doctors.find((d: any) => d.isActive === true)?.id ??
-        "",
-      date: initial.date ?? record?.date ?? addDays(new Date(), 1),
-      time: initial.time ?? record?.time ?? "",
-      type: (record?.type ?? "Consultation") as Appointment["type"],
-      priority: (record?.priority ?? "Routine") as Appointment["priority"],
-      fee:
-        doctors.find(
-          (d: any) => d.id === (initial.doctorId ?? record?.doctorId),
-        )?.consultationFee ?? 0,
-      notes: record?.notes ?? "",
-      reason: initial.reason ?? "",
-    },
-    schema: {
-      patientId: [{ required: "Select a patient" }],
-      doctorId: [{ required: "Select a doctor" }],
-      date: [{ required: "Appointment date is required" }],
-      time: [{ required: "Choose an available time slot" }],
-      fee: [
-        {
-          required: "Consultation fee is required",
-          validate: (v: number) => (Number(v) >= 0 ? true : "Invalid fee"),
-        },
-      ],
-      reason: isReschedule
-        ? [{ required: "Provide a reason for the change" }]
-        : [],
-    },
-  });
-
-  const doctor = doctors.find((d: any) => d.id === form.values.doctorId) as any;
-
-  useEffect(() => {
-    if (doctor) form.setValue("fee", doctor.consultationFee, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.values.doctorId]);
-
-  /** pick the first open slot for the chosen clinician + date so a booking can be confirmed directly */
-  useEffect(() => {
-    if (!doctor || !form.values.date) return;
-    const slots = generateSlots(doctor, form.values.date, existing);
-    const currentUsable = slots.some(
-      (s) => s.time === form.values.time && s.state === "available",
-    );
-    if (currentUsable) return;
-    const open = slots.find((s) => s.state === "available");
-    if (open) form.setValue("time", open.time, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.values.doctorId, form.values.date]);
-
-  const save = form.handleSubmit(async (values) => {
-    const payload: any = {
-      patientId: values.patientId,
-      doctorId: values.doctorId,
-      departmentId: doctor?.departmentId ?? "",
-      specializationId: doctor?.specializationId ?? "",
-      date: values.date,
-      time: values.time,
-      duration: doctor?.slotDuration ?? 20,
-      type: values.type,
-      priority: values.priority,
-      fee: Number(values.fee),
-      notes: values.notes,
-      status: isReschedule ? "Scheduled" : "Scheduled",
-      ...(isReschedule ? { cancelledReason: "" } : {}),
-    };
-    if (isReschedule && record) {
-      await dispatch(
-        updateAppointment({
-          id: record.id,
-          data: {
-            ...payload,
-            notes: `${values.reason ? `Rescheduled: ${values.reason}. ` : ""}${values.notes}`,
-          },
-          successMessage: `Appointment moved to ${formatDate(values.date)} · ${formatTime(values.time)}`,
-        } as any),
-      );
-    } else {
-      const sequence = 1000 + Math.floor(Math.random() * 8999);
-      await dispatch(
-        createAppointment({
-          data: {
-            ...payload,
-            code: `APT-${9000 + sequence}`,
-            createdAt: new Date().toISOString(),
-          },
-          successMessage: "Appointment booked",
-        } as any),
-      );
-    }
-    onClose();
-  });
-
-  return (
-    <FormDialog
-      open
-      onOpenChange={(v) => !v && onClose()}
-      size="lg"
-      title={isReschedule ? "Reschedule appointment" : "Book appointment"}
-      description={
-        isReschedule && record
-          ? `${record.code} · currently ${formatDate(record.date)} at ${formatTime(record.time)}`
-          : "Slots are produced live from the doctor's schedule, slot length, buffer and daily cap."
-      }
-      onSubmit={save}
-      loading={form.submitting}
-      submitLabel={isReschedule ? "Confirm new slot" : "Confirm booking"}
-    >
-      <FormSection title="Patient & clinician">
-        <FormRow className="lg:grid-cols-2">
-          <Select
-            name="patientId"
-            label="Patient"
-            required
-            value={form.values.patientId}
-            onChange={(v) => form.setValue("patientId", v)}
-            error={form.errors.patientId}
-            placeholder="Search registered patients…"
-            options={patients
-              .filter((p: any) => p.status === "active")
-              .map((p: any) => ({
-                value: p.id,
-                label: `${fullName(p)}`,
-                description: `${p.mrn} · ${calcBrief(p)}`,
-              }))}
-          />
-          <Select
-            name="doctorId"
-            label="Doctor"
-            required
-            value={form.values.doctorId}
-            onChange={(v) => form.setValue("doctorId", v)}
-            error={form.errors.doctorId}
-            options={doctors.map((d: any) => ({
-              value: d.id,
-              label: `Dr. ${fullName(d)}`,
-              description: `${specializations.find((s: any) => s.id === d.specializationId)?.name ?? ""} · ${formatMoney(d.consultationFee)}`,
-              disabled: d.status !== "active",
-            }))}
-            hint={
-              doctor
-                ? `${departments.find((d: any) => d.id === doctor.departmentId)?.name} · ${doctor.slotDuration}m slots`
-                : undefined
-            }
-          />
-        </FormRow>
-      </FormSection>
-
-      <FormSection title="Date & slot">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,15rem)_1fr]">
-          <div className="space-y-3">
-            <DatePicker
-              label="Appointment date"
-              required
-              value={form.values.date}
-              onChange={(v) => form.setValue("date", v)}
-              error={form.errors.date}
-              min={addDays(new Date(), 0)}
-            />
-            <Select
-              name="type"
-              label="Appointment type"
-              value={form.values.type}
-              onChange={(v) => form.setValue("type", v)}
-              options={[
-                "Consultation",
-                "Follow-up",
-                "Procedure",
-                "Emergency",
-                "Telemedicine",
-              ].map((t) => ({ value: t, label: t }))}
-            />
-            <Select
-              name="priority"
-              label="Priority"
-              value={form.values.priority}
-              onChange={(v) => form.setValue("priority", v)}
-              options={[
-                { value: "Routine", label: "Routine" },
-                { value: "Urgent", label: "Urgent — queue first" },
-              ]}
-            />
-            <Input
-              name="fee"
-              type="number"
-              label="Consultation fee"
-              required
-              prefix="₹"
-              value={String(form.values.fee)}
-              onChange={(e) => form.setValue("fee", Number(e.target.value))}
-              error={form.errors.fee}
-              hint="Auto-filled from the doctor profile"
-            />
-          </div>
-          <div>
-            <p className="mb-2 text-[12.5px] font-medium text-ink-600">
-              Available slots{" "}
-              <span className="text-ink-400">
-                ·{" "}
-                {formatDate(form.values.date, {
-                  weekday: "long",
-                  day: "2-digit",
-                  month: "short",
-                })}
-              </span>
-            </p>
-            <SlotPicker
-              doctorId={form.values.doctorId}
-              date={form.values.date}
-              appointments={existing}
-              value={form.values.time}
-              onChange={(t) => form.setValue("time", t)}
-            />
-            {form.errors.time && (
-              <p className="mt-1.5 text-[11.5px] font-medium text-coral-600">
-                {form.errors.time}
-              </p>
-            )}
-          </div>
-        </div>
-      </FormSection>
-
-      <FormRow className="lg:grid-cols-2">
-        {isReschedule && (
-          <Input
-            name="reason"
-            label="Reason for change"
-            required
-            value={form.values.reason}
-            onChange={(e) => form.setValue("reason", e.target.value)}
-            error={form.errors.reason}
-            placeholder="Patient requested evening slot"
-          />
-        )}
-        <Textarea
-          name="notes"
-          label="Front desk notes"
-          rows={2}
-          placeholder="Interpreter needed, bring previous reports…"
-          value={form.values.notes}
-          onChange={(e) => form.setValue("notes", e.target.value)}
-        />
-      </FormRow>
-    </FormDialog>
-  );
-}
-
-const calcBrief = (p: any) => `${calcAgeShort(p.dateOfBirth)} · ${p.gender}`;
-const calcAgeShort = (dob: string) =>
-  dob
-    ? formatDate(dob, { day: "2-digit", month: "short", year: "numeric" })
-    : "—";
-
-/* ---------------------------------- page ----------------------------------- */
-
 export function AppointmentsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -483,7 +179,6 @@ export function AppointmentsPage() {
     from: "",
     to: "",
   });
-  const [form, setForm] = useState<any>(null);
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState("Patient request");
   const [detailId, setDetailId] = useState<string | null>(params.get("focus"));
@@ -491,10 +186,15 @@ export function AppointmentsPage() {
   const [editTarget, setEditTarget] = useState<Appointment | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  /** re-run the appointment list API (e.g. after a cancel) without the full loader flash */
-  const refreshList = async () => {
+  /**
+   * Re-run the appointment list API without the full loader flash.
+   * `force` bypasses the idle-only guard — every caller is an explicit user or
+   * post-mutation refresh, so the default is `true` (Rule 13: reuse cached
+   * data unless the caller knows it is stale).
+   */
+  const refreshList = async (force = true) => {
     setRefreshing(true);
-    await dispatch(fetchAppointments() as any);
+    await dispatch(fetchAppointments(force) as any);
     setRefreshing(false);
   };
 
@@ -532,7 +232,7 @@ export function AppointmentsPage() {
     dispatch(fetchPatients() as any);
     dispatch(fetchDoctors() as any);
     dispatch(fetchDepartments() as any);
-    // dispatch(fetchSpecializations() as any);
+    dispatch(fetchSpecializations() as any);
   }, [dispatch]);
 
   const patientMap = useMemo(
@@ -668,7 +368,7 @@ export function AppointmentsPage() {
                 variant="outline"
                 icon={<RefreshCw />}
                 loading={refreshing}
-                onClick={refreshList}
+                onClick={() => refreshList()}
               >
                 Refresh
               </Button>
@@ -865,37 +565,8 @@ export function AppointmentsPage() {
                     placeholder="To"
                   />
                 </div>
-                {/* <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<RefreshCw />}
-                  onClick={() =>
-                    setFilters({
-                      doctor: "all",
-                      department: "all",
-                      status: "all",
-                      from: "",
-                      to: "",
-                    })
-                  }
-                >
-                  Reset
-                </Button> */}
               </>
             }
-            // actions={
-            //   canCreate("appointments") ? (
-            //     <Button
-            //       size="sm"
-            //       icon={<CalendarClock />}
-            //       onClick={() => setBookOpen(true)}
-            //     >
-            //       Book slot
-            //     </Button>
-            //   ) : (
-            //     <Badge tone="neutral">Read only</Badge>
-            //   )
-            // }
           />
           <DataTable
             columns={[
@@ -1003,7 +674,7 @@ export function AppointmentsPage() {
                   ? "error"
                   : "loading"
             }
-            onRetry={() => dispatch(fetchAppointments() as any)}
+            onRetry={() => dispatch(fetchAppointments(true) as any)}
             sort={{
               sortBy: table.query.sortBy,
               sortDir: table.query.sortDir,
@@ -1112,7 +783,6 @@ export function AppointmentsPage() {
         <AppointmentForm
           initial={form}
           onClose={() => {
-            setForm(null);
             clearParams();
           }}
         />

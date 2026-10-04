@@ -12,9 +12,9 @@
  */
 
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { hospitalApi } from "@/api/hospitalApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
+import type { RootState } from "@/store/types";
 import type { HospitalInfo } from "@/types";
 
 export interface HospitalState {
@@ -32,13 +32,10 @@ const hospitalInitialState: HospitalState = {
 /** Load the facility profile. */
 export const fetchHospital = createAsyncThunk(
   "hospital/fetch",
-  async (_, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading facility profile"));
     try {
-      const res = await apiClient<HospitalInfo>(
-        API_ENDPOINTS.hospitals.profile,
-        { method: "GET" },
-      );
+      const res = await hospitalApi.getProfile();
       dispatch(hideLoader());
       return res.data;
     } catch (error: any) {
@@ -46,6 +43,16 @@ export const fetchHospital = createAsyncThunk(
       dispatch(toast.error("Facility profile unavailable", error?.message));
       throw error;
     }
+  },
+  {
+    // Duplicate-request protection (doc §13): the facility profile is shared
+    // reference data — load once per session, `force` to refresh on demand.
+    condition: (force: boolean | void, { getState }) => {
+      const state = getState() as RootState;
+      if (state.hospital.status === "loading") return false;
+      if (force) return true;
+      return state.hospital.status === "idle" || state.hospital.status === "error";
+    },
   },
 );
 
@@ -55,10 +62,7 @@ export const saveHospital = createAsyncThunk(
   async (data: HospitalInfo, { dispatch }) => {
     dispatch(showLoader("Saving facility profile"));
     try {
-      const res = await apiClient<HospitalInfo>(
-        API_ENDPOINTS.hospitals.profile,
-        { method: "PUT", body: data },
-      );
+      const res = await hospitalApi.saveProfile(data);
       dispatch(hideLoader());
       dispatch(
         toast.success(

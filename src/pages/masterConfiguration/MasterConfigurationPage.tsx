@@ -12,7 +12,6 @@ import { PageIntro } from "@/components/common";
 import {
   Button,
   Kpi,
-  Panel,
   PanelHeader,
   StatusBadge,
 } from "@/components/ui/primitives";
@@ -20,7 +19,6 @@ import { Select } from "@/components/ui/fields";
 import { DataTable, type Column } from "@/components/ui/table";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { cn } from "@/utils/cn";
 
 // Modals
 import { GlobalConfiguration } from "@/pages/masterConfiguration/GlobalConfiguration";
@@ -30,14 +28,11 @@ import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
 
 // Live Panel API
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { masterApi } from "@/api/masterApi";
 import type { PanelMasterItem } from "@/types";
 
 import {
-  LAB_ITEMS,
   type ItemType,
-  type LabItem,
   type ModalType,
 } from "@/types/masterConfig.data";
 
@@ -48,33 +43,6 @@ const ITEM_TYPES = [
   { value: "others", label: "Others Item" },
 ];
 
-const LAB_COLUMNS: Column<LabItem>[] = [
-  {
-    key: "code",
-    header: "Code",
-    render: (r) => (
-      <span className="font-mono text-[12px] text-ink-500">{r.code}</span>
-    ),
-  },
-  {
-    key: "name",
-    header: "Name",
-    render: (r) => <span className="font-medium text-ink-900">{r.name}</span>,
-  },
-  { key: "category", header: "Category", hideBelow: "md" },
-  { key: "unit", header: "Unit", hideBelow: "lg" },
-  {
-    key: "rate",
-    header: "Rate",
-    align: "right",
-    render: (r) => <span className="font-semibold">₹{r.rate}</span>,
-  },
-  {
-    key: "active",
-    header: "Status",
-    render: (r) => <StatusBadge status={r.active ? "Active" : "Inactive"} />,
-  },
-];
 
 // ─── LIVE PANEL COLUMNS (matches API response) ───────────────────
 const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
@@ -146,10 +114,7 @@ export function MasterConfigurationPage() {
   const fetchPanels = useCallback(async () => {
     setPanelsLoading(true);
     try {
-      const res: any = await apiClient(API_ENDPOINTS.masters.panels.list, {
-        method: "GET",
-        params: { limit: "50" },
-      });
+      const res: any = await masterApi.listPanels({ limit: "50" });
       setPanels(res.data ?? []);
       setPanelCount(res.meta?.total ?? res.data?.length ?? 0);
     } catch (error: any) {
@@ -267,29 +232,6 @@ export function MasterConfigurationPage() {
 
       {/* ─── TWO TABLES ────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-1">
-        {/* Lab Items (still demo data for now) */}
-        {/* <DataTable<LabItem>
-          columns={LAB_COLUMNS}
-          rows={LAB_ITEMS}
-          dense
-          rowKey={(r) => r.code}
-          clickRowHint={false}
-          header={
-            <PanelHeader
-              title="Lab Items"
-              action={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Plus />}
-                  onClick={() => openItemModal("laboratory")}
-                >
-                  Add Item
-                </Button>
-              }
-            />
-          }
-        /> */}
 
         {/* 👇 LIVE PANEL TABLE */}
         <DataTable<PanelMasterItem>

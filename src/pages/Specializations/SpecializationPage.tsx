@@ -1,6 +1,6 @@
 /* ------------------------------- Specializations ------------------------------ */
 
-import { PageIntro, FormDialog, FormRow } from "@/components/common";
+import { PageIntro, FormRow } from "@/components/common";
 import { Input, Select, Textarea } from "@/components/ui/fields";
 import { Panel, Button, StatusBadge, Badge } from "@/components/ui/primitives";
 import {
@@ -16,12 +16,16 @@ import {
   updateSpecialization,
 } from "@/store/slices/specializationSlice";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchSpecializations } from "@/store/slices/specializationSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
 import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { Specialization, Status } from "@/types";
 import { cn } from "@/utils/cn";
 import { Layers, Pencil, Ban, CheckCircle2, Trash2 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
+import { Dialog } from "@/components/ui/overlays";
 
 export function SpecializationsPage() {
   const dispatch = useAppDispatch();
@@ -34,9 +38,12 @@ export function SpecializationsPage() {
   const [editing, setEditing] = useState<Partial<Specialization> | null>(null);
   const [filters, setFilters] = useState({ department: "all", status: "all" });
 
+  // Shared lists (guarded thunks — one request per session, §13/§16)
   useEffect(() => {
-    // if (status === "idle") dispatch(fetchSpecializations() as any);
-  }, [status, dispatch]);
+    dispatch(fetchSpecializations() as any);
+    dispatch(fetchDepartments() as any);
+    dispatch(fetchDoctors() as any);
+  }, [dispatch]);
 
   const table = useTable<Specialization>(specializations as Specialization[], {
     pageSize: 8,
@@ -306,7 +313,7 @@ function SpecializationForm({
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="md"
@@ -369,6 +376,6 @@ function SpecializationForm({
         onChange={(e) => form.setValue("description", e.target.value)}
         error={form.errors.description}
       />
-    </FormDialog>
+    </Dialog>
   );
 }

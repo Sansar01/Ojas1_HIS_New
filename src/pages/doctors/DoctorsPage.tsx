@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Ban,
-  Calendar,
   CalendarClock,
   CalendarPlus,
   CheckCircle2,
@@ -11,13 +10,11 @@ import {
   Hourglass,
   Loader2,
   Pencil,
-  Plus,
   Star,
-  Stethoscope,
   Trash2,
   UserCog,
 } from "lucide-react";
-import { GENDERS, WEEKDAYS_SHORT, STATIC_SPECIALIZATIONS } from "@/constants";
+import { GENDERS, WEEKDAYS_SHORT } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
@@ -29,7 +26,9 @@ import {
   toggleDoctorStatus,
   updateDoctor,
 } from "@/store/slices/doctorSlice";
-import { addDays } from "@/data/db";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
+import { fetchSpecializations } from "@/store/slices/specializationSlice";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
 import {
   calcAge,
   formatDate,
@@ -62,7 +61,6 @@ import {
   TableToolbar,
 } from "@/components/ui/table";
 import {
-  FormDialog,
   FormRow,
   FormSection,
   PageIntro,
@@ -71,8 +69,8 @@ import {
 } from "@/components/common";
 
 // Centralized API Imports
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { doctorApi } from "@/api/doctorApi";
+import { Dialog } from "@/components/ui/overlays";
 
 /* ------------------------- Helper Functions -------------------------------- */
 
@@ -108,10 +106,7 @@ function mapAvailabilityToUi(availability: any[] = []): ScheduleDay[] {
 }
 
 async function getDoctorById(doctorProfileId: string): Promise<Doctor> {
-  const res: any = await apiClient(
-    API_ENDPOINTS.doctors.getById(doctorProfileId),
-    { method: "GET" },
-  );
+  const res: any = await doctorApi.getById(doctorProfileId);
 
   const profile = res?.data ?? res;
   if (!profile?.id) throw new Error("Doctor profile not found");
@@ -222,28 +217,6 @@ export const toAvailabilityPayload = (
       return row;
     }),
   };
-};
-
-/** Backend GET Doctor response -> UI ScheduleDay[] Transformer */
-export const mapAvailabilityToSchedule = (
-  availability: any[] = [],
-): ScheduleDay[] => {
-  const availMap = new Map<number, any>();
-  if (Array.isArray(availability)) {
-    availability.forEach((a) => availMap.set(a.dayOfWeek, a));
-  }
-
-  return [0, 1, 2, 3, 4, 5, 6].map((day) => {
-    const item = availMap.get(day);
-    return {
-      day,
-      enabled: item?.isActive ?? (day >= 1 && day <= 5), // default Mon-Fri
-      start: item?.startTime ?? "09:00",
-      end: item?.endTime ?? "17:00",
-      breakStartTime: item?.breakStartTime ?? "13:00",
-      breakEndTime: item?.breakEndTime ?? "14:00",
-    };
-  });
 };
 
 /* ------------------------------ schedule editor ----------------------------- */
@@ -414,14 +387,9 @@ function DoctorForm({
 
   const isEdit = Boolean(initial.id);
   const departments = useAppSelector((s) => s.departments.items);
-  const reduxSpecializations = useAppSelector((s) => s.specializations.items);
-
-  const specializations = useMemo(() => {
-    if (reduxSpecializations && reduxSpecializations.length > 0) {
-      return reduxSpecializations;
-    }
-    return STATIC_SPECIALIZATIONS;
-  }, [reduxSpecializations]);
+  // Specializations are master data: `specializationSlice` is the single
+  // source (the page loads it on mount), so no static fallback list exists.
+  const specializations = useAppSelector((s) => s.specializations.items);
 
   const form = useForm({
     initialValues: {
@@ -558,7 +526,7 @@ function DoctorForm({
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="xl"
@@ -821,7 +789,7 @@ function DoctorForm({
           onChange={(s) => form.setValue("schedule", s)}
         />
       </FormSection>
-    </FormDialog>
+    </Dialog>
   );
 }
 
@@ -850,8 +818,15 @@ export function DoctorsPage() {
   const [editing, setEditing] = useState<Partial<Doctor> | null>(null);
 
   useEffect(() => {
-    if (!isDoctorRole && status === "idle") {
+    // Reference data the profile form needs in every role makes (doc §16/§21:
+    // master data comes from Redux, never from a hardcoded list).
+    dispatch(fetchDepartments() as any);
+    dispatch(fetchSpecializations() as any);
+
+    if (!isDoctorRole) {
+      // shared collections only the roster renders
       dispatch(fetchDoctors() as any);
+      dispatch(fetchAppointments() as any);
     }
   }, [isDoctorRole, status, dispatch]);
 
@@ -1214,700 +1189,9 @@ export function DoctorsPage() {
 
 /* ------------------------------- profile page ------------------------------- */
 
-// export function DoctorDetailPage() {
-//   const { id = "" } = useParams(); // doctorProfileId
-//   const navigate = useNavigate();
-
-//   const [doctor, setDoctor] = useState<Doctor | null>(null);
-//   const [loading, setLoading] = useState(true);
-//   const [error, setError] = useState<string | null>(null);
-
-//   const [tab, setTab] = useState("schedule");
-//   const [editing, setEditing] = useState<Partial<Doctor> | null>(null);
-//   const [date, setDate] = useState(toISODateString(new Date()));
-
-//   // Leaves States
-//   const [leaves, setLeaves] = useState<any[]>([]);
-//   const [leavesLoading, setLeavesLoading] = useState(false);
-//   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-
-//   // Schedule States
-//   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-//   const [workingSchedule, setWorkingSchedule] = useState<ScheduleDay[]>([]);
-//   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
-
-//   // Leave Form State
-//   const [leaveType, setLeaveType] = useState<"full" | "partial">("full");
-//   const [leaveDate, setLeaveDate] = useState(toISODateString(new Date()));
-//   const [leaveStart, setLeaveStart] = useState("09:00");
-//   const [leaveEnd, setLeaveEnd] = useState("17:00");
-//   const [leaveReason, setLeaveReason] = useState("");
-//   const [isSavingLeave, setIsSavingLeave] = useState(false);
-
-//   const appointments = useAppSelector((s) => s.appointments.items);
-//   const patients = useAppSelector((s) => s.patients.items);
-//   const { canEdit } = usePermission();
-
-//   // Get active session credentials from Redux Root Store
-//   const authUser = useAppSelector((s: any) => s.auth?.session?.user);
-//   const token = useAppSelector((s: any) => s.auth?.session?.accessToken);
-//   const isDoctorRole = authUser?.userType === "DOCTOR";
-//   const doctorProfileId = authUser?.doctorProfileId ?? null;
-
-//   // 🔒 Security Guard: Restrict doctors to viewing their own profiles
-//   useEffect(() => {
-//     if (isDoctorRole && doctorProfileId && id !== doctorProfileId) {
-//       navigate(`/doctors/${doctorProfileId}`, { replace: true });
-//     }
-//   }, [isDoctorRole, doctorProfileId, id, navigate]);
-
-//   // Fetch Doctor profile details directly
-//   const loadDoctorProfile = useCallback(() => {
-//     if (!id) return;
-//     setLoading(true);
-//     setError(null);
-
-//     getDoctorById(id)
-//       .then((data) => {
-//         setDoctor(data);
-//       })
-//       .catch((err: any) => {
-//         setDoctor(null);
-//         setError(err?.message || "Could not load doctor profile");
-//       })
-//       .finally(() => {
-//         setLoading(false);
-//       });
-//   }, [id]);
-
-//   useEffect(() => {
-//     loadDoctorProfile();
-//   }, [loadDoctorProfile]);
-
-//   // Fetch Leaves cleanly using standardized date query boundaries
-//   const loadLeaves = useCallback(async () => {
-//     if (!id || !token) return;
-//     try {
-//       setLeavesLoading(true);
-//       const pastDate = new Date();
-//       pastDate.setDate(pastDate.getDate() - 30);
-//       const fromStr = toISODateString(pastDate);
-
-//       const futureDate = new Date();
-//       futureDate.setDate(futureDate.getDate() + 120);
-//       const toStr = toISODateString(futureDate);
-
-//       const list = await fetchLeavesAPI(id, fromStr, toStr, token);
-//       setLeaves(list);
-//     } catch (err) {
-//       console.error("Error loading leaves:", err);
-//       setLeaves([]);
-//     } finally {
-//       setLeavesLoading(false);
-//     }
-//   }, [id, token]);
-
-//   useEffect(() => {
-//     if (id && token) {
-//       loadLeaves();
-//     }
-//   }, [id, token, loadLeaves]);
-
-//   // Sync state schedule with loaded doctor metadata
-//   useEffect(() => {
-//     if (doctor?.schedule) {
-//       setWorkingSchedule(doctor.schedule);
-//     }
-//   }, [doctor, isScheduleModalOpen]);
-
-//   const patientMap = useMemo(
-//     () => new Map(patients.map((p: any) => [p.id, p])),
-//     [patients],
-//   );
-
-//   // Compute active leaves matching the viewing date
-//   const activeLeavesForDate = useMemo(() => {
-//     if (!Array.isArray(leaves)) return [];
-//     return leaves.filter((l) => l.blockDate === date);
-//   }, [leaves, date]);
-
-//   const isFullDayLeave = useMemo(() => {
-//     return activeLeavesForDate.some((l) => !l.startTime && !l.endTime);
-//   }, [activeLeavesForDate]);
-
-//   // Build grid blocks matching active leaves on selected date
-//   const slots = useMemo(() => {
-//     if (!doctor) return [];
-//     const baseSlots = generateSlots(doctor, date, appointments as any);
-
-//     if (isFullDayLeave) {
-//       return baseSlots.map((s) => ({
-//         ...s,
-//         state: "unavailable" as const,
-//         label: "On Leave",
-//       }));
-//     }
-
-//     return baseSlots.map((s) => {
-//       const slotMin = toMin(s.time);
-//       const isBlocked = activeLeavesForDate.some((l) => {
-//         if (l.startTime && l.endTime) {
-//           const startMin = toMin(l.startTime);
-//           const endMin = toMin(l.endTime);
-//           return slotMin >= startMin && slotMin < endMin;
-//         }
-//         return false;
-//       });
-
-//       if (isBlocked) {
-//         return {
-//           ...s,
-//           state: "unavailable" as const,
-//           label: "Leave Blocked",
-//         };
-//       }
-//       return s;
-//     });
-//   }, [doctor, date, appointments, activeLeavesForDate, isFullDayLeave]);
-
-//   const dayAppointments = useMemo(
-//     () =>
-//       appointments
-//         .filter((a: any) => a.doctorId === id && a.date === date)
-//         .sort((a: any, b: any) => a.time.localeCompare(b.time)),
-//     [appointments, id, date],
-//   );
-
-//   const handleSaveLeave = async (e: React.FormEvent) => {
-//     e.preventDefault();
-//     if (!id || !token) return;
-//     try {
-//       setIsSavingLeave(true);
-//       const payload: any = {
-//         blockDate: leaveDate,
-//         reason: leaveReason || "Personal Leave",
-//       };
-//       if (leaveType === "partial") {
-//         payload.startTime = leaveStart;
-//         payload.endTime = leaveEnd;
-//       }
-//       await createLeaveAPI(id, payload, token);
-//       await loadLeaves();
-//       setIsLeaveModalOpen(false);
-//       setLeaveReason("");
-//     } catch (err: any) {
-//       alert(err.message || "Failed to mark leave");
-//     } finally {
-//       setIsSavingLeave(false);
-//     }
-//   };
-
-//   const handleSaveSchedule = async () => {
-//     if (!id || !token || !doctor) return;
-//     try {
-//       setIsSavingSchedule(true);
-//       const payload = {
-//         slotDurationMins: doctor.slotDuration ?? (doctor as any).slotDurationMins ?? 15,
-//         schedule: workingSchedule,
-//       };
-//       await updateAvailabilityAPI(id, payload, token);
-//       await loadDoctorProfile();
-//       setIsScheduleModalOpen(false);
-//     } catch (err: any) {
-//       alert(err.message || "Failed to save availability schedule");
-//     } finally {
-//       setIsSavingSchedule(false);
-//     }
-//   };
-
-//   if (loading) {
-//     return (
-//       <div className="flex flex-col items-center justify-center py-20 text-ink-400">
-//         <Stethoscope className="mb-2 size-8 animate-bounce text-brand-600" />
-//         <p className="text-[13px] font-medium">Loading doctor profile...</p>
-//       </div>
-//     );
-//   }
-
-//   if (!doctor || error) {
-//     return (
-//       <SectionPanel title="Doctor profile unavailable" icon={<Stethoscope />}>
-//         <p className="py-6 text-center text-[13px] text-ink-400">
-//           {error || "This profile may have been removed."}
-//         </p>
-//         <div className="flex justify-center pb-4">
-//           <Button size="sm" variant="outline" onClick={() => navigate("/doctors")}>
-//             Back
-//           </Button>
-//         </div>
-//       </SectionPanel>
-//     );
-//   }
-
-//   const bookedCount = slots.filter((s) => s.state === "booked").length;
-//   const openCount = slots.filter((s) => s.state === "available").length;
-
-//   return (
-//     <div className="space-y-4">
-//       <div className="grid gap-4 xl:grid-cols-[minmax(0,21rem)_1fr]">
-
-//         {/* LEFT: profile */}
-//         <div className="space-y-4">
-//           <Panel className="overflow-hidden">
-//             <div className="relative bg-ink-950 px-5 pb-12 pt-5 text-white">
-//               <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(64,190,174,.35),transparent_60%)]" />
-//               <div className="relative flex items-center gap-3">
-//                 <Avatar name={fullName(doctor)} size="lg" color="bg-brand-500" ring />
-//                 <div className="min-w-0">
-//                   <p className="font-display text-[18px] font-bold leading-tight">
-//                     Dr. {fullName(doctor)}
-//                   </p>
-//                   <p className="text-[12px] text-white/55">
-//                     {doctor.specializationId || (doctor as any).specialization || "—"}
-//                   </p>
-//                 </div>
-//               </div>
-//             </div>
-
-//             <div className="-mt-8 px-4 pb-4">
-//               <div className="rounded-xl border border-ink-100 bg-white p-3 shadow-card">
-//                 <div className="grid grid-cols-3 gap-2 text-center">
-//                   {[
-//                     { k: "Fee", v: formatMoney(doctor.consultationFee) },
-//                     { k: "Slot", v: `${doctor.slotDuration ?? (doctor as any).slotDurationMins ?? 15}m` },
-//                     { k: "Buffer", v: `${doctor.bufferTime ?? (doctor as any).bufferTimeMins ?? 0}m` },
-//                   ].map((s) => (
-//                     <div key={s.k}>
-//                       <p className="num text-[14px] font-bold text-ink-900">{s.v}</p>
-//                       <p className="text-[10px] uppercase tracking-[0.12em] text-ink-400">
-//                         {s.k}
-//                       </p>
-//                     </div>
-//                   ))}
-//                 </div>
-//               </div>
-
-//               <div className="mt-3 space-y-2.5">
-//                 {[
-//                   { label: "Email", value: doctor.email || "—" },
-//                   { label: "Mobile", value: doctor.mobile || "—" },
-//                   { label: "Max / day", value: `${doctor.maxPatientsPerDay} patients` },
-//                   { label: "Status", value: doctor.status || "active" },
-//                 ].map((row) => (
-//                   <div
-//                     key={row.label}
-//                     className="flex items-center justify-between gap-3 border-b border-dashed border-ink-100 pb-1.5 text-[12.5px] last:border-none"
-//                   >
-//                     <span className="text-ink-400">{row.label}</span>
-//                     <span className="truncate font-medium text-ink-800">{row.value}</span>
-//                   </div>
-//                 ))}
-//               </div>
-
-//               <div className="mt-3 flex flex-wrap gap-1.5">
-//                 {(Array.isArray(doctor.qualifications)
-//                   ? doctor.qualifications
-//                   : String(doctor.qualifications || "").split(",")
-//                 ).map((q) => (
-//                   <Badge key={q} tone="brand" size="xs">
-//                     {q.trim()}
-//                   </Badge>
-//                 ))}
-//               </div>
-
-//               {canEdit("doctors") && (
-//                 <div className="mt-4 flex gap-2">
-//                   <Button
-//                     size="sm"
-//                     className="flex-1"
-//                     variant="outline"
-//                     icon={<Pencil />}
-//                     onClick={() => setEditing(doctor)}
-//                   >
-//                     Edit profile
-//                   </Button>
-//                 </div>
-//               )}
-//             </div>
-//           </Panel>
-
-//           <SectionPanel
-//             title="Weekly clinic"
-//             subtitle="Published availability"
-//             icon={<CalendarClock />}
-//             bodyClass="p-3"
-//             action={
-//               canEdit("doctors") ? (
-//                 <button
-//                   type="button"
-//                   onClick={() => setIsScheduleModalOpen(true)}
-//                   className="text-[12px] font-semibold text-brand-600 hover:underline cursor-pointer"
-//                 >
-//                   Configure
-//                 </button>
-//               ) : undefined
-//             }
-//           >
-//             <ul className="space-y-1.5">
-//               {(doctor.schedule || []).map((s) => (
-//                 <li
-//                   key={s.day}
-//                   className={cn(
-//                     "flex items-center justify-between rounded-lg px-2.5 py-1.5 text-[12.5px]",
-//                     s.enabled
-//                       ? "bg-white ring-1 ring-inset ring-ink-100"
-//                       : "bg-ink-25/60 text-ink-400",
-//                   )}
-//                 >
-//                   <span className="font-semibold">{WEEKDAYS_SHORT[s.day]}</span>
-//                   <span className="num">
-//                     {s.enabled ? `${s.start} – ${s.end}` : "No clinic"}
-//                   </span>
-//                 </li>
-//               ))}
-//             </ul>
-//           </SectionPanel>
-//         </div>
-
-//         {/* RIGHT: slots workspace */}
-//         <div className="space-y-4">
-//           <Panel>
-//             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-2.5">
-//               <div className="flex gap-1">
-//                 {[
-//                   { value: "schedule", label: "Availability & slots" },
-//                   {
-//                     value: "appointments",
-//                     label: `Appointments (${appointments.filter((a: any) => a.doctorId === id).length})`,
-//                   },
-//                   {
-//                     value: "leaves",
-//                     label: `Leaves (${Array.isArray(leaves) ? leaves.length : 0})`,
-//                   },
-//                 ].map((t) => (
-//                   <button
-//                     key={t.value}
-//                     onClick={() => setTab(t.value)}
-//                     className={cn(
-//                       "rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors cursor-pointer",
-//                       tab === t.value
-//                         ? "bg-brand-600 text-white"
-//                         : "text-ink-500 hover:bg-ink-50",
-//                     )}
-//                   >
-//                     {t.label}
-//                   </button>
-//                 ))}
-//               </div>
-
-//               {canEdit("doctors") && (
-//                 <Button
-//                   size="xs"
-//                   variant="outline"
-//                   icon={<CalendarPlus className="size-3.5" />}
-//                   onClick={() => setIsLeaveModalOpen(true)}
-//                 >
-//                   Mark leave
-//                 </Button>
-//               )}
-//             </div>
-
-//             {tab === "schedule" && (
-//               <div className="space-y-4 p-4">
-//                 <div className="flex flex-wrap items-center justify-between gap-3">
-//                   <DatePicker label="Viewing slots for" value={date} onChange={setDate} />
-//                   <div className="flex gap-2 text-[12px]">
-//                     <Badge tone="mint" size="xs">{openCount} open</Badge>
-//                     <Badge tone="neutral" size="xs">{bookedCount} booked</Badge>
-//                   </div>
-//                 </div>
-
-//                 {activeLeavesForDate.length > 0 && (
-//                   <div className="rounded-xl border border-coral-200 bg-coral-25 p-3 text-[12.5px] text-coral-800">
-//                     <p className="font-semibold">Doctor leave marked for this date</p>
-//                     <ul className="mt-1 list-inside list-disc text-[12px] text-coral-600">
-//                       {activeLeavesForDate.map((l, i) => (
-//                         <li key={i}>
-//                           {l.startTime && l.endTime
-//                             ? `Partial Leave: ${l.startTime} to ${l.endTime}`
-//                             : "Full Day Leave"}{" "}
-//                           ({l.reason})
-//                         </li>
-//                       ))}
-//                     </ul>
-//                   </div>
-//                 )}
-
-//                 {slots.length === 0 ? (
-//                   <p className="rounded-xl border border-dashed border-ink-200 px-4 py-10 text-center text-[13px] text-ink-400">
-//                     No clinic scheduled on {formatDate(date)}. Update weekly availability.
-//                   </p>
-//                 ) : (
-//                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-//                     {slots.map((s) => (
-//                       <div
-//                         key={s.time}
-//                         className={cn(
-//                           "rounded-lg border px-2 py-2 text-center",
-//                           s.state === "available" && "border-brand-200 bg-brand-25 text-brand-700",
-//                           s.state === "booked" && "border-ink-100 bg-ink-50 text-ink-400",
-//                           s.state === "past" && "border-ink-100 text-ink-300 line-through",
-//                           s.label === "Leave Blocked" && "border-coral-100 bg-coral-50/50 text-coral-500",
-//                         )}
-//                       >
-//                         <p className="num text-[13px] font-bold">{s.time}</p>
-//                         <p className="text-[10px] uppercase font-semibold">
-//                           {s.label || s.state}
-//                         </p>
-//                       </div>
-//                     ))}
-//                   </div>
-//                 )}
-
-//                 {/* day sheet */}
-//                 <div className="rounded-xl border border-ink-100 bg-ink-25/60 p-3">
-//                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-400">
-//                     Day sheet · {formatDate(date)}
-//                   </p>
-//                   {dayAppointments.length === 0 ? (
-//                     <p className="mt-2 text-[12.5px] text-ink-400">No appointments this day.</p>
-//                   ) : (
-//                     <ul className="mt-2 space-y-1.5">
-//                       {dayAppointments.map((a: any) => (
-//                         <li
-//                           key={a.id}
-//                           className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-[12.5px] ring-1 ring-ink-100"
-//                         >
-//                           <span className="num font-semibold">{a.time}</span>
-//                           <span>{fullName(patientMap.get(a.patientId))}</span>
-//                           <StatusBadge status={a.status} />
-//                         </li>
-//                       ))}
-//                     </ul>
-//                   )}
-//                 </div>
-//               </div>
-//             )}
-
-//             {tab === "appointments" && (
-//               <div className="p-4">
-//                 <div className="rounded-xl border border-ink-100 bg-white">
-//                   <table className="w-full text-left text-[12.5px]">
-//                     <thead className="bg-ink-25 text-[11px] uppercase tracking-[0.05em] text-ink-500">
-//                       <tr>
-//                         <th className="px-4 py-2.5 font-semibold">Date & Time</th>
-//                         <th className="px-4 py-2.5 font-semibold">Patient</th>
-//                         <th className="px-4 py-2.5 font-semibold">Type</th>
-//                         <th className="px-4 py-2.5 font-semibold">Status</th>
-//                       </tr>
-//                     </thead>
-//                     <tbody className="divide-y divide-ink-100">
-//                       {appointments
-//                         .filter((a: any) => a.doctorId === id)
-//                         .map((a: any) => (
-//                           <tr key={a.id} className="hover:bg-ink-25/50">
-//                             <td className="px-4 py-3">
-//                               <span className="block font-semibold text-ink-800">{a.date}</span>
-//                               <span className="num block text-[11.5px] text-ink-400">{a.time}</span>
-//                             </td>
-//                             <td className="px-4 py-3 font-medium">
-//                               {fullName(patientMap.get(a.patientId)) || "—"}
-//                             </td>
-//                             <td className="px-4 py-3 text-ink-600">{a.type || "OPD"}</td>
-//                             <td className="px-4 py-3">
-//                               <StatusBadge status={a.status} />
-//                             </td>
-//                           </tr>
-//                         ))}
-//                     </tbody>
-//                   </table>
-//                 </div>
-//               </div>
-//             )}
-
-//             {tab === "leaves" && (
-//               <div className="p-4 space-y-4">
-//                 <div className="flex items-center justify-between">
-//                   <p className="text-[13px] font-semibold text-ink-800">
-//                     Roster blockdates & leave records
-//                   </p>
-//                   <Button
-//                     size="xs"
-//                     icon={<Plus className="size-3.5" />}
-//                     onClick={() => setIsLeaveModalOpen(true)}
-//                   >
-//                     Add Leave
-//                   </Button>
-//                 </div>
-
-//                 {leavesLoading ? (
-//                   <div className="flex justify-center py-8">
-//                     <Loader2 className="animate-spin text-brand-600" />
-//                   </div>
-//                 ) : leaves.length === 0 ? (
-//                   <div className="rounded-xl border border-dashed border-ink-100 py-10 text-center">
-//                     <Calendar className="mx-auto text-ink-200 mb-2" />
-//                     <p className="text-[13px] text-ink-400">No scheduled leaves or calendar blocks.</p>
-//                   </div>
-//                 ) : (
-//                   <div className="rounded-xl border border-ink-100 bg-white">
-//                     <table className="w-full text-left text-[12.5px]">
-//                       <thead className="bg-ink-25 text-[11px] uppercase tracking-[0.05em] text-ink-500">
-//                         <tr>
-//                           <th className="px-4 py-2.5 font-semibold">Blocked date</th>
-//                           <th className="px-4 py-2.5 font-semibold">Scope</th>
-//                           <th className="px-4 py-2.5 font-semibold">Reason</th>
-//                           <th className="px-4 py-2.5 font-semibold">Timing</th>
-//                         </tr>
-//                       </thead>
-//                       <tbody className="divide-y divide-ink-100">
-//                         {leaves.map((l: any) => (
-//                           <tr key={l.id || l.blockDate} className="hover:bg-ink-25/50">
-//                             <td className="px-4 py-3 font-semibold text-ink-800">
-//                               {l.blockDate}
-//                             </td>
-//                             <td className="px-4 py-3">
-//                               {l.startTime && l.endTime ? (
-//                                 <Badge tone="lagoon" size="xs">Partial</Badge>
-//                               ) : (
-//                                 <Badge tone="coral" size="xs">Full day</Badge>
-//                               )}
-//                             </td>
-//                             <td className="px-4 py-3 text-ink-600">{l.reason || "—"}</td>
-//                             <td className="px-4 py-3 text-ink-500 font-medium">
-//                               {l.startTime && l.endTime ? `${l.startTime} – ${l.endTime}` : "All day"}
-//                             </td>
-//                           </tr>
-//                         ))}
-//                       </tbody>
-//                     </table>
-//                   </div>
-//                 )}
-//               </div>
-//             )}
-//           </Panel>
-//         </div>
-//       </div>
-
-//       {/* MODAL: Edit Profile */}
-//       {editing && (
-//         <DoctorForm
-//           initial={editing}
-//           onClose={() => {
-//             setEditing(null);
-//             loadDoctorProfile();
-//           }}
-//         />
-//       )}
-
-//       {/* MODAL: Update Schedule */}
-//       {isScheduleModalOpen && (
-//         <FormDialog
-//           open
-//           onOpenChange={(v) => !v && setIsScheduleModalOpen(false)}
-//           size="lg"
-//           title="Configure Clinical Schedule"
-//           description="Update your standard consultation weekdays and hour brackets."
-//           loading={isSavingSchedule}
-//           onSubmit={handleSaveSchedule}
-//           submitLabel="Save Changes"
-//         >
-//           <div className="mt-4">
-//             <ScheduleEditor
-//               doctor={doctor}
-//               schedule={workingSchedule}
-//               onChange={setWorkingSchedule}
-//             />
-//           </div>
-//         </FormDialog>
-//       )}
-
-//       {/* MODAL: Mark Leave */}
-//       {isLeaveModalOpen && (
-//         <FormDialog
-//           open
-//           onOpenChange={(v) => !v && setIsLeaveModalOpen(false)}
-//           size="sm"
-//           title="Mark Out of Office / Leave"
-//           description="Block appointments on your workspace calendar during this timeframe."
-//           loading={isSavingLeave}
-//           onSubmit={handleSaveLeave}
-//           submitLabel="Publish Leave"
-//         >
-//           <div className="space-y-4 py-2">
-//             <div className="grid grid-cols-2 gap-2 bg-ink-25 p-1.5 rounded-lg">
-//               <button
-//                 type="button"
-//                 className={cn(
-//                   "py-1 text-[12px] font-semibold rounded-md transition-colors cursor-pointer",
-//                   leaveType === "full"
-//                     ? "bg-white text-ink-900 shadow-sm"
-//                     : "text-ink-400 hover:text-ink-600"
-//                 )}
-//                 onClick={() => setLeaveType("full")}
-//               >
-//                 Full Day
-//               </button>
-//               <button
-//                 type="button"
-//                 className={cn(
-//                   "py-1 text-[12px] font-semibold rounded-md transition-colors cursor-pointer",
-//                   leaveType === "partial"
-//                     ? "bg-white text-ink-900 shadow-sm"
-//                     : "text-ink-400 hover:text-ink-600"
-//                 )}
-//                 onClick={() => setLeaveType("partial")}
-//               >
-//                 Partial Shift
-//               </button>
-//             </div>
-
-//             <DatePicker
-//               label="Leave Date"
-//               value={leaveDate}
-//               onChange={(v) => setLeaveDate(v)}
-//             />
-
-//             {leaveType === "partial" && (
-//               <div className="grid grid-cols-2 gap-3">
-//                 <Input
-//                   name="leaveStart"
-//                   label="Block Start"
-//                   type="time"
-//                   value={leaveStart}
-//                   onChange={(e) => setLeaveStart(e.target.value)}
-//                 />
-//                 <Input
-//                   name="leaveEnd"
-//                   label="Block End"
-//                   type="time"
-//                   value={leaveEnd}
-//                   onChange={(e) => setLeaveEnd(e.target.value)}
-//                 />
-//               </div>
-//             )}
-
-//             <Input
-//               name="leaveReason"
-//               label="Reason for leave"
-//               required
-//               placeholder="e.g. Personal block, Conference, Sick leave"
-//               value={leaveReason}
-//               onChange={(e) => setLeaveReason(e.target.value)}
-//             />
-//           </div>
-//         </FormDialog>
-//       )}
-//     </div>
-//   );
-// }
-
-/* ------------------------------- profile page ------------------------------- */
-
 export function DoctorDetailPage() {
   const { id = "" } = useParams(); // doctorProfileId
   const navigate = useNavigate();
-  const dispatch = useAppDispatch(); // ADDED DISPATCH
 
   const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1919,7 +1203,7 @@ export function DoctorDetailPage() {
 
   // Leaves States
   const [leaves, setLeaves] = useState<any[]>([]);
-  const [leavesLoading, setLeavesLoading] = useState(false);
+  const [, setLeavesLoading] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
 
   // 🔥 NEW: Enhanced Schedule & Slot States
@@ -1941,7 +1225,6 @@ export function DoctorDetailPage() {
   const [isSavingLeave, setIsSavingLeave] = useState(false);
 
   const appointments = useAppSelector((s) => s.appointments.items);
-  const patients = useAppSelector((s) => s.patients.items);
   const { canEdit } = usePermission();
 
   const authUser = useAppSelector((s: any) => s.auth?.session?.user);
@@ -1980,12 +1263,9 @@ export function DoctorDetailPage() {
       pastDate.setDate(pastDate.getDate() - 30);
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 120);
-      const json: any = await apiClient(API_ENDPOINTS.doctors.leaves(id), {
-        method: "GET",
-        params: {
-          fromDate: toISODateString(pastDate),
-          toDate: toISODateString(futureDate),
-        },
+      const json: any = await doctorApi.listLeaves(id, {
+        fromDate: toISODateString(pastDate),
+        toDate: toISODateString(futureDate),
       });
       const list = Array.isArray(json?.data)
         ? json.data
@@ -2003,11 +1283,6 @@ export function DoctorDetailPage() {
   useEffect(() => {
     if (id && token) loadLeaves();
   }, [id, token, loadLeaves]);
-
-  const patientMap = useMemo(
-    () => new Map(patients.map((p: any) => [p.id, p])),
-    [patients],
-  );
 
   const activeLeavesForDate = useMemo(() => {
     if (!Array.isArray(leaves)) return [];
@@ -2042,14 +1317,6 @@ export function DoctorDetailPage() {
     });
   }, [doctor, date, appointments, activeLeavesForDate, isFullDayLeave]);
 
-  const dayAppointments = useMemo(
-    () =>
-      appointments
-        .filter((a: any) => a.doctorId === id && a.date === date)
-        .sort((a: any, b: any) => a.time.localeCompare(b.time)),
-    [appointments, id, date],
-  );
-
   const handleSaveLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !token) return;
@@ -2063,10 +1330,9 @@ export function DoctorDetailPage() {
         payload.startTime = leaveStart;
         payload.endTime = leaveEnd;
       }
-      const leaveOut: any = await apiClient(API_ENDPOINTS.doctors.leaves(id), {
-        method: "POST",
-        body: payload,
-      }).catch((e: any) => {
+      const leaveOut: any = await doctorApi
+        .markLeave(id, payload)
+        .catch((e: any) => {
         if (e?.status)
           throw new Error((e.rawText as string) || "Failed to mark leave");
         throw e;
@@ -2094,13 +1360,9 @@ export function DoctorDetailPage() {
       );
 
       // 2. Submit to API (POST /api/opd/doctors/{id}/availability) -> WORKING!
-      const availOut: any = await apiClient(
-        API_ENDPOINTS.doctors.availability(id),
-        {
-          method: "POST",
-          body: payload,
-        },
-      ).catch((e: any) => {
+      const availOut: any = await doctorApi
+        .saveAvailability(id, payload)
+        .catch((e: any) => {
         if (e?.status)
           throw new Error(
             (e.rawText as string) || "Failed to save availability",
@@ -2385,7 +1647,7 @@ export function DoctorDetailPage() {
 
       {/* 🔥 MODAL 2: Enhanced Dedicated Schedule & Slot Manager */}
       {isScheduleModalOpen && (
-        <FormDialog
+        <Dialog
           open
           onOpenChange={(v) => !v && setIsScheduleModalOpen(false)}
           size="lg"
@@ -2440,14 +1702,14 @@ export function DoctorDetailPage() {
               onChange={setWorkingSchedule}
             />
           </div>
-        </FormDialog>
+        </Dialog>
       )}
 
       {/* MODAL 3: Mark Leave - (Keep exactly as it was) */}
 
       {/* MODAL 3: Mark Leave */}
       {isLeaveModalOpen && (
-        <FormDialog
+        <Dialog
           open
           onOpenChange={(v) => !v && setIsLeaveModalOpen(false)}
           size="sm"
@@ -2523,7 +1785,7 @@ export function DoctorDetailPage() {
               onChange={(e) => setLeaveReason(e.target.value)}
             />
           </div>
-        </FormDialog>
+        </Dialog>
       )}
     </div>
   );

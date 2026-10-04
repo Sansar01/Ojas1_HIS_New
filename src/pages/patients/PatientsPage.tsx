@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Ban,
@@ -17,6 +17,7 @@ import {
   fetchPatients,
   togglePatientStatus,
 } from "@/store/slices/patientSlice";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
 import { calcAge, formatDate, fullName } from "@/utils";
 import type { Patient, Status } from "@/types";
 import {
@@ -35,10 +36,7 @@ import {
 } from "@/components/ui/table";
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { PageIntro } from "@/components/common";
-import { toDisplayBloodGroup } from "@/types/bloodGroup";
-
-const bloodGroupApiValue = (bloodGroup: string) =>
-  bloodGroup.replace("+", "_POSITIVE").replace("-", "_NEGATIVE").toUpperCase();
+import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
 
 /* ---------------------------------- list ---------------------------------- */
 
@@ -62,7 +60,7 @@ export function PatientsPage() {
       bloodGroup:
         filters.bloodGroup === "all"
           ? "all"
-          : [filters.bloodGroup, bloodGroupApiValue(filters.bloodGroup)],
+          : [filters.bloodGroup, toBackendBloodGroup(filters.bloodGroup)],
     },
     searchFields: [
       (p) => `${p.firstName} ${p.lastName} ${p.mrn} ${p.mobile} ${p.email}`,
@@ -78,6 +76,8 @@ export function PatientsPage() {
 
   useEffect(() => {
     dispatch(fetchPatients() as any);
+    // visit counter in the table is derived from the shared appointment list
+    dispatch(fetchAppointments() as any);
   }, [dispatch]);
 
   const visits = useMemo(() => {
@@ -113,7 +113,7 @@ export function PatientsPage() {
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
-              onClick={() => dispatch(fetchPatients() as any)}
+              onClick={() => dispatch(fetchPatients(true) as any)}
             >
               Refresh
             </Button>
@@ -288,7 +288,7 @@ export function PatientsPage() {
                 ? "error"
                 : "loading"
           }
-          onRetry={() => dispatch(fetchPatients() as any)}
+          onRetry={() => dispatch(fetchPatients(true) as any)}
           sort={{
             sortBy: table.query.sortBy,
             sortDir: table.query.sortDir,

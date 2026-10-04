@@ -131,17 +131,6 @@ export function hasFeature(
   );
 }
 
-export function isModuleRegistered(
-  entitlements: Entitlements | any,
-  module: string,
-): boolean {
-  const modulesList: EntitlementModule[] = Array.isArray(entitlements)
-    ? entitlements
-    : (entitlements?.modules ?? []);
-
-  return Boolean(findModule(modulesList, module));
-}
-
 export function canAccessModule(
   entitlements: Entitlements | any,
   module: string,

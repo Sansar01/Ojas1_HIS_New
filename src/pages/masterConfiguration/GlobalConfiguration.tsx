@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, RotateCcw } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Dialog } from "@/components/ui/overlays";
-import { Button, StatusBadge } from "@/components/ui/primitives";
+import { Button } from "@/components/ui/primitives";
 import { SearchInput, Switch, fieldClasses } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
 import { useAppDispatch } from "@/store/hooks";
+import { invalidateMasterDropdowns } from "@/store/slices/masterSlice";
 import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { masterApi } from "@/api/masterApi";
 import type { MasterCategory, MasterValueType } from "@/types";
 
 // Hardcoded sidebar configuration to map UI labels to API Enums
@@ -76,9 +76,7 @@ export function GlobalConfiguration({
   // 1. Fetch Sidebar Counts (Updates numbers next to categories)
   const fetchCounts = useCallback(async () => {
     try {
-      const tree: any = await apiClient(API_ENDPOINTS.masters.global.sidebar, {
-        method: "GET",
-      });
+      const tree: any = await masterApi.globalSidebar();
       const newCounts: Record<string, number> = {};
       // Flatten the tree to create a quick lookup dictionary e.g., { GROUP_TYPE: 4 }
       Object.values(tree)
@@ -96,9 +94,8 @@ export function GlobalConfiguration({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data: any = await apiClient(
-        API_ENDPOINTS.masters.global.byType(activeType as MasterValueType),
-        { method: "GET" },
+      const data: any = await masterApi.globalByType(
+        activeType as MasterValueType,
       );
       setApiRows(data);
     } catch (error: any) {
@@ -134,15 +131,14 @@ export function GlobalConfiguration({
 
     setSaving(true);
     try {
-      await apiClient(API_ENDPOINTS.masters.global.create, {
-        method: "POST",
-        body: {
-          category: activeCategory as MasterCategory,
-          type: activeType as MasterValueType,
-          value: val.toUpperCase(), // Best practice: keep masters uppercase
-        },
+      await masterApi.globalCreate({
+        category: activeCategory as MasterCategory,
+        type: activeType as MasterValueType,
+        value: val.toUpperCase(), // Best practice: keep masters uppercase
       });
       dispatch(toast.success(`${activeLabel} added successfully`));
+      // reference lists elsewhere (panel form, registration) are stale now (§3.7)
+      dispatch(invalidateMasterDropdowns());
       setInputValue("");
 
       // Refresh list & counts after adding
@@ -159,15 +155,13 @@ export function GlobalConfiguration({
   const handleToggle = async (row: Row) => {
     setTogglingId(row.id);
     try {
-      await apiClient(API_ENDPOINTS.masters.global.byId(row.id), {
-        method: "PATCH",
-        body: { isActive: !row.isActive },
-      });
+      await masterApi.globalUpdate(row.id, { isActive: !row.isActive });
       dispatch(
         row.isActive
           ? toast.info("Deactivated", row.value)
           : toast.success("Activated", row.value),
       );
+      dispatch(invalidateMasterDropdowns());
       fetchData(); // Reload list
     } catch (e: any) {
       dispatch(toast.error("Update failed", e?.message));
@@ -189,10 +183,9 @@ export function GlobalConfiguration({
 
     if (confirm(`Are you sure you want to delete '${row.value}'?`)) {
       try {
-        await apiClient(API_ENDPOINTS.masters.global.byId(row.id), {
-          method: "DELETE",
-        });
+        await masterApi.globalRemove(row.id);
         dispatch(toast.success("Deleted successfully"));
+        dispatch(invalidateMasterDropdowns());
 
         // Refresh list & counts after deleting
         fetchData();

@@ -34,13 +34,3 @@ export interface Entitlements {
   userType?: string;
   modules: EntitlementModule[];
 }
-
-/** Static description of a module in the front-end route table. */
-export interface ModuleDef {
-  key: string;
-  label: string;
-  path: string;
-  icon: string; // lucide icon name resolved in constants
-  group: "Clinical" | "Operations" | "Access" | "Insights";
-  description: string;
-}

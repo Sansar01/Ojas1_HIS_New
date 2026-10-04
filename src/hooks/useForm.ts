@@ -6,13 +6,13 @@ import { FORM_INVALID } from "@/store/slices/uiSlice";
 /* ---------------------------------------------------------------------------
  * useForm — schema validation, error mapping, invalid-field focus and
  * duplicate-submission protection. Every form in the portal runs on this,
- * including the stepped inline forms (see <FormDialog /> in components/common)
+ * including the stepped record forms (see <Dialog /> in components/ui/overlays)
  * which validate the required fields of a step before allowing progress.
  *
  * Field-level validation model
  * ---------------------------
  *  validateOnChange : validate a field the moment it is edited (default true,
- *                     the original behaviour — FormDialog steps rely on it)
+ *                     the original behaviour — the stepped <Dialog /> forms rely on it)
  *  validateOnBlur   : validate a field when it loses focus
  *  touched          : a field only *shows* its error once it was blurred or a
  *                     step/submit attempt was made (see errorFor)

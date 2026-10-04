@@ -16,8 +16,7 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { billingApi } from "@/api/billingApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Invoice, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -29,12 +28,10 @@ const map = (raw: any): Invoice => raw as Invoice;
 
 export const fetchInvoices = createAsyncThunk(
   "invoices/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Invoice[]>(API_ENDPOINTS.billing.list, {
-        method: "GET",
-      });
+      const res = await billingApi.list();
       dispatch(hideLoader());
 
       const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -49,9 +46,12 @@ export const fetchInvoices = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+        condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return state.invoices.status !== "loading";
+      if (state.invoices.status === "loading") return false;   // in flight
+      if (force) return true;                                 // manual refresh
+      // shared list: idle -> fetch, ready -> reuse (§13)
+      return state.invoices.status === "idle" || state.invoices.status === "error";
     },
   },
 );
@@ -61,9 +61,7 @@ export const fetchInvoice = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading invoices record"));
     try {
-      const res = await apiClient<Invoice>(API_ENDPOINTS.billing.getById(id), {
-        method: "GET",
-      });
+      const res = await billingApi.getById(id);
       dispatch(hideLoader());
       const responseData: any = (res as any)?.data ?? res;
       return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -80,10 +78,7 @@ export const createInvoice = createAsyncThunk(
   async (payload: WritePayload<Invoice>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Invoice>(API_ENDPOINTS.billing.create, {
-        method: "POST",
-        body: payload.data,
-      });
+      const res = await billingApi.create(payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
       return map((res as any).data ?? res);
@@ -103,10 +98,7 @@ export const updateInvoice = createAsyncThunk(
   ) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Invoice>(
-        API_ENDPOINTS.billing.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await billingApi.update(payload.id, payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
       return map((res as any).data ?? res);
@@ -126,9 +118,7 @@ export const deleteInvoice = createAsyncThunk(
   ) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.billing.delete(payload.id), {
-        method: "DELETE",
-      });
+      await billingApi.remove(payload.id);
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -154,10 +144,7 @@ export const toggleInvoiceStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Invoice>(
-        API_ENDPOINTS.billing.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await billingApi.update(payload.id, { status: payload.status });
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",
@@ -200,6 +187,16 @@ const billingSlice = createSlice({
     },
     clearInvoices(s) {
       s.items = [];
+      s.status = "idle";
+    },
+    /**
+     * Mark the shared invoice snapshot stale after a billing write (doc §3.7/§17).
+     * The Billing screen keeps its own filtered list, so it cannot patch this
+     * snapshot directly; the next reader (Dashboard, patient detail, header
+     * search) refetches it exactly once instead of every screen refetching
+     * blindly after every payment.
+     */
+    invalidateInvoices(s) {
       s.status = "idle";
     },
   },
@@ -249,6 +246,7 @@ export const {
   upsertInvoice,
   removeInvoiceLocal,
   clearInvoices,
+  invalidateInvoices,
 } = billingSlice.actions;
 
 export default billingSlice.reducer;

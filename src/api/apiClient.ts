@@ -1,205 +1,29 @@
 /**
- * Ojas1 HIMS — the ONE API client.
+ * `apiClient(endpoint, config)` — the typed entry point every domain module
+ * uses, now backed by the single Axios client in `./axiosClient.ts` (doc §2,
+ * §10, Phase 1).
  *
- * `apiClient(endpoint, config)` is the only place the application performs
- * HTTP. It owns all common behaviour so no slice, service, hook or page has
- * to reimplement it:
+ *   page/component  →  src/api/<domain>Api.ts  →  apiClient  →  axiosClient  →  backend
  *
- *   • JSON request/response handling
- *   • Authorization header + access-token refresh (proactive & reactive)
- *   • Centralised HTTP error handling (401 / 403 / 404 / 422 / 500 …)
- *   • Session gate (nothing business-critical leaves the browser while the
- *     session is closed or a forced password change is pending)
- *   • Request timeout so an API can never hang the UI forever
- *   • Credentials/cookies ("include")
+ * It adds the two things the domain modules should not repeat:
+ *   • the session gate (a request never leaves the browser while the session is
+ *     closed or a forced password change is pending — it returns the empty
+ *     "cancelled" envelope the slices already understand);
+ *   • the legacy response contract (parsed JSON envelope, and `Error` objects
+ *     carrying `status` / `data` / `rawText` on failure) that every slice and
+ *     screen relies on.
  *
- * Where is the API?   → `api/endpoints.ts`
- * How do we call it?  → this file
- * What happens to state on success/failure? → `store/slices/*Slice.ts`
+ * Everything transport-related — base URL, auth header, interceptors, token
+ * refresh, timeouts, HTTP status handling — lives in `axiosClient.ts`.
  */
 
-import { buildApiUrl } from "./apiBaseUrl";
-import { API_ENDPOINTS } from "./endpoints";
 import type { ApiResponse } from "@/types";
-
-export const TOKEN_KEY = "authUserToken";
-const REFRESH_KEY = "authRefreshToken";
-const EXPIRY_MARGIN_MS = 30_000;
-const REQUEST_TIMEOUT_MS = 20_000;
-
-/* --------------------------- Token storage ------------------------------- */
-
-let token: string | null = (() => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
-    return stored?.accessToken ?? stored?.token ?? null;
-  } catch {
-    return null;
-  }
-})();
-
-let expiresAtMs: number | null = (() => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
-    return parseExpiry(stored?.expiresAt);
-  } catch {
-    return null;
-  }
-})();
-
-function parseExpiry(value: any): number | null {
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value === "number") return value > 1e12 ? value : value * 1000;
-  if (/^\d+$/.test(String(value))) {
-    const n = Number(value);
-    return n > 1e12 ? n : n * 1000;
-  }
-  const parsed = Date.parse(String(value));
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-export const setToken = (t: string | null) => {
-  token = t;
-};
-export const getToken = () => token;
-
-export function setRefreshToken(t: string | null | undefined) {
-  try {
-    if (t) localStorage.setItem(REFRESH_KEY, t);
-    else localStorage.removeItem(REFRESH_KEY);
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-export function getRefreshToken(): string | null {
-  try {
-    const direct = localStorage.getItem(REFRESH_KEY);
-    if (direct) return direct;
-    const stored = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null");
-    return stored?.refreshToken ?? stored?.user?.refreshToken ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export function clearRefreshToken() {
-  setRefreshToken(null);
-}
-
-export function setTokenExpiry(value: any) {
-  expiresAtMs = parseExpiry(value);
-}
-
-export function isTokenExpired() {
-  return !!token && expiresAtMs !== null && Date.now() >= expiresAtMs;
-}
-
-export function isTokenExpiringSoon() {
-  return (
-    !!token &&
-    expiresAtMs !== null &&
-    Date.now() >= expiresAtMs - EXPIRY_MARGIN_MS
-  );
-}
-
-/* --------------------------- Session gate -------------------------------- */
-
-/**
- * Single choke point for "may this request leave the browser?".
- * Wired once by <App/> (registerSessionGate) and reads live auth state:
- *   • signed out (logout)                      → only auth calls may run
- *   • signed in with forcePasswordChange: true → only auth calls may run
- *   • signed in normally                       → everything runs
- */
-export interface SessionGate {
-  signedIn: boolean;
-  mustChangePassword: boolean;
-}
-
-/** Carried by the (empty) response of a request the gate refused to send. */
-export const SESSION_CLOSED_MESSAGE = "Session closed — request skipped.";
-
-let readSessionGate: (() => SessionGate | null) | null = null;
-
-/** Registered once, at app start, so the client can read the auth state. */
-export function registerSessionGate(fn: () => SessionGate | null) {
-  readSessionGate = fn;
-}
-
-/**
- * Endpoints that stay callable while the gate is shut — sign-in, sign-out
- * and password change/reset. Everything else is skipped before the network.
- */
-const ALWAYS_ALLOWED_ENDPOINTS: string[] = [
-  API_ENDPOINTS.auth.login,
-  API_ENDPOINTS.auth.logout,
-  API_ENDPOINTS.auth.verifyOtp,
-  API_ENDPOINTS.password.change,
-  API_ENDPOINTS.password.forceChange,
-  API_ENDPOINTS.password.forgot,
-  API_ENDPOINTS.password.reset,
-  API_ENDPOINTS.password.resetWithCode,
-];
-
-/** true only when ordinary (non-auth) traffic is allowed right now. */
-export function isSessionUsable(): boolean {
-  const gate = readSessionGate?.() ?? null;
-  if (!gate) return true; // nothing wired yet → keep previous behaviour
-  return Boolean(token) && gate.signedIn && !gate.mustChangePassword;
-}
-
-function isRequestBlocked(url: string): boolean {
-  return !isSessionUsable() && !ALWAYS_ALLOWED_ENDPOINTS.includes(url);
-}
-
-/* --------------------- Token refresh coordination ------------------------ */
-
-let refreshPromise: Promise<boolean> | null = null;
-let runRefresh: (() => Promise<boolean>) | null = null;
-
-export function registerRefreshHandler(fn: () => Promise<boolean>) {
-  runRefresh = fn;
-}
-
-async function refreshOnce(): Promise<boolean> {
-  if (!runRefresh) return false;
-  if (!refreshPromise) {
-    refreshPromise = runRefresh().finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return refreshPromise;
-}
-
-export function startSessionWatchdog(intervalMs = 60_000) {
-  const timer = setInterval(async () => {
-    if (!token) return;
-    if (!isTokenExpiringSoon()) return;
-    const ok = await refreshOnce();
-    if (!ok && isTokenExpired()) {
-      forceLoginRedirect();
-    }
-  }, intervalMs);
-  return () => clearInterval(timer);
-}
-
-function forceLoginRedirect() {
-  localStorage.removeItem(TOKEN_KEY);
-  clearRefreshToken();
-  token = null;
-
-  const publicPaths = [
-    "/accounts/login",
-    "/accounts/forgot",
-    "/accounts/reset",
-  ];
-  if (publicPaths.some((p) => window.location.pathname.startsWith(p))) return;
-
-  window.location.replace(`/accounts/login?expired=1`);
-}
-
-/* ----------------------------- Core client ------------------------------- */
+import {
+  axiosClient,
+  buildRequestConfig,
+  isRequestBlocked,
+  SESSION_CLOSED_MESSAGE,
+} from "./axiosClient";
 
 export interface ApiRequestConfig {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -224,21 +48,27 @@ export interface ApiRequestConfig {
  * and service relies on.
  */
 /**
- * HTTP error carrying the raw response pieces (status, parsed body, raw text)
- * so screens can reproduce their exact legacy error messages.
+ * Duplicate-request guard for concurrent identical GETs (duplicate-call
+ * prevention — "do not make the same API request twice").
+ *
+ * React StrictMode double-invokes effects in development, and two widgets can
+ * ask for the same page-level resource in the same tick. When an identical GET
+ * (same endpoint + query + auth flags) is already in flight, the second caller
+ * receives that promise instead of opening a second socket. Writes are never
+ * shared, and the entry is dropped as soon as the request settles — so it can
+ * never serve a stale response.
  */
-function httpError(
-  message: string,
-  status: number,
-  data: any,
-  rawText: string | null,
-): Error {
-  const err: any = new Error(message);
-  err.status = status;
-  err.data = data;
-  err.rawText = rawText;
-  return err as Error;
-}
+const inFlightGets = new Map<string, Promise<any>>();
+
+/** Stable stringify (sorted keys) so param order cannot create two keys. */
+const stableKey = (value: any): string => {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableKey).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableKey(value[k])}`)
+    .join(",")}}`;
+};
 
 export const apiClient = async <T = any>(
   endpoint: string,
@@ -255,96 +85,72 @@ export const apiClient = async <T = any>(
     } as ApiResponse<T>;
   }
 
-  const queryString = config.params
-    ? "?" + new URLSearchParams(config.params as any).toString()
+  const isGet = (config.method ?? "GET") === "GET";
+  const key = isGet
+    ? `${endpoint} ${stableKey(config.params ?? null)} ${
+        config.skipAuth ? "anon" : "auth"
+      } ${config.skipRefresh ? "norefresh" : "refresh"}`
     : "";
-  const url = `${buildApiUrl(endpoint)}${queryString}`;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
+  if (key) {
+    const pending = inFlightGets.get(key);
+    if (pending) return pending as Promise<ApiResponse<T>>;
+  }
+
+  const run = async (): Promise<ApiResponse<T>> => {
+    const response = await axiosClient.request<any>(
+      buildRequestConfig(endpoint, config),
+    );
+
+    // `transformResponse` keeps the raw body (so error payloads stay intact);
+    // the JSON parsing the rest of the app expects happens right here.
+    const raw = response.data;
+    if (raw === undefined || raw === null || raw === "") {
+      return {} as ApiResponse<T>;
+    }
+    if (typeof raw !== "string") return raw as ApiResponse<T>;
+    try {
+      return JSON.parse(raw) as ApiResponse<T>;
+    } catch {
+      return {} as ApiResponse<T>;
+    }
   };
 
-  if (token && !config.skipAuth) {
-    headers["Authorization"] = `Bearer ${token}`;
+  const promise = run();
+  if (key) {
+    inFlightGets.set(key, promise);
+    const release = () => inFlightGets.delete(key);
+    promise.then(release, release);
   }
-  if (config.headers) Object.assign(headers, config.headers);
-
-  // 20s timeout so an API can never "stick" the UI
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  const fetchInit = (): RequestInit => ({
-    method: config.method ?? "GET",
-    headers,
-    body: config.body
-      ? typeof config.body === "string"
-        ? config.body
-        : JSON.stringify(config.body)
-      : undefined,
-    credentials: "include", // always allow cookies (refresh-token cookie)
-    signal: controller.signal,
-  });
-
-  try {
-    // Proactive refresh
-    if (token && !config.skipRefresh && isTokenExpiringSoon()) {
-      const ok = await refreshOnce();
-      if (!ok && isTokenExpired()) {
-        forceLoginRedirect();
-        throw new Error("Session expired. Please sign in again.");
-      }
-      if (ok && token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-    }
-
-    let response = await fetch(url, fetchInit());
-
-    // Reactive 401 refresh (only while the session is actually usable)
-    if (response.status === 401 && !config.skipRefresh && isSessionUsable()) {
-      const refreshed = await refreshOnce();
-      if (refreshed && token) {
-        headers["Authorization"] = `Bearer ${token}`;
-        response = await fetch(url, fetchInit());
-      } else {
-        forceLoginRedirect();
-        const data401 = await response.json().catch(() => ({}));
-        throw httpError(
-          data401?.message || "Session expired. Please sign in again.",
-          401,
-          data401,
-          null,
-        );
-      }
-    }
-
-    const rawText = await response.text().catch(() => "");
-    let data: any = {};
-    if (rawText) {
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        data = {};
-      }
-    }
-
-    if (!response.ok) {
-      const message =
-        data?.message || `Request failed with status ${response.status}`;
-      throw httpError(message, response.status, data, rawText || null);
-    }
-
-    return data as ApiResponse<T>;
-  } catch (error: any) {
-    if (error.name === "AbortError") {
-      throw new Error("Request timeout. Server did not respond.");
-    }
-    if (error?.status != null) throw error; // enriched HTTP error — keep payload
-    throw new Error(error?.message || "Network error");
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  return promise;
 };
 
 export default apiClient;
+
+/* -------------------------------------------------------------------------
+ * Transport helpers re-exported for the few non-domain consumers
+ * (`store/slices/authSlice.ts` token bookkeeping, `api/sessionBridge.ts`).
+ * They live in `axiosClient.ts`, which stays the single owner.
+ * ---------------------------------------------------------------------- */
+export {
+  TOKEN_KEY,
+  REQUEST_TIMEOUT_MS,
+  SESSION_CLOSED_MESSAGE,
+  setToken,
+  getToken,
+  setRefreshToken,
+  getRefreshToken,
+  clearRefreshToken,
+  setTokenExpiry,
+  isTokenExpired,
+  isTokenExpiringSoon,
+  registerSessionGate,
+  registerRefreshHandler,
+  startSessionWatchdog,
+  refreshOnce,
+  forceLoginRedirect,
+  isSessionUsable,
+  isRequestBlocked,
+  httpError,
+  type SessionGate,
+} from "./axiosClient";

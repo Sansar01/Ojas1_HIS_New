@@ -4,13 +4,21 @@ import { Dialog } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
 import { Input, SearchInput, fieldClasses } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  fetchServices,
+  fetchTariffs,
+  invalidateMasterDropdowns,
+  selectServices,
+  selectServicesStatus,
+  selectTariffs,
+  selectTariffsStatus,
+} from "@/store/slices/masterSlice";
 import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
 
 // Import backend services
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { masterApi } from "@/api/masterApi";
 import type { TariffMasterItem, ServiceMasterItem } from "@/types";
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -49,15 +57,26 @@ export function TariffMaster({
     null,
   );
 
-  // Data States
-  const [tariffs, setTariffs] = useState<TariffMasterItem[]>([]);
-  const [baseServices, setBaseServices] = useState<ServiceMasterItem[]>([]);
+  // Shared master data (doc §21) — the same cached catalogue Service Master
+  // shows, so a service added there is already here when this screen opens.
+  const tariffs = useAppSelector(selectTariffs) as TariffMasterItem[];
+  const baseServices = useAppSelector(selectServices) as ServiceMasterItem[];
+  const tariffsStatus = useAppSelector(selectTariffsStatus);
+  const servicesStatus = useAppSelector(selectServicesStatus);
+
+  // Page-only state: the rate matrix of the tariff being edited.
   const [ratesMap, setRatesMap] = useState<RateMap>({});
 
   // UI States
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  /** Table skeletons mirror the shared request lifecycle. */
+  const loading =
+    detailLoading ||
+    tariffsStatus === "loading" ||
+    servicesStatus === "loading";
 
   // Inline Form State (For adding new Tariff)
   const [newTariffName, setNewTariffName] = useState("");
@@ -65,36 +84,22 @@ export function TariffMaster({
   const [codeTouched, setCodeTouched] = useState(false); // 👈 Tracks if user manually edited code
 
   // ─── Data Fetching ────────────────────────────────────────────────
-  const loadTariffs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data: any = await apiClient(API_ENDPOINTS.masters.tariffs.list, {
-        method: "GET",
-      });
-      setTariffs(data);
-    } catch (error: any) {
-      dispatch(toast.error("Failed to load tariffs", error.message));
-    } finally {
-      setLoading(false);
-    }
-  }, [dispatch]);
+  // Shared list + guard live in `masterSlice` (§16); `force` re-reads it.
+  const loadTariffs = useCallback(
+    (force = false) => {
+      void dispatch(fetchTariffs(force) as any);
+    },
+    [dispatch],
+  );
 
   const loadServicesAndRates = useCallback(
     async (tariffId: string) => {
-      setLoading(true);
+      setDetailLoading(true);
       try {
-        const services: any = await apiClient(
-          API_ENDPOINTS.masters.services.list,
-          {
-            method: "GET",
-          },
-        );
-        setBaseServices(services);
+        // service catalogue comes from the shared cache (§21)
+        void dispatch(fetchServices() as any);
 
-        const tariffDetail: any = await apiClient(
-          API_ENDPOINTS.masters.tariffs.byId(tariffId),
-          { method: "GET" },
-        );
+        const tariffDetail: any = await masterApi.getTariff(tariffId);
 
         const initialRates: RateMap = {};
         tariffDetail.rates?.forEach((r: any) => {
@@ -107,7 +112,7 @@ export function TariffMaster({
       } catch (error: any) {
         dispatch(toast.error("Failed to load rates data", error.message));
       } finally {
-        setLoading(false);
+        setDetailLoading(false);
       }
     },
     [dispatch],
@@ -133,21 +138,20 @@ export function TariffMaster({
 
     setSaving(true);
     try {
-      await apiClient(API_ENDPOINTS.masters.tariffs.list, {
-        method: "POST",
-        body: {
-          tariffCode: newTariffCode.toUpperCase(),
-          tariffName: newTariffName,
-        },
+      await masterApi.createTariff({
+        tariffCode: newTariffCode.toUpperCase(),
+        tariffName: newTariffName,
       });
       dispatch(toast.success("Tariff created successfully"));
+      // the panel form's tariff reference list is stale now (§3.7)
+      dispatch(invalidateMasterDropdowns(["TARIFFS"]));
 
       // Reset Inputs
       setNewTariffName("");
       setNewTariffCode("");
       setCodeTouched(false);
 
-      loadTariffs();
+      loadTariffs(true);
     } catch (error: any) {
       dispatch(toast.error("Failed to create tariff", error.message));
     } finally {
@@ -158,11 +162,10 @@ export function TariffMaster({
   const handleDeleteTariff = async (id: string) => {
     if (!confirm("Are you sure you want to delete this Tariff?")) return;
     try {
-      await apiClient(API_ENDPOINTS.masters.tariffs.byId(id), {
-        method: "DELETE",
-      });
+      await masterApi.removeTariff(id);
       dispatch(toast.success("Tariff deleted"));
-      loadTariffs();
+      dispatch(invalidateMasterDropdowns(["TARIFFS"]));
+      loadTariffs(true);
     } catch (error: any) {
       dispatch(toast.error("Delete failed", error.message));
     }
@@ -203,13 +206,7 @@ export function TariffMaster({
           discountPercent: Number(data.discountPercent || 0),
         }));
 
-      await apiClient(
-        API_ENDPOINTS.masters.tariffs.ratesBulk(activeTariff.id),
-        {
-          method: "POST",
-          body: { rates: payload },
-        },
-      );
+      await masterApi.saveTariffRates(activeTariff.id, payload as any);
       dispatch(
         toast.success("Rates saved successfully", activeTariff.tariffName),
       );

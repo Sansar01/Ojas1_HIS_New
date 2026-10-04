@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Edit2, RotateCcw, X } from "lucide-react";
+import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Dialog } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
 import {
@@ -7,16 +7,18 @@ import {
   NumberInput,
   Select,
   SearchInput,
-  fieldClasses,
 } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { cn } from "@/utils/cn";
+import {
+  fetchServices,
+  selectServices,
+  selectServicesStatus,
+} from "@/store/slices/masterSlice";
 
 // Service Master API
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { masterApi } from "@/api/masterApi";
 import type { ServiceMasterItem, ServiceCategory } from "@/types";
 
 // Service Categories Dropdown Options
@@ -48,9 +50,12 @@ export function ServiceMaster({
 }) {
   const dispatch = useAppDispatch();
 
-  // Data & UI States
-  const [services, setServices] = useState<ServiceMasterItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  // Shared service catalogue — one cached copy for every master screen (§21)
+  const services = useAppSelector(selectServices) as ServiceMasterItem[];
+  const servicesStatus = useAppSelector(selectServicesStatus);
+  const loading = servicesStatus === "loading";
+
+  // UI States
   const [saving, setSaving] = useState(false);
 
   // Form State
@@ -65,19 +70,14 @@ export function ServiceMaster({
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
   // ─── 1. Load Services ─────────────────────────────────────────────
-  const loadServices = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data: any = await apiClient(API_ENDPOINTS.masters.services.list, {
-        method: "GET",
-      });
-      setServices(data);
-    } catch (error: any) {
-      dispatch(toast.error("Failed to load services", error?.message));
-    } finally {
-      setLoading(false);
-    }
-  }, [dispatch]);
+  // The thunk's `condition` decides whether this is a real request (§16);
+  // `force` is the explicit refresh after a write.
+  const loadServices = useCallback(
+    (force = false) => {
+      void dispatch(fetchServices(force) as any);
+    },
+    [dispatch],
+  );
 
   useEffect(() => {
     if (open) {
@@ -124,32 +124,26 @@ export function ServiceMaster({
     try {
       if (editingId) {
         // Edit Mode
-        await apiClient(API_ENDPOINTS.masters.services.byId(editingId), {
-          method: "PATCH",
-          body: {
-            serviceCode: form.serviceCode.toUpperCase().trim(),
-            serviceName: form.serviceName.trim(),
-            category: form.category,
-            baseRate: form.baseRate,
-          },
+        await masterApi.updateService(editingId, {
+          serviceCode: form.serviceCode.toUpperCase().trim(),
+          serviceName: form.serviceName.trim(),
+          category: form.category,
+          baseRate: form.baseRate,
         });
         dispatch(toast.success("Service updated successfully"));
       } else {
         // Create Mode
-        await apiClient(API_ENDPOINTS.masters.services.list, {
-          method: "POST",
-          body: {
-            serviceCode: form.serviceCode.toUpperCase().trim(),
-            serviceName: form.serviceName.trim(),
-            category: form.category,
-            baseRate: form.baseRate,
-          },
+        await masterApi.createService({
+          serviceCode: form.serviceCode.toUpperCase().trim(),
+          serviceName: form.serviceName.trim(),
+          category: form.category,
+          baseRate: form.baseRate,
         });
         dispatch(toast.success("Service added successfully"));
       }
 
       resetForm();
-      loadServices();
+      loadServices(true);
     } catch (error: any) {
       dispatch(toast.error("Could not save service", error?.message));
     } finally {
@@ -174,11 +168,9 @@ export function ServiceMaster({
       return;
 
     try {
-      await apiClient(API_ENDPOINTS.masters.services.byId(row.id), {
-        method: "DELETE",
-      });
+      await masterApi.removeService(row.id);
       dispatch(toast.success("Service deleted"));
-      loadServices();
+      loadServices(true);
     } catch (error: any) {
       dispatch(toast.error("Delete failed", error?.message));
     }

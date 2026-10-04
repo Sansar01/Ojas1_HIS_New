@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useSidebarSync } from "@/hooks";
 import { setMobileNav, setSidebar } from "@/store/slices/uiSlice";
-import { bootstrapResources } from "@/store";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
 import { LoaderOverlay } from "@/components/ui/feedback";
@@ -19,10 +18,9 @@ export function DashboardLayout() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
-  useEffect(() => {
-    dispatch(bootstrapResources() as any);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+  // The shell owns no page data (API/Redux strategy): every page fetches what
+  // it renders, and the cache-guarded thunks keep that to one request per
+  // session. The header's refresh action is `refreshLoadedResources()`.
 
   return (
     <div className="app-grid-bg flex h-screen overflow-hidden bg-ink-25 text-ink-800">
@@ -63,8 +61,6 @@ export function DashboardLayout() {
           className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
         >
           <div className="mx-auto w-full max-w-[1600px]">
-            {/* inline (non-modal) create/edit forms are mounted here */}
-            <div id="portal-form" />
             <Outlet />
           </div>
         </main>

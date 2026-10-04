@@ -6,10 +6,8 @@
  *       ├── loading / ready    (permission-resolution state)
  *       └── error
  *
- * Lookup helpers (selector factories):
- *
- *   const canAccessPatients = useAppSelector(selectCanAccess("patients"));
- *   const canSeeReports     = useAppSelector(selectHasFeature("reports", "EXPORT"));
+ * Runtime lookups go through `usePermission()` (`@/hooks`), which reads
+ * `selectPermissionSource` plus the module catalogue.
  *
  * Answers "what is the user allowed to access?" — built on the runtime
  * module catalogue (`moduleSlice`) and the resolved entitlements, with the
@@ -20,8 +18,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { Permission } from "@/types";
 import type { RootState } from "@/store/types";
-import { canAccessModule, hasFeature } from "@/utils/permissions";
-import { fetchModules } from "./moduleSlice";
 import { Entitlements } from "@/types/moduleTypes";
 
 interface PermissionState {
@@ -53,6 +49,15 @@ export const loadUserPermissions = createAsyncThunk(
     const user = state.auth.session?.user ?? null;
     return (user?.permissions ?? {}) as Partial<Record<string, Permission[]>>;
   },
+  {
+    // duplicate-request protection (doc §47) — one resolve per session
+    condition: (_, { getState }) => {
+      const state = getState() as RootState;
+      if (state.permission.loading) return false;
+      if (state.permission.status === "succeeded") return false;
+      return true;
+    },
+  },
 );
 
 const permissionSlice = createSlice({
@@ -69,27 +74,27 @@ const permissionSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      // permission resolution follows the module catalogue lifecycle
-      .addCase(fetchModules.pending, (state) => {
+      // The permission resolve step owns its own lifecycle (doc §44):
+      // modules live in `moduleSlice`, permissions here — the bootstrap
+      // sequence is what orders them (see bootstrapSlice).
+      .addCase(loadUserPermissions.pending, (state) => {
         state.status = "loading";
         state.loading = true;
         state.ready = false;
         state.error = null;
       })
-      .addCase(fetchModules.fulfilled, (state) => {
+      .addCase(loadUserPermissions.fulfilled, (state, action) => {
         state.status = "succeeded";
         state.loading = false;
         state.ready = true;
+        state.userPermissions = action.payload ?? {};
       })
-      .addCase(fetchModules.rejected, (state, action) => {
+      .addCase(loadUserPermissions.rejected, (state, action) => {
         state.status = "failed";
         state.loading = false;
         state.ready = true;
         state.error =
           (action.payload as string) ?? "Unable to load permissions";
-      })
-      .addCase(loadUserPermissions.fulfilled, (state, action) => {
-        state.userPermissions = action.payload ?? {};
       });
   },
 });
@@ -120,17 +125,5 @@ export const selectPermissionSource = (
     ? { userType: userType ?? undefined, modules: dynamicModules }
     : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
 };
-
-/** Can the user run `action` on `module`? */
-export const selectCanAccess =
-  (module: string, action: Permission = "view") =>
-  (state: RootState): boolean =>
-    canAccessModule(selectPermissionSource(state), module, action);
-
-/** Does the user's module carry a specific feature code? */
-export const selectHasFeature =
-  (moduleCode: string, featureCode: string) =>
-  (state: RootState): boolean =>
-    hasFeature(selectPermissionSource(state), moduleCode, featureCode);
 
 export default permissionSlice.reducer;

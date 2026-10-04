@@ -20,23 +20,6 @@ export interface ApiResponse<T> {
    *  session is waiting on a forced password change (no request was sent) */
   cancelled?: boolean;
 }
-
-export interface ListQuery {
-  search?: string;
-  filters?: Record<string, string>;
-  sortBy?: string;
-  sortDir?: "asc" | "desc";
-  page?: number;
-  pageSize?: number;
-}
-
-export interface Paginated<T> {
-  rows: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
 /* ----------------------- shared list/crud state -------------------------- */
 
 /** Shape kept by every collection slice (patients, users, appointments…). */
@@ -51,9 +34,4 @@ export interface CrudState<T = any> {
 export interface WritePayload<T> {
   data: Partial<T> & { id?: string };
   successMessage?: string;
-}
-
-export interface ListPayload {
-  search?: string;
-  filters?: Record<string, string>;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -31,7 +31,14 @@ import {
   guardianRelations,
 } from "@/constants";
 import type { Patient } from "@/types";
-import { panelService } from "@/features/masters/panelService";
+import {
+  fetchMasterDropdown,
+  selectMasterDropdown,
+} from "@/store/slices/masterSlice";
+import {
+  toBackendBloodGroup,
+  toDisplayBloodGroup,
+} from "@/utils/bloodGroup";
 
 /* ── HELPERS ────────────────────────────────────────────────── */
 
@@ -105,13 +112,6 @@ function calcAgeFromDob(dobStr: string): { age: number; unit: "years" | "months"
   return { age: years, unit: "years" };
 }
 
-function displayBloodGroup(bg?: string) {
-  return String(bg ?? "O+")
-    .toUpperCase()
-    .replace("_POSITIVE", "+")
-    .replace("_NEGATIVE", "-");
-}
-
 function titleCase(s?: string) {
   if (!s) return "";
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -162,21 +162,28 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isEdit = Boolean(patient?.id);
-  const departments = useAppSelector(
-    (state) =>
-      state.departments.items &&
-      state.departments.items.filter((x) => x.isActive === true),
-  );
-
   const departments =
-    useRootSelector((s) =>
+    useAppSelector((s) =>
       (s.departments.items ?? []).filter((x) => x.isActive === true),
     ) ?? [];
 
-  const [panels, setPanels] = useState<{ value: string; label: string }[]>([]);
+  // Panel (insurance/TPA) dropdown — master/reference data owned by the master
+  // domain and cached in Redux, so this form and the panel screens read ONE
+  // copy (doc §21). The merge had dropped this call, which left the panel
+  // selector empty on the registration form.
+  const panelRows = useAppSelector(selectMasterDropdown("PANELS"));
+  const panels = useMemo(
+    () =>
+      (panelRows as any[]).map((p: any) => ({
+        value: p.id,
+        label: p.panelName,
+      })),
+    [panelRows],
+  );
 
   useEffect(() => {
     dispatch(fetchDepartments() as any);
+    void dispatch(fetchMasterDropdown({ key: "PANELS" }) as any);
   }, [dispatch]);
 
   const p = patient as any;
@@ -188,7 +195,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     dateOfBirth: patient?.dateOfBirth?.slice(0, 10) ?? "",
     age: Number(p?.ageAtRegistration ?? p?.age ?? 0),
     ageUnit: p?.ageUnit ?? "years",
-    bloodGroup: displayBloodGroup(patient?.bloodGroup),
+    bloodGroup: toDisplayBloodGroup(patient?.bloodGroup ?? "O+"),
     maritalStatus: patient?.maritalStatus
       ? titleCase(patient.maritalStatus)
       : "Single",
@@ -336,10 +343,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       firstName: values.firstName,
       lastName: values.lastName,
       gender: values.gender.toUpperCase(),
-      bloodGroup: values.bloodGroup
-        .replace("+", "_POSITIVE")
-        .replace("-", "_NEGATIVE")
-        .toUpperCase(),
+      bloodGroup: toBackendBloodGroup(values.bloodGroup),
       maritalStatus: values.maritalStatus.toUpperCase(),
       ageAtRegistration: Number(values.age) || 0,
       ageUnit: values.ageUnit || "years",

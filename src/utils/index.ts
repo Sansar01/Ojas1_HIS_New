@@ -1,4 +1,3 @@
-import { addDays } from "@/data/db";
 import type { Appointment, Doctor, Invoice, ScheduleDay } from "@/types";
 
 /* --------------------------- formatting helpers --------------------------- */
@@ -78,8 +77,6 @@ export const calcAge = (
   return `${Math.max(0, years)} yrs`;
 };
 
-export const initials = (first = "", last = "") =>
-  `${first.trim().charAt(0)}${last.trim().charAt(0)}`.toUpperCase() || "??";
 
 export const fullName = (
   p?: { firstName?: string; lastName?: string } | null,
@@ -109,13 +106,18 @@ export const downloadText = (
   setTimeout(() => URL.revokeObjectURL(url), 400);
 };
 
-export const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+/** ISO date (YYYY-MM-DD) `days` away from `base`. */
+export const addDays = (base: Date, days: number): string => {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 };
 
-export const todayISO = () => addDays(new Date(), 0);
+export const todayISO = (): string => addDays(new Date(), 0);
+
+/** Stable-enough local id for rows created in the UI (prescription lines, …). */
+export const idGen = (prefix: string) =>
+  `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 
 /* ------------------------- invoice & money maths ------------------------- */
 
@@ -149,18 +151,6 @@ export function invoiceTotals(
     paid,
     remaining: Math.max(0, total - paid),
   };
-}
-
-export function derivePaymentStatus(
-  total: number,
-  paid: number,
-  current?: string,
-): Invoice["paymentStatus"] {
-  if (current === "Cancelled") return "Cancelled";
-  if (current === "Refunded") return "Refunded";
-  if (paid <= 0) return "Pending";
-  if (paid >= total) return "Paid";
-  return "Partially Paid";
 }
 
 /* --------------------- appointment slot generation engine ---------------- */
@@ -234,18 +224,5 @@ export function generateSlots(
   return slots;
 }
 
-export function nextAvailableDate(
-  doctor: Doctor | undefined,
-  appointments: Appointment[],
-) {
-  for (let i = 0; i < 21; i++) {
-    const date = addDays(new Date(), i);
-    const slots = generateSlots(doctor, date, appointments);
-    if (slots.some((s) => s.state === "available")) return date;
-  }
-  return addDays(new Date(), 0);
-}
-
 export const range = (n: number) => Array.from({ length: n }, (_, i) => i);
 
-export { addDays };

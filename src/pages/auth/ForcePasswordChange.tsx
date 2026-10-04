@@ -114,12 +114,8 @@ export function ForcePasswordChange() {
         }),
       ).unwrap();
 
-      // // Password replaced → end the session and make the user sign in again
-      // // with the new credentials (the flag is already cleared, so the login
-      // // screen will send them straight to the dashboard afterwards).
-      // dispatch(logoutRequest()); // best-effort: clear the refresh cookie
-      // dispatch(clearModules());
-      // dispatch(logout()); // clears the session + localStorage (no toast)
+      // Password replaced — the session is deliberately kept alive and the user
+      // is sent to the login screen (the force-password flag is already cleared).
       navigate("/accounts/login", { replace: true });
     } catch (error: any) {
       const message =

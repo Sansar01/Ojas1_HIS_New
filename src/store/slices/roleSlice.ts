@@ -16,8 +16,8 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { roleApi } from "@/api/roleApi";
+import { permissionApi } from "@/api/permissionApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type {
   CrudState,
@@ -39,9 +39,7 @@ export const fetchRoles = createAsyncThunk(
   async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Role[]>(API_ENDPOINTS.roles.list, {
-        method: "GET",
-      });
+      const res = await roleApi.list();
       dispatch(hideLoader());
 
       const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -56,9 +54,11 @@ export const fetchRoles = createAsyncThunk(
     }
   },
   {
-    condition: (force, { getState }) => {
+    condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return Boolean(force) || state.roles.status !== "loading";
+      if (state.roles.status === "loading") return false;
+      if (force) return true;
+      return state.roles.status === "idle" || state.roles.status === "error";
     },
   },
 );
@@ -68,9 +68,7 @@ export const fetchRole = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading roles record"));
     try {
-      const res = await apiClient<Role>(API_ENDPOINTS.roles.getById(id), {
-        method: "GET",
-      });
+      const res = await roleApi.getById(id);
       dispatch(hideLoader());
       const responseData: any = (res as any)?.data ?? res;
       return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -87,10 +85,7 @@ export const createRole = createAsyncThunk(
   async (payload: WritePayload<Role>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Role>(API_ENDPOINTS.roles.create, {
-        method: "POST",
-        body: payload.data,
-      });
+      const res = await roleApi.create(payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
       return map((res as any).data ?? res);
@@ -110,10 +105,7 @@ export const updateRole = createAsyncThunk(
   ) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Role>(
-        API_ENDPOINTS.roles.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await roleApi.update(payload.id, payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
       return map((res as any).data ?? res);
@@ -133,9 +125,7 @@ export const deleteRole = createAsyncThunk(
   ) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.roles.delete(payload.id), {
-        method: "DELETE",
-      });
+      await roleApi.remove(payload.id);
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -161,10 +151,7 @@ export const toggleRoleStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Role>(
-        API_ENDPOINTS.roles.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await roleApi.update(payload.id, { status: payload.status });
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",
@@ -276,10 +263,7 @@ export const fetchRoleMasterCatalog = createAsyncThunk(
   "roles/fetchMasterCatalog",
   async (_, { rejectWithValue }) => {
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.roles.masterCatalog,
-        { method: "GET" },
-      );
+      const response: any = await roleApi.masterCatalog();
       const data = response?.data ?? response;
       return (Array.isArray(data) ? data : data?.rows ??
         []) as RoleMasterCatalogItem[];
@@ -305,10 +289,7 @@ export const createHospitalRole = createAsyncThunk(
   ) => {
     dispatch(showLoader("Creating role"));
     try {
-      const response = await apiClient(API_ENDPOINTS.roles.create, {
-        method: "POST",
-        body: payload,
-      });
+      const response = await roleApi.create(payload);
       dispatch(hideLoader());
       dispatch(toast.success("Role created"));
       return (response as any).data;
@@ -335,12 +316,9 @@ export const updateRolePermissions = createAsyncThunk(
   ) => {
     dispatch(showLoader("Saving role permissions"));
     try {
-      const response = await apiClient(
-        API_ENDPOINTS.permissions.byRole(payload.roleId),
-        {
-          method: "PUT",
-          body: { moduleFeatures: payload.moduleFeatures },
-        },
+      const response = await permissionApi.updateByRole(
+        payload.roleId,
+        payload.moduleFeatures,
       );
       dispatch(hideLoader());
       dispatch(
@@ -364,10 +342,7 @@ export const fetchRolePermissions = createAsyncThunk(
   "roles/fetchPermissions",
   async (roleId: string, { rejectWithValue }) => {
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.permissions.byRole(roleId),
-        { method: "GET" },
-      );
+      const response: any = await permissionApi.getByRole(roleId);
       const data = response?.data ?? response;
       return (Array.isArray(data) ? data : data?.rows ??
         []) as RolePermissionAssignment[];

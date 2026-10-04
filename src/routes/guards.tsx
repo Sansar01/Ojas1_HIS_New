@@ -3,6 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
 import { selectMustChangePassword, selectUser } from "@/store/slices/authSlice";
+import { selectBootstrapReady, selectBootstrapStatus } from "@/store/slices/bootstrapSlice";
 import { useAppSelector } from "@/store/hooks";
 import {
   ForbiddenState,
@@ -67,6 +68,7 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const user = useAppSelector(selectUser);
   const mustChange = useAppSelector(selectMustChangePassword);
+  const bootstrapReady = useAppSelector(selectBootstrapReady);
 
   if ((status === "idle" || status === "restoring") && !user) {
     return <Splash label="Checking authentication" />;
@@ -74,7 +76,16 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
 
   if (user)
     return (
-      <Navigate to={mustChange ? FORCE_PASSWORD_PATH : "/dashboard"} replace />
+      <Navigate
+        to={
+          mustChange
+            ? FORCE_PASSWORD_PATH
+            : bootstrapReady
+              ? "/dashboard"
+              : "/permission"
+        }
+        replace
+      />
     );
   return <>{children}</>;
 }
@@ -98,8 +109,59 @@ export function RequirePasswordChange({
     return <Navigate to="/accounts/login" replace />;
   }
   if (!mustChange) {
-    return <Navigate to="/dashboard" replace />;
+    // no forced change pending → normal path: the bootstrap stage
+    return <Navigate to="/permission" replace />;
   }
+  return <>{children}</>;
+}
+
+/**
+ * Application bootstrap gate (doc §37–52).
+ * ----------------------------------------
+ * Wrap the whole protected application in it: it is the one place that
+ * enforces
+ *
+ *   authenticated
+ *   AND modules loaded
+ *   AND permissions loaded
+ *
+ * before any protected page (or the sidebar inside it) is rendered.
+ *
+ * While the bootstrap stage has not reported `ready`, the visitor is sent to
+ * `/permission` — carrying the route they asked for so the bootstrap can
+ * return them there (§49). A hard refresh lands here with `bootstrap: idle`,
+ * so the flow re-runs instead of trusting a token in localStorage (§41).
+ */
+export function RequireBootstrap({ children }: { children: React.ReactNode }) {
+  const status = useAuthStatus();
+  const session = useAppSelector(selectUser);
+  const bootstrapStatus = useAppSelector(selectBootstrapStatus);
+  const location = useLocation();
+
+  if ((status === "restoring" || status === "idle") && !session) {
+    return <Splash />;
+  }
+
+  if (!session) {
+    return (
+      <Navigate
+        to="/accounts/login"
+        state={{ from: location.pathname + location.search }}
+        replace
+      />
+    );
+  }
+
+  if (bootstrapStatus !== "ready") {
+    return (
+      <Navigate
+        to="/permission"
+        state={{ from: location.pathname + location.search }}
+        replace
+      />
+    );
+  }
+
   return <>{children}</>;
 }
 
@@ -176,21 +238,4 @@ export function ModuleRoute({
   }
 
   return <>{children}</>;
-}
-
-/** Inline permission gate for buttons, rows and menu items. */
-export function PermissionGuard({
-  module,
-  action = "view",
-  children,
-  fallback = null,
-}: {
-  /** module key exactly as the entitlements API spells it */
-  module: string;
-  action?: Permission;
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
-}) {
-  const { can } = usePermission();
-  return <>{can(module, action) ? children : fallback}</>;
 }

@@ -16,7 +16,11 @@ import { APP_NAME } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useCurrentUser, usePermission } from "@/hooks";
 import { setMobileNav } from "@/store/slices/uiSlice";
-import { bootstrapResources } from "@/store";
+import { refreshLoadedResources } from "@/store";
+import { fetchPatients } from "@/store/slices/patientSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchInvoices } from "@/store/slices/billingSlice";
+import { fetchActivities } from "@/store/slices/activitySlice";
 import { Badge, Button, IconButton, Avatar } from "@/components/ui/primitives";
 import {
   DropdownMenu,
@@ -42,6 +46,17 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useCurrentUser();
+
+  /**
+   * The account's role label. Deployments differ: some return a denormalised
+   * string on `user.role`, others an object ({ id, name, slug }). The rest of
+   * the app already reads both shapes (see `usePermission`), so render a label
+   * either way — an object here used to crash the whole shell.
+   */
+  const roleLabel =
+    typeof user?.role === "string"
+      ? user.role
+      : ((user?.role as any)?.name ?? (user?.role as any)?.slug ?? "");
   const activities = useAppSelector((s) => s.activities.items);
   const { isSuperAdmin } = usePermission();
   const now = useClock();
@@ -139,7 +154,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
       <IconButton
         label="Refresh data"
         variant="ghost"
-        onClick={() => dispatch(bootstrapResources() as any)}
+        onClick={() => dispatch(refreshLoadedResources() as any)}
       >
         <RefreshCw />
       </IconButton>
@@ -150,6 +165,10 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
           <button
             className="relative grid size-9.5 place-items-center rounded-lg text-ink-600 transition-colors hover:bg-ink-50"
             aria-label="Notifications"
+            // lazy: the feed is page/widget data, so it is requested when the
+            // menu is actually opened — never on application start (strategy
+            // rule: no blanket preloading), and the guard reuses it after.
+            onClick={() => dispatch(fetchActivities() as any)}
           >
             <Bell className="size-4.5" />
             {unread.length > 0 && (
@@ -210,7 +229,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
                 {user?.firstName} {user?.lastName}
               </span>
               <span className="block text-[10.5px] text-ink-400">
-                {user?.role}
+                {roleLabel}
               </span>
             </span>
             <ChevronRight className="hidden size-3.5 rotate-90 text-ink-400 lg:block" />
@@ -226,7 +245,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <Badge tone="brand" size="xs">
-              {user?.role}
+              {roleLabel}
             </Badge>
             {isSuperAdmin && (
               <Badge tone="ink" size="xs">
@@ -250,7 +269,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
             <UserRound className="size-4" /> Profile & facility
           </MenuItem>
           <MenuItem
-            onSelect={() => dispatch(bootstrapResources() as any)}
+            onSelect={() => dispatch(refreshLoadedResources() as any)}
             className={menuItemClass()}
           >
             <LifeBuoy className="size-4" /> Sync portal data
@@ -281,6 +300,10 @@ const labelFromSegment = (seg: string) =>
       ? "Record"
       : seg.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+/** Invoice number in whatever shape the backend sent (no crash on missing). */
+const invoiceNo = (i: any): string =>
+  String(i?.number ?? i?.invoiceNumber ?? i?.code ?? i?.billNo ?? "");
+
 export function GlobalSearch({
   open,
   onClose,
@@ -290,10 +313,21 @@ export function GlobalSearch({
 }) {
   const [term, setTerm] = useState("");
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
   const patients = useAppSelector((s) => s.patients.items);
   const doctors = useAppSelector((s) => s.doctors.items);
   const invoices = useAppSelector((s) => s.invoices.items);
   const [results, setResults] = useState<any[]>([]);
+
+  // Lazy load: the collections behind global search are page-level data, so
+  // they are requested the first time the palette is opened instead of at
+  // application start. The guards make repeats free.
+  useEffect(() => {
+    if (!open) return;
+    dispatch(fetchPatients() as any);
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchInvoices() as any);
+  }, [open, dispatch]);
 
   useEffect(() => {
     if (!term.trim()) return setResults([]);
@@ -324,12 +358,14 @@ export function GlobalSearch({
         }),
       );
     invoices
-      .filter((i: any) => i.number.toLowerCase().includes(q))
+      // backend shape varies between deployments: `number`, `invoiceNumber`,
+      // `code` (see billingApi) or the display field `billNo`.
+      .filter((i: any) => invoiceNo(i).toLowerCase().includes(q))
       .slice(0, 3)
       .forEach((i: any) =>
         out.push({
-          label: i.number,
-          meta: `Invoice · ${i.paymentStatus}`,
+          label: invoiceNo(i) || `Invoice ${i.id}`,
+          meta: `Invoice · ${i.paymentStatus ?? i.billStatus ?? "—"}`,
           to: `/billing?invoice=${i.id}`,
         }),
       );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Eye,
@@ -23,6 +23,7 @@ import { toast } from "@/store/slices/uiSlice";
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const status = useAuthStatus();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -42,14 +43,22 @@ export function LoginPage() {
     },
   });
 
-  const goToDashboard = (payload: any) => {
+  /**
+   * Authentication success never opens the Dashboard directly (doc §37/§49).
+   * Session restore and this hand-off both enter the `/permission` bootstrap
+   * stage; that page loads modules → permissions and only then forwards the
+   * user to the route they originally asked for (or /dashboard).
+   */
+  const goToBootstrap = (payload: any) => {
     form.reset();
     // The backend tells us whether a new password is required first.
     const mustChangePassword = Boolean(
       payload?.forcePasswordChange ?? payload?.user?.forcePasswordChange,
     );
-    navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/dashboard", {
+    const from = (location.state as { from?: string } | null)?.from;
+    navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/permission", {
       replace: true,
+      state: from ? { from } : undefined,
     });
   };
 
@@ -74,7 +83,7 @@ export function LoginPage() {
         );
         return;
       }
-      goToDashboard(result.payload);
+      goToBootstrap(result.payload);
     } else {
       const message =
         (result.payload as string) ||
@@ -97,7 +106,7 @@ export function LoginPage() {
       verifyOtp({ ...otpChallenge, code: code }),
     );
     if (verifyOtp.fulfilled.match(result)) {
-      goToDashboard(result.payload);
+      goToBootstrap(result.payload);
     } else {
       dispatch(
         toast.error(
@@ -108,10 +117,6 @@ export function LoginPage() {
       );
     }
   };
-
-  // const fillDemo = (account: (typeof DEMO)[number]) => {
-  //   form.setMany({ email: account.email, password: account.password });
-  // };
 
   return (
     <AuthLayout

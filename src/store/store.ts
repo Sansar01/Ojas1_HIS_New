@@ -6,6 +6,8 @@
  *   auth            → who is the user? (login / OTP / session)
  *   modules         → which modules may they open? (moduleSlice)
  *   permission      → what may they do inside them? (permissionSlice)
+ *   bootstrap       → did the post-login /permission stage finish?
+ *   master          → shared master/reference data (services, tariffs, dropdowns)
  *   users / roles / patients / doctors / departments / specializations
  *   appointments / consultations / invoices / activities / hospital
  *   ui              → toasts, loader, sidebar
@@ -19,6 +21,8 @@ import { configureStore } from "@reduxjs/toolkit";
 import authReducer from "./slices/authSlice";
 import moduleReducer from "./slices/moduleSlice";
 import permissionReducer from "./slices/permissionSlice";
+import bootstrapReducer from "./slices/bootstrapSlice";
+import masterReducer from "./slices/masterSlice";
 import uiReducer from "./slices/uiSlice";
 import userReducer from "./slices/userSlice";
 import roleReducer from "./slices/roleSlice";
@@ -36,11 +40,21 @@ import hospitalReducer from "./slices/hospitalSlice";
 
 import { authListenerMiddleware } from "./authListener";
 
+import { fetchPatients } from "./slices/patientSlice";
+import { fetchDoctors } from "./slices/doctorSlice";
+import { fetchDepartments } from "./slices/departmentSlice";
+import { fetchAppointments } from "./slices/appointmentSlice";
+import { fetchConsultations } from "./slices/consultationSlice";
+import { fetchInvoices } from "./slices/billingSlice";
+import { fetchActivities } from "./slices/activitySlice";
+
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     modules: moduleReducer,
     permission: permissionReducer,
+    bootstrap: bootstrapReducer,
+    master: masterReducer,
     ui: uiReducer,
     users: userReducer,
     roles: roleReducer,
@@ -69,7 +83,35 @@ export type AppThunk<R = void> = (
   getState: () => RootState,
 ) => R | Promise<R>;
 
-/** Loads every collection for the signed-in session (shared by all pages). */
-export const bootstrapResources = (): AppThunk => async (_dispatch) => {
-  // intentionally empty — pages load what they need via their slices
-};
+/**
+ * Refresh-on-demand for the header controls — implements the API/Redux
+ * data-fetching strategy rule:
+ *
+ *   "Use API calls for page-specific data when the page renders. Use Redux for
+ *    data that genuinely needs to be shared or reused across
+ *    components/workflows. Do not preload every API on startup or refresh."
+ *
+ * The shell therefore loads **nothing** by itself. Every page dispatches the
+ * guarded thunks for the collections it renders (patients, appointments,
+ * doctors, consultations, invoices, activities, departments, …) and, because
+ * those thunks are cache-guarded, the same dataset is fetched at most once per
+ * session no matter how many pages, modals or widgets need it.
+ *
+ * This helper is what the header's "Refresh data" / "Sync portal data" actions
+ * call instead of a blanket bootstrap: it force-refetches **only the
+ * collections that are already in memory**, so a refresh updates what the user
+ * is actually looking at and never pulls in an unrelated dataset.
+ */
+export const refreshLoadedResources = (): AppThunk =>
+  async (dispatch, getState) => {
+    const s = getState() as RootState;
+    const loaded = (status: string) => status !== "idle";
+    if (loaded(s.patients.status)) dispatch(fetchPatients(true) as any);
+    if (loaded(s.doctors.status)) dispatch(fetchDoctors(true) as any);
+    if (loaded(s.departments.status)) dispatch(fetchDepartments(true) as any);
+    if (loaded(s.appointments.status)) dispatch(fetchAppointments(true) as any);
+    if (loaded(s.consultations.status))
+      dispatch(fetchConsultations(true) as any);
+    if (loaded(s.invoices.status)) dispatch(fetchInvoices(true) as any);
+    if (loaded(s.activities.status)) dispatch(fetchActivities(true) as any);
+  };

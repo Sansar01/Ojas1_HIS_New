@@ -16,8 +16,7 @@ import {
     createSlice,
     type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { userApi } from "@/api/userApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -33,9 +32,7 @@ export const fetchUsers = createAsyncThunk(
     async (_: void, { dispatch }) => {
         dispatch(showLoader("Loading"));
         try {
-            const res = await apiClient<User[]>(API_ENDPOINTS.users.list, {
-                method: "GET",
-            });
+            const res = await userApi.getAll();
             dispatch(hideLoader());
 
             const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -62,9 +59,7 @@ export const fetchUser = createAsyncThunk(
     async (id: string, { dispatch }) => {
         dispatch(showLoader("Loading users record"));
         try {
-            const res = await apiClient<User>(API_ENDPOINTS.users.getById(id), {
-                method: "GET",
-            });
+            const res = await userApi.getById(id);
             dispatch(hideLoader());
             const responseData: any = (res as any)?.data ?? res;
             return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -81,10 +76,7 @@ export const createUser = createAsyncThunk(
     async (payload: WritePayload<User>, { dispatch }) => {
         dispatch(showLoader("Creating record"));
         try {
-            const res = await apiClient<User>(API_ENDPOINTS.users.create, {
-                method: "POST",
-                body: payload.data,
-            });
+            const res = await userApi.create(payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Record created"));
             return map((res as any).data ?? res);
@@ -104,10 +96,7 @@ export const updateUser = createAsyncThunk(
     ) => {
         dispatch(showLoader("Saving changes"));
         try {
-            const res = await apiClient<User>(
-                API_ENDPOINTS.users.update(payload.id),
-                { method: "PATCH", body: payload.data },
-            );
+            const res = await userApi.update(payload.id, payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Changes saved"));
             return map((res as any).data ?? res);
@@ -127,9 +116,7 @@ export const deleteUser = createAsyncThunk(
     ) => {
         dispatch(showLoader("Deleting record"));
         try {
-            await apiClient(API_ENDPOINTS.users.delete(payload.id), {
-                method: "DELETE",
-            });
+            await userApi.remove(payload.id);
             dispatch(hideLoader());
             dispatch(
                 toast.success(
@@ -155,10 +142,7 @@ export const toggleUserStatus = createAsyncThunk(
         { dispatch },
     ) => {
         try {
-            const res = await apiClient<User>(
-                API_ENDPOINTS.users.update(payload.id),
-                { method: "PATCH", body: { status: payload.status } },
-            );
+            const res = await userApi.update(payload.id, { status: payload.status });
             dispatch(
                 toast.info(
                     payload.status === "active" ? "Marked active" : "Marked inactive",

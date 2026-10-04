@@ -18,17 +18,17 @@ export const API_BASE_URL: string =
   "https://cloud-his-backend.onrender.com";
 
 /**
- * Join an endpoint path from `endpoints.ts` with the base URL.
- * Handles a trailing slash on the base and an accidental duplicate `/api`
- * segment when the base URL already ends with `/api`.
+ * The request path relative to the base URL — used by the Axios client, whose
+ * `baseURL` is `API_BASE_URL`. It applies the same duplicate-`/api` rule as
+ * `buildApiUrl` below, so both produce exactly the same final URL.
  */
-export const buildApiUrl = (endpoint: string): string => {
+export const toRequestPath = (endpoint: string): string => {
   const base = API_BASE_URL.replace(/\/$/, "");
   const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   if (base.endsWith("/api") && path.startsWith("/api/")) {
-    return `${base}${path.substring(4)}`;
+    return path.substring(4);
   }
-  return `${base}${path}`;
+  return path;
 };
 
 export default API_BASE_URL;

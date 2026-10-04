@@ -14,8 +14,8 @@
  */
 
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { moduleApi } from "@/api/moduleApi";
+import type { RootState } from "@/store/types";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import { EntitlementModule } from "@/types/moduleTypes";
 
@@ -35,16 +35,26 @@ const initialState: ModuleState = {
   error: null,
 };
 
-/** Load the module catalogue (+ features) granted to the current user. */
+/**
+ * Load the module catalogue (+ features) granted to the current user.
+ *
+ * Dispatched by `/permission` — the single bootstrap owner (doc §43, §48).
+ * The `condition` guard (doc §47) makes StrictMode double-mounts, route
+ * transitions and refreshes harmless:
+ *
+ *   already loading?  -> stop
+ *   already loaded?   -> stop
+ *   idle / failed?    -> request
+ *
+ * A browser refresh starts from a fresh store, so the guard is `idle` and the
+ * flow runs again — exactly what doc §41 requires.
+ */
 export const fetchModules = createAsyncThunk(
   "modules/fetch",
   async (_, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Loading"));
     try {
-      const response: any = await apiClient<EntitlementModule[]>(
-        API_ENDPOINTS.modules.available,
-        { method: "GET" },
-      );
+      const response: any = await moduleApi.available();
 
       if (response?.cancelled) {
         dispatch(hideLoader());
@@ -81,6 +91,14 @@ export const fetchModules = createAsyncThunk(
       dispatch(toast.error("Could not load permissions", error?.message));
       return rejectWithValue(error?.message ?? "Unable to load permissions");
     }
+  },
+  {
+    condition: (_, { getState }) => {
+      const state = getState() as RootState;
+      if (state.modules.loading) return false; // already in flight
+      if (state.modules.status === "succeeded") return false; // already loaded
+      return true; // idle or failed → (re)try
+    },
   },
 );
 

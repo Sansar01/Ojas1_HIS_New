@@ -10,7 +10,6 @@ import {
   ShieldCheck,
   Trash2,
   UserCog,
-  UserPlus,
   Users2,
 } from "lucide-react";
 import { APP_NAME, AVATAR_COLORS, PERMISSIONS } from "@/constants";
@@ -26,12 +25,14 @@ import { fetchPatients } from "@/store/slices/patientSlice";
 import {
   createUser,
   deleteUser,
+  fetchUsers,
   toggleUserStatus,
   updateUser,
 } from "@/store/slices/userSlice";
+import { fetchRoles } from "@/store/slices/roleSlice";
+import { fetchDepartments } from "@/store/slices/departmentSlice";
 import { syncUser } from "@/store/slices/authSlice";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { userApi } from "@/api/userApi";
 import { formatDateTime, fullName, relativeTime } from "@/utils";
 import { cn } from "@/utils/cn";
 import type { Permission, Status } from "@/types";
@@ -57,9 +58,12 @@ import {
   RowActions,
   TableToolbar,
 } from "@/components/ui/table";
-import { Sheet, Tooltip } from "@/components/ui/overlays";
 import {
-  FormDialog,
+  Dialog,
+  Sheet,
+  Tooltip,
+} from "@/components/ui/overlays";
+import {
   DetailGrid,
   FormRow,
   FormSection,
@@ -109,7 +113,7 @@ export function UsersPage() {
   const navigate = useNavigate();
 
   const me = useCurrentUser();
-  const { canCreate, canEdit, canDelete } = usePermission();
+  const { canEdit, canDelete } = usePermission();
   const [users, setUsers] = useState<User[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -140,11 +144,17 @@ export function UsersPage() {
   });
 
   useEffect(() => {
+    // guarded shared loads: role + department selectors, user table counters
+    dispatch(fetchRoles() as any);
+    dispatch(fetchDepartments() as any);
+    dispatch(fetchUsers() as any);
+  }, [dispatch]);
+
+  useEffect(() => {
     let active = true;
 
-    apiClient<any[]>(API_ENDPOINTS.users.list, {
-      method: "GET",
-    })
+    userApi
+      .getAll()
       .then((response) => {
         if (!active) return;
         const rawResponse: any = response;
@@ -829,7 +839,7 @@ function UserFormDialog({
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="lg"
@@ -1250,6 +1260,6 @@ function UserFormDialog({
           </p>
         </div>
       )}
-    </FormDialog>
+    </Dialog>
   );
 }

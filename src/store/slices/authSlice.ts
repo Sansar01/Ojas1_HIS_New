@@ -25,16 +25,15 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
+import { authApi } from "@/api/authApi";
 import {
-  apiClient,
   getRefreshToken,
   setToken,
   setTokenExpiry,
   TOKEN_KEY,
 } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
 import { hideLoader, showLoader, toast } from "./uiSlice";
-import type { Permission, Session, User } from "@/types";
+import type { Session, User } from "@/types";
 import { clearModules } from "./moduleSlice";
 
 /* --------------------------------------------------------------------------- */
@@ -174,11 +173,7 @@ export const login = createAsyncThunk(
     { dispatch, rejectWithValue },
   ) => {
     try {
-      const res = await apiClient<Session>(API_ENDPOINTS.auth.login, {
-        method: "POST",
-        body: { email, password },
-        skipRefresh: true,
-      });
+      const res = await authApi.login({ email, password });
       const data = (res.data ?? {}) as any;
 
       if (data.accessToken && data.user) {
@@ -236,11 +231,7 @@ export const verifyOtp = createAsyncThunk(
     { dispatch, rejectWithValue },
   ) => {
     try {
-      const res = await apiClient<Session>(API_ENDPOINTS.auth.verifyOtp, {
-        method: "POST",
-        body: { otpToken, code },
-        skipRefresh: true,
-      });
+      const res = await authApi.verifyOtp({ otpToken, code });
       const raw = (res ?? {}) as any;
       const data = (raw.data ?? raw) as any;
 
@@ -266,23 +257,16 @@ export const verifyOtp = createAsyncThunk(
 export const changePassword = createAsyncThunk(
   "auth/changePassword",
   async (
-    payload: string | { oldPassword: string; newPassword: string },
+    payload:
+      | { oldPassword: string; newPassword: string }
+      | { email?: string; newPassword: string },
     { dispatch, rejectWithValue },
   ) => {
     const isForcedChange =
       typeof payload === "object" && "oldPassword" in payload;
 
     try {
-      const res = await apiClient(
-        isForcedChange
-          ? API_ENDPOINTS.password.forceChange
-          : API_ENDPOINTS.password.change,
-        {
-          method: "POST",
-          body: payload,
-          skipRefresh: true,
-        },
-      );
+      const res = await authApi.changePassword(payload, isForcedChange);
 
       if (isForcedChange) {
         // temporary-password requirement satisfied → drop the flag
@@ -351,11 +335,7 @@ export const resetPassword = createAsyncThunk(
     { dispatch, rejectWithValue },
   ) => {
     try {
-      await apiClient(API_ENDPOINTS.password.reset, {
-        method: "POST",
-        body: { email, password },
-        skipRefresh: true,
-      });
+      await authApi.resetPassword({ email, password });
       dispatch(
         toast.success(
           "Password updated",
@@ -377,11 +357,7 @@ export const resetPassword = createAsyncThunk(
 export const sendResetCode = createAsyncThunk(
   "auth/sendResetCode",
   async (email: string) => {
-    return apiClient(API_ENDPOINTS.password.forgot, {
-      method: "POST",
-      body: { email },
-      skipRefresh: true,
-    });
+    return authApi.sendResetCode(email);
   },
 );
 
@@ -392,11 +368,7 @@ export const sendResetCode = createAsyncThunk(
 export const resetPasswordWithCode = createAsyncThunk(
   "auth/resetPasswordWithCode",
   async (payload: { email: string; code: string; newPassword: string }) => {
-    return apiClient(API_ENDPOINTS.password.resetWithCode, {
-      method: "POST",
-      body: payload,
-      skipRefresh: true,
-    });
+    return authApi.resetPasswordWithCode(payload);
   },
 );
 
@@ -407,13 +379,11 @@ export const refreshSession = createAsyncThunk(
     try {
       const refreshToken = getRefreshToken();
 
-      const res = await apiClient<Session>(API_ENDPOINTS.auth.refreshToken, {
-        method: "POST",
-        skipRefresh: true, // crucial: prevents a refresh loop on failure
-        skipAuth: true, // expired Bearer token must not be sent
+      const res = await authApi.refresh(
         // fallback: send the token explicitly when the cookie is missing
-        body: refreshToken ? { refreshToken } : undefined,
-      });
+        refreshToken ? { refreshToken } : undefined,
+        { skipAuth: true }, // expired Bearer token must not be sent
+      );
       const payload: any = res?.data ?? res;
       const accessToken = payload?.accessToken ?? payload?.token;
 
@@ -455,10 +425,7 @@ export const logoutUser = createAsyncThunk(
 
     try {
       // Backend clears the httpOnly cookie
-      await apiClient(API_ENDPOINTS.auth.logout, {
-        method: "POST",
-        skipRefresh: true,
-      });
+      await authApi.logout();
       dispatch(toast.success("Logged out successfully"));
     } catch (error: any) {
       console.warn("Server logout failed, clearing local session");
@@ -483,10 +450,7 @@ export const logoutRequest = createAsyncThunk(
   "auth/logoutRequest",
   async () => {
     try {
-      await apiClient(API_ENDPOINTS.auth.logout, {
-        method: "POST",
-        skipRefresh: true,
-      });
+      await authApi.logout();
     } catch {
       /* best-effort only */
     }
@@ -625,11 +589,8 @@ const authSlice = createSlice({
 
 export const { logout, syncUser, setResetEmail } = authSlice.actions;
 
-export const selectSession = (s: { auth: AuthState }) => s.auth.session;
 export const selectUser = (s: { auth: AuthState }) =>
   s.auth.session?.user ?? null;
-export const selectIsAuthenticated = (s: { auth: AuthState }) =>
-  !!s.auth.session;
 
 /**
  * Single source of truth for "this account must change its password first".
@@ -642,17 +603,5 @@ export const selectMustChangePassword = (s: { auth: AuthState }) => {
     session?.forcePasswordChange || session?.user?.forcePasswordChange,
   );
 };
-
-export function canAccess(
-  user: User | null,
-  module: string,
-  action: Permission = "view",
-) {
-  if (!user) return false;
-  if (!user.modules?.includes(module)) return false;
-  const granted = user.permissions?.[module];
-  if (!granted || !granted.length) return action === "view";
-  return granted.includes(action);
-}
 
 export default authSlice.reducer;

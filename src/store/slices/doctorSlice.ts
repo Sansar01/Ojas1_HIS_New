@@ -16,8 +16,7 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { doctorApi } from "@/api/doctorApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type {
   CreateDoctorPayload,
@@ -36,12 +35,10 @@ const map = (raw: any): Doctor => raw as Doctor;
 
 export const fetchDoctors = createAsyncThunk(
   "doctors/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Doctor[]>(API_ENDPOINTS.doctors.list, {
-        method: "GET",
-      });
+      const res = await doctorApi.getAll();
       dispatch(hideLoader());
 
       const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -56,9 +53,13 @@ export const fetchDoctors = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+    condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return state.doctors.status !== "loading";
+      if (state.doctors.status === "loading") return false;
+      if (force) return true;
+      return (
+        state.doctors.status === "idle" || state.doctors.status === "error"
+      );
     },
   },
 );
@@ -68,9 +69,7 @@ export const fetchDoctor = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading doctors record"));
     try {
-      const res = await apiClient<Doctor>(API_ENDPOINTS.doctors.getById(id), {
-        method: "GET",
-      });
+      const res = await doctorApi.getById(id);
       dispatch(hideLoader());
       const responseData: any = (res as any)?.data ?? res;
       return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -87,10 +86,7 @@ export const createDoctor = createAsyncThunk(
   async (payload: WritePayload<Doctor>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Doctor>(API_ENDPOINTS.doctors.create, {
-        method: "POST",
-        body: payload.data,
-      });
+      const res = await doctorApi.create(payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
       return map((res as any).data ?? res);
@@ -107,10 +103,7 @@ export const updateDoctor = createAsyncThunk(
   async (payload: WritePayload<Doctor> & { id: string }, { dispatch }) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Doctor>(
-        API_ENDPOINTS.doctors.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await doctorApi.update(payload.id, payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
       return map((res as any).data ?? res);
@@ -127,9 +120,7 @@ export const deleteDoctor = createAsyncThunk(
   async (payload: { id: string; label?: string }, { dispatch }) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.doctors.delete(payload.id), {
-        method: "DELETE",
-      });
+      await doctorApi.remove(payload.id);
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -155,10 +146,7 @@ export const toggleDoctorStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Doctor>(
-        API_ENDPOINTS.doctors.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await doctorApi.update(payload.id, { status: payload.status });
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",
@@ -282,10 +270,7 @@ export const createDoctorProfile = createAsyncThunk(
   "doctors/createProfile",
   async (payload: CreateDoctorPayload, { rejectWithValue }) => {
     try {
-      const response: any = await apiClient(API_ENDPOINTS.doctors.create, {
-        method: "POST",
-        body: payload,
-      });
+      const response: any = await doctorApi.create(payload);
       // Return the new doctor data (must contain the generated ID)
       return response.data || response;
     } catch (error: any) {
@@ -306,16 +291,10 @@ export const setDoctorAvailability = createAsyncThunk(
     { rejectWithValue },
   ) => {
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.doctors.availability(payload.doctorId),
-        {
-          method: "POST",
-          body: {
-            slotDurationMins: payload.slotDurationMins,
-            schedule: mapScheduleToApi(payload.schedule),
-          },
-        },
-      );
+      const response: any = await doctorApi.saveAvailability(payload.doctorId, {
+        slotDurationMins: payload.slotDurationMins,
+        schedule: mapScheduleToApi(payload.schedule),
+      });
       return response.data || response;
     } catch (error: any) {
       return rejectWithValue(error?.message || "Failed to save schedule");
@@ -371,12 +350,9 @@ export const fetchDoctorSlots = createAsyncThunk(
   async (payload: DoctorSlotFetchPayload, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Loading available slots"));
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.doctors.availability(payload.doctorId),
-        {
-          method: "GET",
-          params: payload.date ? { date: payload.date } : undefined,
-        },
+      const response: any = await doctorApi.getAvailability(
+        payload.doctorId,
+        payload.date ? { date: payload.date } : undefined,
       );
       dispatch(hideLoader());
       return response?.data ?? response;

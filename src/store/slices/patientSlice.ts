@@ -16,8 +16,7 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { patientApi } from "@/api/patientApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Patient, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -29,12 +28,10 @@ const map = (raw: any): Patient => raw as Patient;
 
 export const fetchPatients = createAsyncThunk(
   "patients/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Patient[]>(API_ENDPOINTS.patients.list, {
-        method: "GET",
-      });
+      const res = await patientApi.getAll();
       dispatch(hideLoader());
 
       const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -49,9 +46,12 @@ export const fetchPatients = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+        condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return state.patients.status !== "loading";
+      if (state.patients.status === "loading") return false;   // in flight
+      if (force) return true;                                 // manual refresh
+      // shared list: idle -> fetch, ready -> reuse (§13)
+      return state.patients.status === "idle" || state.patients.status === "error";
     },
   },
 );
@@ -61,9 +61,7 @@ export const fetchPatient = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading patients record"));
     try {
-      const res = await apiClient<Patient>(API_ENDPOINTS.patients.getById(id), {
-        method: "GET",
-      });
+      const res = await patientApi.getById(id);
       dispatch(hideLoader());
       const responseData: any = (res as any)?.data ?? res;
       return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -80,10 +78,7 @@ export const createPatient = createAsyncThunk(
   async (payload: WritePayload<Patient>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Patient>(API_ENDPOINTS.patients.create, {
-        method: "POST",
-        body: payload.data,
-      });
+      const res = await patientApi.create(payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
       return map((res as any).data ?? res);
@@ -100,10 +95,7 @@ export const updatePatient = createAsyncThunk(
   async (payload: WritePayload<Patient> & { id: string }, { dispatch }) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Patient>(
-        API_ENDPOINTS.patients.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await patientApi.update(payload.id, payload.data);
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
       return map((res as any).data ?? res);
@@ -120,9 +112,7 @@ export const deletePatient = createAsyncThunk(
   async (payload: { id: string; label?: string }, { dispatch }) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.patients.delete(payload.id), {
-        method: "DELETE",
-      });
+      await patientApi.remove(payload.id);
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -148,10 +138,7 @@ export const togglePatientStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Patient>(
-        API_ENDPOINTS.patients.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await patientApi.update(payload.id, { status: payload.status });
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",

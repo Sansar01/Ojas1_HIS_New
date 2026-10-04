@@ -13,7 +13,11 @@ import {
   ArrowLeft,
   Loader2,
 } from "lucide-react";
-import { billingService } from "@/features/billing/billingService";
+import { billingApi } from "@/api/billingApi";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { fetchPatients } from "@/store/slices/patientSlice";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
 import { formatMoney } from "@/utils";
 import { cn } from "@/utils/cn";
 
@@ -106,17 +110,25 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
   // Patient Search
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [allPatients, setAllPatients] = useState<any[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
 
   // Appointments
-  const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>(
     urlAppointmentId || "",
   );
 
-  // Doctors
-  const [allDoctors, setAllDoctors] = useState<any[]>([]);
+  // Shared collections (doc §26/§31) — patients, appointments and doctors are
+  // owned by their slices; the guarded thunks below keep this to at most one
+  // request per session instead of a page-local copy of the same three lists.
+  const dispatch = useAppDispatch();
+  const allPatients = useAppSelector((s) => s.patients.items) as any[];
+  const allAppointments = useAppSelector(
+    (s) => s.appointments.items,
+  ) as any[];
+  const allDoctors = useAppSelector((s) => s.doctors.items) as any[];
+  const patientsStatus = useAppSelector((s) => s.patients.status);
+  const appointmentsStatus = useAppSelector((s) => s.appointments.status);
+  const doctorsStatus = useAppSelector((s) => s.doctors.status);
 
   // Panel / Insurance
   const [panelGroup, setPanelGroup] = useState("GENERAL");
@@ -139,51 +151,40 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
 
   // Additional
   const [remarks, setRemarks] = useState("");
-  const [tokenNo, setTokenNo] = useState("");
   const [currency, setCurrency] = useState("INR");
 
   // UI State
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // --- Load Masters ---
+  // Masters are read from the shared slices — already-loaded collections are
+  // reused as-is, nothing is fetched twice (doc §29).
   useEffect(() => {
-    async function loadMasters() {
-      try {
-        setLoading(true);
-        const [patRes, aptRes, docRes] = await Promise.all([
-          billingService.getPatients({ limit: 100 }),
-          billingService.getAppointments({}),
-          billingService.getDoctors(),
-        ]);
+    dispatch(fetchPatients() as any);
+    dispatch(fetchAppointments() as any);
+    dispatch(fetchDoctors() as any);
+  }, [dispatch]);
 
-        const patients = patRes.data || patRes || [];
-        const appointments = aptRes.data || aptRes || [];
-        const doctors = docRes.data || docRes || [];
-
-        setAllPatients(patients);
-        setAllAppointments(appointments);
-        setAllDoctors(doctors);
-
-        // Preselect from URL
-        if (urlAppointmentId) {
-          const apt = appointments.find((a: any) => a.id === urlAppointmentId);
-          if (apt) {
-            selectAppointment(apt, patients);
-          }
-        } else if (urlPatientId) {
-          const pat = patients.find((p: any) => p.id === urlPatientId);
-          if (pat) handleSelectPatient(pat);
-        }
-      } catch (e) {
-        console.error("Failed to load masters", e);
-      } finally {
-        setLoading(false);
-      }
+  // Preselect the appointment / patient passed in the URL once the shared
+  // lists are available (same behaviour as the old page-local loader).
+  useEffect(() => {
+    if (!allPatients.length) return;
+    if (urlAppointmentId && allAppointments.length) {
+      const apt = allAppointments.find((a: any) => a.id === urlAppointmentId);
+      if (apt) selectAppointment(apt, allPatients);
+    } else if (urlPatientId) {
+      const pat = allPatients.find((p: any) => p.id === urlPatientId);
+      if (pat) handleSelectPatient(pat);
     }
-    loadMasters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [allPatients, allAppointments, urlAppointmentId, urlPatientId]);
+
+  const loading =
+    patientsStatus === "idle" ||
+    patientsStatus === "loading" ||
+    appointmentsStatus === "idle" ||
+    appointmentsStatus === "loading" ||
+    doctorsStatus === "idle" ||
+    doctorsStatus === "loading";
 
   // --- Handlers ---
   const handleSelectPatient = (patient: any) => {
@@ -346,7 +347,7 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
         payload.paymentMode = paymentMode;
       }
 
-      await billingService.createBill(payload);
+      await billingApi.create(payload);
       onSuccess();
     } catch (e: any) {
       alert(e.message || "Failed to create bill");

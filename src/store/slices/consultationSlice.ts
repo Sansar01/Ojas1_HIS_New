@@ -16,8 +16,7 @@ import {
   createSlice,
   type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { consultationApi } from "@/api/consultationApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Consultation, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -29,15 +28,14 @@ const map = (raw: any): Consultation => raw as Consultation;
 
 export const fetchConsultations = createAsyncThunk(
   "consultations/fetchAll",
-  async (_: void, { dispatch }) => {
+  async (_force: boolean | void, { dispatch }) => {
     dispatch(showLoader("Loading"));
     try {
-      const res = await apiClient<Consultation[]>(API_ENDPOINTS.consultations.list, {
-        method: "GET",
-      });
+      const res = await consultationApi.list();
+      if (!res.ok) throw new Error(res.error ?? "Could not load consultations");
       dispatch(hideLoader());
 
-      const responseData = Array.isArray(res) ? res : (res as any).data;
+      const responseData: any = res.data;
       const rows = Array.isArray(responseData)
         ? responseData
         : (responseData?.rows ?? []);
@@ -49,9 +47,12 @@ export const fetchConsultations = createAsyncThunk(
     }
   },
   {
-    condition: (_, { getState }) => {
+        condition: (force: boolean | void, { getState }) => {
       const state = getState() as RootState;
-      return state.consultations.status !== "loading";
+      if (state.consultations.status === "loading") return false;   // in flight
+      if (force) return true;                                 // manual refresh
+      // shared list: idle -> fetch, ready -> reuse (§13)
+      return state.consultations.status === "idle" || state.consultations.status === "error";
     },
   },
 );
@@ -61,11 +62,10 @@ export const fetchConsultation = createAsyncThunk(
   async (id: string, { dispatch }) => {
     dispatch(showLoader("Loading consultations record"));
     try {
-      const res = await apiClient<Consultation>(API_ENDPOINTS.consultations.getById(id), {
-        method: "GET",
-      });
+      const res = await consultationApi.getById(id);
+      if (!res.ok) throw new Error(res.error ?? "Could not load consultation");
       dispatch(hideLoader());
-      const responseData: any = (res as any)?.data ?? res;
+      const responseData: any = res.data;
       return map(responseData?.data ?? responseData?.item ?? responseData);
     } catch (error: any) {
       dispatch(hideLoader());
@@ -80,13 +80,11 @@ export const createConsultation = createAsyncThunk(
   async (payload: WritePayload<Consultation>, { dispatch }) => {
     dispatch(showLoader("Creating record"));
     try {
-      const res = await apiClient<Consultation>(API_ENDPOINTS.consultations.create, {
-        method: "POST",
-        body: payload.data,
-      });
+      const res = await consultationApi.create(payload.data as any);
+      if (!res.ok) throw new Error(res.error ?? "Creation failed");
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Record created"));
-      return map((res as any).data ?? res);
+      return map(res.data);
     } catch (error: any) {
       dispatch(hideLoader());
       dispatch(toast.error("Creation failed", error?.message));
@@ -103,13 +101,11 @@ export const updateConsultation = createAsyncThunk(
   ) => {
     dispatch(showLoader("Saving changes"));
     try {
-      const res = await apiClient<Consultation>(
-        API_ENDPOINTS.consultations.update(payload.id),
-        { method: "PATCH", body: payload.data },
-      );
+      const res = await consultationApi.updateNote(payload.id, payload.data);
+      if (!res.ok) throw new Error(res.error ?? "Update failed");
       dispatch(hideLoader());
       dispatch(toast.success(payload.successMessage ?? "Changes saved"));
-      return map((res as any).data ?? res);
+      return map(res.data);
     } catch (error: any) {
       dispatch(hideLoader());
       dispatch(toast.error("Update failed", error?.message));
@@ -126,9 +122,8 @@ export const deleteConsultation = createAsyncThunk(
   ) => {
     dispatch(showLoader("Deleting record"));
     try {
-      await apiClient(API_ENDPOINTS.consultations.delete(payload.id), {
-        method: "DELETE",
-      });
+      const removed = await consultationApi.remove(payload.id);
+      if (!removed.ok) throw new Error(removed.error ?? "Delete failed");
       dispatch(hideLoader());
       dispatch(
         toast.success(
@@ -154,10 +149,10 @@ export const toggleConsultationStatus = createAsyncThunk(
     { dispatch },
   ) => {
     try {
-      const res = await apiClient<Consultation>(
-        API_ENDPOINTS.consultations.update(payload.id),
-        { method: "PATCH", body: { status: payload.status } },
-      );
+      const res = await consultationApi.updateNote(payload.id, {
+        status: payload.status,
+      });
+      if (!res.ok) throw new Error(res.error ?? "Status change failed");
       dispatch(
         toast.info(
           payload.status === "active" ? "Marked active" : "Marked inactive",
@@ -264,10 +259,7 @@ export const fetchPatientHistory = createAsyncThunk(
   async (patientId: string | number, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Loading patient history"));
     try {
-      const response: any = await apiClient(
-        API_ENDPOINTS.consultations.history(patientId),
-        { method: "GET" },
-      );
+      const response: any = await consultationApi.patientHistory(patientId);
       dispatch(hideLoader());
       const data = response?.data ?? response;
       return (Array.isArray(data) ? data : (data?.rows ?? [])) as any[];

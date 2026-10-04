@@ -3,7 +3,7 @@
  * generic Redux hooks.
  */
 
-export { store, bootstrapResources } from "./store";
+export { store, refreshLoadedResources } from "./store";
 export type { RootState, AppDispatch, AppThunk } from "./types";
 export {
   useAppDispatch,

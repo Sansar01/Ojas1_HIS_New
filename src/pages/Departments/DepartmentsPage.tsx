@@ -13,6 +13,9 @@ import {
   deleteDepartment,
   fetchDepartments,
 } from "@/store/slices/departmentSlice";
+import { fetchDoctors } from "@/store/slices/doctorSlice";
+import { fetchSpecializations } from "@/store/slices/specializationSlice";
+import { fetchAppointments } from "@/store/slices/appointmentSlice";
 import { formatDate, fullName } from "@/utils";
 import type { Department } from "@/types";
 import {
@@ -47,14 +50,21 @@ export function DepartmentsPage() {
   const [filters, setFilters] = useState({ status: "all" });
   const [refreshing, setRefreshing] = useState(false);
 
+  // The thunk's `condition` guard decides whether this is a real request
+  // (doc §16 — the component must not carry the "already fetched?" logic).
   useEffect(() => {
-    if (status === "idle") dispatch(fetchDepartments() as any);
-  }, [status, dispatch]);
+    dispatch(fetchDepartments() as any);
+    // the table's counters render these shared collections too
+    dispatch(fetchDoctors() as any);
+    dispatch(fetchSpecializations() as any);
+    dispatch(fetchAppointments() as any);
+  }, [dispatch]);
 
   /** re-run the department list API (e.g. after a write) without the full loader flash */
   const refreshList = async () => {
     setRefreshing(true);
-    await dispatch(fetchDepartments() as any);
+    // explicit manual refresh → bypass the session cache (doc §13)
+    await dispatch(fetchDepartments(true) as any);
     setRefreshing(false);
   };
 

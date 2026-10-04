@@ -16,8 +16,7 @@ import {
     createSlice,
     type PayloadAction,
 } from "@reduxjs/toolkit";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { specializationApi } from "@/api/specializationApi";
 import { hideLoader, showLoader, toast } from "./uiSlice";
 import type { CrudState, Specialization, Status, WritePayload } from "@/types";
 import type { RootState } from "@/store/types";
@@ -29,12 +28,10 @@ const map = (raw: any): Specialization => raw as Specialization;
 
 export const fetchSpecializations = createAsyncThunk(
     "specializations/fetchAll",
-    async (_: void, { dispatch }) => {
+    async (_force: boolean | void, { dispatch }) => {
         dispatch(showLoader("Loading"));
         try {
-            const res = await apiClient<Specialization[]>(API_ENDPOINTS.specializations.list, {
-                method: "GET",
-            });
+            const res = await specializationApi.getAll();
             dispatch(hideLoader());
 
             const responseData = Array.isArray(res) ? res : (res as any).data;
@@ -49,9 +46,14 @@ export const fetchSpecializations = createAsyncThunk(
         }
     },
     {
-        condition: (_, { getState }) => {
+        condition: (force: boolean | void, { getState }) => {
             const state = getState() as RootState;
-            return state.specializations.status !== "loading";
+            if (state.specializations.status === "loading") return false;
+            if (force) return true;
+            return (
+                state.specializations.status === "idle" ||
+                state.specializations.status === "error"
+            );
         },
     },
 );
@@ -61,9 +63,7 @@ export const fetchSpecialization = createAsyncThunk(
     async (id: string, { dispatch }) => {
         dispatch(showLoader("Loading specializations record"));
         try {
-            const res = await apiClient<Specialization>(API_ENDPOINTS.specializations.getById(id), {
-                method: "GET",
-            });
+            const res = await specializationApi.getById(id);
             dispatch(hideLoader());
             const responseData: any = (res as any)?.data ?? res;
             return map(responseData?.data ?? responseData?.item ?? responseData);
@@ -80,10 +80,7 @@ export const createSpecialization = createAsyncThunk(
     async (payload: WritePayload<Specialization>, { dispatch }) => {
         dispatch(showLoader("Creating record"));
         try {
-            const res = await apiClient<Specialization>(API_ENDPOINTS.specializations.create, {
-                method: "POST",
-                body: payload.data,
-            });
+            const res = await specializationApi.create(payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Record created"));
             return map((res as any).data ?? res);
@@ -103,10 +100,7 @@ export const updateSpecialization = createAsyncThunk(
     ) => {
         dispatch(showLoader("Saving changes"));
         try {
-            const res = await apiClient<Specialization>(
-                API_ENDPOINTS.specializations.update(payload.id),
-                { method: "PATCH", body: payload.data },
-            );
+            const res = await specializationApi.update(payload.id, payload.data);
             dispatch(hideLoader());
             dispatch(toast.success(payload.successMessage ?? "Changes saved"));
             return map((res as any).data ?? res);
@@ -126,9 +120,7 @@ export const deleteSpecialization = createAsyncThunk(
     ) => {
         dispatch(showLoader("Deleting record"));
         try {
-            await apiClient(API_ENDPOINTS.specializations.delete(payload.id), {
-                method: "DELETE",
-            });
+            await specializationApi.remove(payload.id);
             dispatch(hideLoader());
             dispatch(
                 toast.success(
@@ -154,10 +146,7 @@ export const toggleSpecializationStatus = createAsyncThunk(
         { dispatch },
     ) => {
         try {
-            const res = await apiClient<Specialization>(
-                API_ENDPOINTS.specializations.update(payload.id),
-                { method: "PATCH", body: { status: payload.status } },
-            );
+            const res = await specializationApi.update(payload.id, { status: payload.status });
             dispatch(
                 toast.info(
                     payload.status === "active" ? "Marked active" : "Marked inactive",

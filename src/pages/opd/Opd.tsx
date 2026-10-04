@@ -13,8 +13,8 @@ import { PageIntro } from "@/components/common";
 import { Button } from "@/components/ui/primitives";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { apiClient } from "@/api/apiClient";
-import { API_ENDPOINTS } from "@/api/endpoints";
+import { consultationApi } from "@/api/consultationApi";
+import { appointmentApi } from "@/api/appointmentApi";
 
 // --- Types representing your API schema ---
 interface Patient {
@@ -160,26 +160,19 @@ export function OpdExaminationRoom() {
   const fetchQueue = async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
-      let resData: any;
-      try {
-        resData = await apiClient(API_ENDPOINTS.queue.nurse, {
-          method: "GET",
-          params: {
-            date: selectedDate,
-            tab: activeTab === "waiting" ? "waiting" : "done",
-          },
-        });
-      } catch (e: any) {
-        if (e?.status)
-          throw new Error(
-            e?.data?.message || `Server responded with status ${e.status}`,
-          );
-        throw e;
-      }
-      if (resData?.cancelled)
-        throw new Error(resData?.message || "Server responded with status 401");
+      // Nurse-station queue lives in the consultation domain (Rule 23).
+      const resData = await consultationApi.getNurseQueue(
+        selectedDate,
+        activeTab === "waiting" ? "waiting" : "done",
+      );
+      if (!resData.ok)
+        throw new Error(
+          resData.error || "Server responded with status 401",
+        );
 
-      const payload: QueueApiResponse = resData.data ? resData.data : resData;
+      const payload: QueueApiResponse = resData.data?.data
+        ? resData.data.data
+        : (resData.data as QueueApiResponse);
 
       setQueue(payload.queue || []);
       setSummary(
@@ -321,29 +314,16 @@ export function OpdExaminationRoom() {
         heightCm: vitals.height ? parseFloat(vitals.height) : null,
       };
 
-      let vitalsOut: any;
-      try {
-        vitalsOut = await apiClient(API_ENDPOINTS.vitals.create, {
-          method: "POST",
-          body: vitalsPayload,
-        });
-      } catch (e: any) {
-        if (e?.status)
-          throw new Error(e?.data?.message || "Failed to save patient vitals.");
-        throw e;
-      }
-      if (vitalsOut?.cancelled)
-        throw new Error("Failed to save patient vitals.");
+      const vitalsOut = await consultationApi.saveVitals(vitalsPayload);
+      if (!vitalsOut.ok)
+        throw new Error(vitalsOut.error || "Failed to save patient vitals.");
 
       // =========================================================================
       // STEP B: Check-In Patient (PATCH /api/opd/appointments/:id/check-in)
       // =========================================================================
       let checkInOut: any;
       try {
-        checkInOut = await apiClient(
-          API_ENDPOINTS.appointments.checkIn(selectedPatient.appointmentId),
-          { method: "PATCH" },
-        );
+        checkInOut = await appointmentApi.checkIn(selectedPatient.appointmentId);
       } catch (e: any) {
         if (e?.status)
           throw new Error(
