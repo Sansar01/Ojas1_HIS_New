@@ -20,7 +20,6 @@ import { useForm } from "@/hooks/useForm";
 import { Skeleton } from "@/components/ui/feedback";
 
 import { departmentService } from "@/pages/Departments/department.service";
-import { specializationService } from "@/pages/Specializations/specialization.service";
 import { appointmentService } from "@/pages/appointments/appointment.service";
 import {
   calcAge,
@@ -382,9 +381,8 @@ function DoctorForm({
 
   const isEdit = Boolean(initial.id);
 
-  // reference dropdowns of this form — loaded here, from their own services
+  // reference dropdown of this form — loaded here, from its own service
   const [departments, setDepartments] = useState<any[]>([]);
-  const [specializations, setSpecializations] = useState<any[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -396,14 +394,6 @@ function DoctorForm({
         }
       } catch (e: any) {
         dispatch(toast.error("Could not load departments", e?.message));
-      }
-      try {
-        const response = await specializationService.fetchSpecializations();
-        if (active && response.status === 200) {
-          setSpecializations(response.data?.data ?? []);
-        }
-      } catch (e: any) {
-        dispatch(toast.error("Could not load specializations", e?.message));
       }
     })();
     return () => {
@@ -420,8 +410,6 @@ function DoctorForm({
       gender: (initial.gender ?? "Male") as any,
       dateOfBirth: initial.dateOfBirth ?? "1985-01-01",
       departmentId: initial.departmentId ?? departments[0]?.id ?? "",
-      specializationId:
-        initial.specializationId ?? specializations[0]?.id ?? "",
       qualifications: Array.isArray(initial.qualifications)
         ? initial.qualifications.join(", ")
         : ((initial.qualifications as any) ?? ""),
@@ -446,7 +434,6 @@ function DoctorForm({
           pattern: /^[+0-9][0-9\s()-]{7,}$/,
         },
       ],
-      specializationId: [{ required: "Select a specialization" }],
       registrationNumber: [
         { required: "Medical registration number is required", min: 4 },
       ],
@@ -475,10 +462,6 @@ function DoctorForm({
 
   const save = form.handleSubmit(async (values) => {
     try {
-      const specializationName =
-        specializations.find((s: any) => s.id === values.specializationId)
-          ?.name || "General";
-
       const qualificationsString = String(values.qualifications)
         .split(",")
         .map((q) => q.trim())
@@ -489,7 +472,6 @@ function DoctorForm({
 
       if (isEdit && doctorProfileId) {
         await doctorService.updateDoctor(doctorProfileId, {
-          specialization: specializationName,
           qualifications: qualificationsString,
           consultationFee: Number(values.consultationFee),
           slotDurationMins: Number(values.slotDuration),
@@ -511,7 +493,6 @@ function DoctorForm({
           profile: {
             hospitalUserId:
               (initial as any).hospitalUserId || authUser?.id || "",
-            specialization: specializationName,
             qualifications: qualificationsString,
             consultationFee: Number(values.consultationFee),
             slotDurationMins: Number(values.slotDuration),
@@ -617,18 +598,6 @@ function DoctorForm({
                 hint={calcAge(form.values.dateOfBirth)}
               />
 
-              <Select
-                name="specializationId"
-                label="Specialization"
-                required
-                value={form.values.specializationId}
-                onChange={(v) => form.setValue("specializationId", v)}
-                error={form.errors.specializationId}
-                options={specializations.map((sp: any) => ({
-                  value: sp.id,
-                  label: sp.name,
-                }))}
-              />
               <Input
                 name="registrationNumber"
                 label="Registration number"
@@ -764,11 +733,6 @@ function DoctorForm({
                 ? `Dr. ${form.values.firstName} ${form.values.lastName}`.trim()
                 : "New doctor"}
             </p>
-            <p className="text-[12px] text-ink-400">
-              {specializations.find(
-                (s: any) => s.id === form.values.specializationId,
-              )?.name ?? "Specialization"}
-            </p>
             <p className="num mt-2 text-[13px] font-semibold text-brand-700">
               {formatMoney(form.values.consultationFee || 0)}
             </p>
@@ -834,7 +798,6 @@ export function DoctorsPage() {
 
   const [filters, setFilters] = useState({
     department: "all",
-    specialization: "all",
     status: "all",
   });
   const [editing, setEditing] = useState<Partial<Doctor> | null>(null);
@@ -848,7 +811,6 @@ export function DoctorsPage() {
   const [error, setError] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
-  const [specializations, setSpecializations] = useState<any[]>([]);
 
   /** roster of this page — administrative roles only */
   useEffect(() => {
@@ -905,23 +867,6 @@ export function DoctorsPage() {
         }
       } catch (e: any) {
         dispatch(toast.error("Could not load departments", e?.message));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await specializationService.fetchSpecializations();
-        if (active && response.status === 200) {
-          setSpecializations(response.data?.data ?? []);
-        }
-      } catch (e: any) {
-        dispatch(toast.error("Could not load specializations", e?.message));
       }
     })();
     return () => {
@@ -1048,9 +993,6 @@ export function DoctorsPage() {
               consulting
             </Badge>
             <Badge tone="neutral">{departments.length} departments</Badge>
-            <Badge tone="lagoon">
-              {specializations.length} specializations
-            </Badge>
           </>
         }
       />
@@ -1073,22 +1015,6 @@ export function DoctorsPage() {
                   ...departments.map((d: any) => ({
                     value: d.id,
                     label: d.name,
-                  })),
-                ]}
-              />
-              <Select
-                size="sm"
-                className="w-[11rem]"
-                name="spe"
-                value={filters.specialization}
-                onChange={(v) =>
-                  setFilters((f) => ({ ...f, specialization: v }))
-                }
-                options={[
-                  { value: "all", label: "All specializations" },
-                  ...specializations.map((s: any) => ({
-                    value: s.id,
-                    label: s.name,
                   })),
                 ]}
               />
@@ -1143,9 +1069,9 @@ export function DoctorsPage() {
                       Dr. {fullName(d)}
                     </span>
                     <span className="block truncate text-[11.5px] text-ink-400">
-                      {specializations.find(
-                        (s: any) => s.id === d.specializationId,
-                      )?.name ?? "—"}{" "}
+                      {(d as any).specialization ||
+                        (d as any).specializationId ||
+                        "—"}{" "}
                       · {d.registrationNumber}
                     </span>
                   </span>

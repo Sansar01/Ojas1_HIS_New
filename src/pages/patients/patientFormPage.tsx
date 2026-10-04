@@ -75,6 +75,15 @@ function parseDobInput(raw: string): string {
   return clean;
 }
 
+/** Local calendar date (YYYY-MM-DD). `toISOString()` is UTC-based, so in
+ *  IST it still says yesterday between 00:00 and 05:29 — a newborn's date of
+ *  birth would then read as "in the future". */
+function localISO(date = new Date()): string {
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
 /** DOB (YYYY-MM-DD) → Age + Unit (years / months / days) */
 function calcAgeFromDob(
   dobStr: string,
@@ -138,7 +147,7 @@ export function PatientsFormPage() {
     (async () => {
       // blocking initialization of the edit route → global loader
       setLoadingPatient(true);
-      dispatch(showLoader("Loading"));
+      dispatch(showLoader("Loading patient record"));
       try {
         const response = await patientService.fetchPatientById(id);
         const body: any = response.data ?? {};
@@ -308,7 +317,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     },
   });
 
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayISO = localISO();
 
   const form = useForm({
     initialValues,
@@ -519,19 +528,15 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 error={form.errorFor("gender")}
               />
 
-              {/* ⚡ DOB: TYPE OR SELECT SUPPORT */}
-              <Input
+              {/* ⚡ DOB: calendar picker (typing is gone — the calendar hands
+                  over ISO, which fills the age fields below) */}
+              <DatePicker
                 name="dateOfBirth"
                 label="Date of Birth"
-                placeholder="DD/MM/YYYY or YYYY-MM-DD"
+                placeholder="Select date of birth"
                 value={form.values.dateOfBirth}
-                onChange={(e) => handleDobChange(e.target.value)}
-                onBlur={(e) => {
-                  const formatted = parseDobInput(e.target.value);
-                  if (formatted && formatted !== e.target.value) {
-                    form.setValue("dateOfBirth", formatted);
-                  }
-                }}
+                onChange={handleDobChange}
+                max={todayISO}
                 error={form.errorFor("dateOfBirth")}
               />
             </FormRow>

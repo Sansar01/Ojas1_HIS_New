@@ -728,7 +728,7 @@ export function ConsultationWorkspacePage() {
     try {
       const response = await consultationService.fetchConsultationById(id);
       if (response.status !== 200) throw new Error("Failed");
-      const d = response.data?.data;
+      const d = response?.data;
       setRecord(d);
 
       form.setValues({

@@ -17,7 +17,6 @@ export * from "./activityTypes";
 export * from "./roleTypes";
 export * from "./hospitalTypes";
 export * from "./departmentTypes";
-export * from "./specializationTypes";
 export * from "./doctorTypes";
 export * from "./patientTypes";
 export * from "./appointmentTypes";

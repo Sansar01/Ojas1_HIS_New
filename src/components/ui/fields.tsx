@@ -325,6 +325,10 @@ export function Select({
   /** e.g. "Loading departments…" / "Searching patients…" */
   loadingLabel?: string;
 }) {
+  // tracked for the guard above: Radix's hidden input can only echo a value
+  // back while this list is closed
+  const [listOpen, setListOpen] = useState(false);
+
   return (
     <Field
       label={label}
@@ -335,7 +339,23 @@ export function Select({
     >
       <SelectPrimitive.Root
         value={value ?? ""}
-        onValueChange={onChange}
+        onOpenChange={setListOpen}
+        onValueChange={(next) => {
+          /**
+           * Radix keeps a visually hidden native <select> ("bubble input") in
+           * sync for form libraries. Its <option>s only exist while the list is
+           * open, so a value that arrives from anywhere else — the record an
+           * edit dialog just loaded — has nothing to match there: the hidden
+           * select falls back to "" and Radix echoes that back through
+           * onValueChange, wiping the value that was just set (the doctor the
+           * appointment dialog loaded came back empty, so its slots never
+           * rendered). A real choice is always made while the list is open —
+           * Radix fires the selection first and closes the list after it — so
+           * an empty value that arrives with the list closed is that echo.
+           */
+          if (next === "" && !listOpen && (value ?? "") !== "") return;
+          onChange(next);
+        }}
         disabled={disabled || loading}
         name={name}
       >

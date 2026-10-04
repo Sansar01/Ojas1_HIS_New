@@ -11,7 +11,6 @@ import { useAppDispatch } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
 import { departmentService } from "@/pages/Departments/department.service";
 import { doctorService } from "@/pages/doctors/doctor.service";
-import { specializationService } from "@/pages/Specializations/specialization.service";
 import { appointmentService } from "@/pages/appointments/appointment.service";
 import { toast } from "@/store/slices/uiSlice";
 import { formatDate, fullName } from "@/utils";
@@ -65,7 +64,6 @@ export function DepartmentsPage() {
   }, [dispatch]);
 
   const [doctors, setDoctors] = useState<any[]>([]);
-  const [specializations, setSpecializations] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
 
   useEffect(() => {
@@ -77,23 +75,6 @@ export function DepartmentsPage() {
           setDoctors(response.data?.data ?? []);
       } catch (e: any) {
         dispatch(toast.error("Could not load doctors", e?.message));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await specializationService.fetchSpecializations();
-        if (active && response.status === 200) {
-          setSpecializations(response.data?.data ?? []);
-        }
-      } catch (e: any) {
-        dispatch(toast.error("Could not load specializations", e?.message));
       }
     })();
     return () => {
@@ -158,8 +139,6 @@ export function DepartmentsPage() {
 
   const stats = (id: string) => ({
     doctors: doctors.filter((d: any) => d.departmentId === id).length,
-    specializations: specializations.filter((s: any) => s.departmentId === id)
-      .length,
     visits: appointments.filter((a: any) => a.departmentId === id).length,
   });
 
@@ -283,17 +262,6 @@ export function DepartmentsPage() {
               render: (d) => (
                 <span className="num font-semibold text-ink-700">
                   {stats(d.id).doctors}
-                </span>
-              ),
-            },
-            {
-              key: "specializations",
-              header: "Spec.",
-              align: "center",
-              hideBelow: "sm",
-              render: (d) => (
-                <span className="num text-ink-600">
-                  {stats(d.id).specializations}
                 </span>
               ),
             },
@@ -428,11 +396,9 @@ export function DepartmentsPage() {
                             Dr. {fullName(d)}
                           </span>
                           <span className="block text-[11px] text-ink-400">
-                            {
-                              specializations.find(
-                                (s: any) => s.id === d.specializationId,
-                              )?.name
-                            }
+                            {(d as any).specialization ||
+                              (d as any).specializationId ||
+                              ""}
                           </span>
                         </span>
                       </span>

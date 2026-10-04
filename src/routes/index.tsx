@@ -34,7 +34,6 @@ import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 import { PermissionBootstrapPage } from "@/pages/auth/PermissionBootstrapPage";
 import { OpdExaminationRoom } from "@/pages/opd/Opd";
 import { MasterConfigurationPage } from "@/pages/masterConfiguration/MasterConfigurationPage";
-import { SpecializationsPage } from "@/pages/Specializations/SpecializationPage";
 import { DepartmentsPage } from "@/pages/Departments/DepartmentsPage";
 
 /**
@@ -190,14 +189,6 @@ export function AppRoutes() {
             element={
               <ModuleRoute module="departments">
                 <DepartmentsPage />
-              </ModuleRoute>
-            }
-          />
-          <Route
-            path="/specializations"
-            element={
-              <ModuleRoute module="specializations">
-                <SpecializationsPage />
               </ModuleRoute>
             }
           />

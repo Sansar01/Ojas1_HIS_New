@@ -51,6 +51,7 @@ import {
 import { Dialog, Sheet, Tooltip } from "@/components/ui/overlays";
 import { DetailGrid, PageIntro, SectionPanel } from "@/components/common";
 import { AppointmentFormModal } from "./AppointmentFormPage";
+
 export function SlotPicker({
   doctorId,
   date,

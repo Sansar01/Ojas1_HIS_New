@@ -5,7 +5,6 @@ import { appointmentService } from "@/pages/appointments/appointment.service";
 import { doctorService } from "@/pages/doctors/doctor.service";
 import { patientService } from "@/pages/patients/patient.service";
 import { departmentService } from "@/pages/Departments/department.service";
-import { specializationService } from "@/pages/Specializations/specialization.service";
 import { consultationService } from "@/pages/consultations/consultation.service";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
@@ -124,7 +123,6 @@ export function AppointmentFormModal({
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
-  const [specializations, setSpecializations] = useState<any[]>([]);
   // slot-conflict source for the picker below — loaded lazily, only once the
   // doctor/date pair makes the slot picker relevant (see the effect below)
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
@@ -173,14 +171,9 @@ export function AppointmentFormModal({
     void Promise.all([
       load(patientService.fetchPatients(), setPatients, setPatientsLoading),
       load(doctorService.fetchDoctors(), setDoctors, setDoctorsLoading),
-      // departments/specializations are not inputs of this dialog — they only
-      // resolve the doctor hint below, so they need no own loading flag
+      // departments are not an input of this dialog — the list only resolves
+      // the doctor hint below, so it needs no own loading flag
       load(departmentService.fetchDepartments(), setDepartments, noopFlag),
-      load(
-        specializationService.fetchSpecializations(),
-        setSpecializations,
-        noopFlag,
-      ),
       load(
         appointmentService.fetchConsultationTypes(),
         setVisitTypes,
@@ -298,27 +291,31 @@ export function AppointmentFormModal({
     if (!open || appointmentsRequested) return;
     if (!form.values.doctorId || !form.values.date) return;
 
-    let active = true;
     setAppointmentsRequested(true);
     setSlotsSourceLoading(true);
     (async () => {
       try {
         const response = await appointmentService.fetchAppointments();
-        if (active && response.status === 200) {
+        if (response.status === 200) {
           setExistingAppointments(response.data?.data ?? []);
         }
       } catch (e: any) {
-        if (active)
-          dispatch(toast.error("Could not load booked slots", e?.message));
+        dispatch(toast.error("Could not load booked slots", e?.message));
       } finally {
-        if (active) setSlotsSourceLoading(false);
+        // cleared by the run itself, never from a cleanup: setting
+        // `appointmentsRequested` above re-runs this effect and the re-run
+        // returns early, so a cleanup-guarded clear would strand the spinner
+        // over the slot grid forever
+        setSlotsSourceLoading(false);
       }
     })();
-
-    return () => {
-      active = false;
-    };
-  }, [open, appointmentsRequested, form.values.doctorId, form.values.date]);
+  }, [
+    open,
+    appointmentsRequested,
+    form.values.doctorId,
+    form.values.date,
+    dispatch,
+  ]);
 
   /* ------- runtime: doctor slot-by-id API whenever doctor/date changes ------ */
   const [slotLoading, setSlotLoading] = useState(false);
@@ -326,7 +323,10 @@ export function AppointmentFormModal({
 
   useEffect(() => {
     if (!form.values.doctorId) {
+      // no doctor (yet) → nothing to show, and the spinner of a cancelled run
+      // must not be left behind
       setRemoteSlots(null);
+      setSlotLoading(false);
       return;
     }
     let cancelled = false;
@@ -338,10 +338,14 @@ export function AppointmentFormModal({
           form.values.doctorId,
           form.values.date,
         );
+        // this endpoint answers with the payload itself —
+        // { schedule, slotDurationMins, bufferTimeMins } — so unwrap `data`
+        // only when the response really is wrapped
+        const body: any = response.data ?? {};
         if (!cancelled && response.status === 200) {
           setRemoteSlots(
             normalizeSlots(
-              response.data?.data ?? [],
+              body.data ?? body,
               form.values.date,
               existingAppointments as any[],
               form.values.doctorId,
@@ -535,9 +539,7 @@ export function AppointmentFormModal({
                 options={doctors.map((d: any) => ({
                   value: d.id,
                   label: `Dr. ${fullName(d)}`,
-                  description: specializations.find(
-                    (s: any) => s.id === d.specializationId,
-                  )?.name,
+                  description: d.specialization ?? undefined,
                   disabled: d.isActive !== true,
                 }))}
               />
