@@ -30,25 +30,32 @@ import {
   Tooltip,
 } from "chart.js";
 import { Bar, Doughnut, Line } from "react-chartjs-2";
+import { usePermission } from "@/hooks";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { consultationService } from "@/pages/consultations/consultation.service";
+import { departmentService } from "@/pages/Departments/department.service";
+import { patientService } from "@/pages/patients/patient.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { billingService } from "@/pages/billing/billing.service";
 import { cn } from "@/utils/cn";
-import { addDays } from "@/data/db";
+import { addDays } from "@/utils";
 import {
   formatCompact,
   formatDate,
   formatMoney,
   fullName,
-  relativeTime,
+  invoiceTotals,
 } from "@/utils";
-import { usePermission, useRootSelector } from "@/hooks";
 import {
   Badge,
   Panel,
   PanelHeader,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { CardSkeleton } from "@/components/ui/feedback";
+import { Skeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
-import { invoiceTotals } from "@/utils";
 import { APPT_TYPE_COLORS } from "@/constants";
 
 ChartJS.register(
@@ -65,6 +72,172 @@ ChartJS.register(
 
 const GRID = { color: "rgba(45,78,86,.08)", drawBorder: false } as const;
 const FONT = { family: "'IBM Plex Sans', sans-serif", size: 11 } as const;
+
+/**
+ * The Dashboard's data layer: the seven collections this page renders, each
+ * fetched through its feature service and kept in local state.
+ *
+ * This is the only place those requests are made — no slice, no shared cache,
+ * no start-up preload, and nothing is fetched twice for the same page.
+ */
+function useDashboardData() {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  /**
+   * True until **every** dashboard request has settled. The page renders the
+   * dashboard skeleton for as long as this is true, so the cards never appear
+   * half-filled next to (or under) the skeleton.
+   */
+  const [loading, setLoading] = useState(true);
+
+  const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      // The tiles are independent: fire them together and read each response in
+      // its own `read` below. `allSettled` keeps a failing endpoint from hiding
+      // the others (a failed tile shows zero) — and the failure is still
+      // reported once, through the toast at the bottom of this batch.
+      // the activity-log endpoint is not part of the backend build, so the
+      // dashboard requests only what it can actually read
+      const [
+        appointmentsRes,
+        consultationsRes,
+        departmentsRes,
+        patientsRes,
+        doctorsRes,
+        invoicesRes,
+      ] = await Promise.allSettled([
+        appointmentService.fetchAppointments(),
+        consultationService.fetchConsultations(),
+        departmentService.fetchDepartments(),
+        patientService.fetchPatients(),
+        doctorService.fetchDoctors(),
+        billingService.fetchInvoices(),
+      ]);
+
+      if (!active) return;
+
+      const read = (res: PromiseSettledResult<any>) =>
+        res.status === "fulfilled" && res.value?.status === 200
+          ? (res.value.data?.data ?? [])
+          : [];
+
+      const failed = [
+        appointmentsRes,
+        consultationsRes,
+        departmentsRes,
+        patientsRes,
+        doctorsRes,
+        invoicesRes,
+      ].filter((res) => res.status === "rejected");
+      if (failed.length) {
+        dispatch(
+          toast.error(
+            "Some dashboard data could not be loaded",
+            (failed[0] as PromiseRejectedResult)?.reason?.message,
+          ),
+        );
+      }
+
+      setAppointments(read(appointmentsRes));
+      setConsultations(read(consultationsRes));
+      setDepartments(read(departmentsRes));
+      setPatients(read(patientsRes));
+      setDoctors(read(doctorsRes));
+      setInvoices(read(invoicesRes));
+      setLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [dispatch]);
+
+  return {
+    appointments,
+    consultations,
+    departments,
+    patients,
+    doctors,
+    invoices,
+    loading,
+  };
+}
+
+/**
+ * Dashboard skeleton — the same blocks, spacing and responsive columns as the
+ * loaded dashboard (command banner → KPI grid → three panels), so the layout
+ * does not jump when the data arrives.
+ */
+function DashboardSkeleton() {
+  return (
+    <>
+      {/* command banner */}
+      <div className="rounded-2xl bg-ink-950 px-5 py-5 shadow-pop sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="space-y-3">
+            <Skeleton className="h-3 w-40 bg-white/15" />
+            <Skeleton className="h-6 w-72 max-w-full bg-white/15" />
+            <Skeleton className="h-3 w-56 bg-white/10" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-28 rounded-lg bg-white/15" />
+            <Skeleton className="h-9 w-32 rounded-lg bg-white/10" />
+          </div>
+        </div>
+      </div>
+
+      {/* KPI grid — two columns on small screens, four from xl */}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <Skeleton className="h-2.5 w-20" />
+              <Skeleton className="size-8 rounded-lg" />
+            </div>
+            <Skeleton className="mt-3 h-6 w-16" />
+            <Skeleton className="mt-3 h-2.5 w-full" />
+          </div>
+        ))}
+      </div>
+
+      {/* three analytics panels */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
+          >
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="mt-4 h-40 w-full rounded-lg" />
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 3 }).map((__, r) => (
+                <div key={r} className="flex items-center gap-3">
+                  <Skeleton className="size-7 rounded-lg" />
+                  <Skeleton className="h-2.5 flex-1" />
+                  <Skeleton className="h-2.5 w-10" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
 
 function useCountUp(target: number, duration = 900) {
   const [value, setValue] = useState(0);
@@ -177,14 +350,14 @@ function KpiCard({
 export function DashboardPage() {
   const navigate = useNavigate();
   const { can, canCreate, isSuperAdmin } = usePermission();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
-  const consultations = useRootSelector((s) => s.consultations.items);
-  const invoices = useRootSelector((s) => s.invoices.items);
-  const activities = useRootSelector((s) => s.activities.items);
-  const departments = useRootSelector((s) => s.departments.items);
-  const loading = useRootSelector((s) => s.appointments.status) === "loading";
+  const dashboard = useDashboardData();
+  const patients = dashboard.patients;
+  const doctors = dashboard.doctors;
+  const appointments = dashboard.appointments;
+  const consultations = dashboard.consultations;
+  const invoices = dashboard.invoices;
+  const departments = dashboard.departments;
+  const loading = dashboard.loading;
 
   const today = addDays(new Date(), 0);
   const patientMap = useMemo(
@@ -301,15 +474,12 @@ export function DashboardPage() {
     )
     .slice(0, 6);
 
-  if (loading && !patients.length) {
+  // Loading owns the whole page: the skeleton stands in for the real blocks
+  // (banner, KPI grid, three panels) and no card content is rendered with it.
+  if (loading) {
     return (
-      <div className="space-y-4">
-        <CardSkeleton count={4} />
-        <div className="grid gap-4 lg:grid-cols-3">
-          <CardSkeleton count={1} />
-          <CardSkeleton count={1} />
-          <CardSkeleton count={1} />
-        </div>
+      <div className="space-y-4" role="status" aria-label="Loading dashboard">
+        <DashboardSkeleton />
       </div>
     );
   }
@@ -816,46 +986,6 @@ export function DashboardPage() {
             />
           </SectionPanel>
         )}
-
-        <SectionPanel
-          title="Recent activity"
-          subtitle="Audit trail across modules"
-          icon={<HeartPulse />}
-          bodyClass="p-0"
-        >
-          <MiniList
-            rows={activities.slice(0, 8).map((a: any) => ({
-              title: (
-                <span className="text-[12.5px] leading-snug">
-                  <span className="font-semibold text-ink-800">
-                    {a.userName}
-                  </span>{" "}
-                  {a.action}{" "}
-                  <span className="font-medium text-brand-700">
-                    {a.entityName}
-                  </span>
-                </span>
-              ),
-              meta: `${a.entity} · ${relativeTime(a.at)}`,
-              right: (
-                <span
-                  className={cn(
-                    "size-1.5 shrink-0 rounded-full",
-                    (
-                      {
-                        brand: "bg-brand-500",
-                        amber: "bg-amberly-500",
-                        coral: "bg-coral-500",
-                        mint: "bg-mint-500",
-                        lagoon: "bg-lagoon-500",
-                      } as Record<string, string>
-                    )[a.tone],
-                  )}
-                />
-              ),
-            }))}
-          />
-        </SectionPanel>
       </div>
     </div>
   );

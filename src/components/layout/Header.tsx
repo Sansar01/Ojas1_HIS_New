@@ -4,19 +4,20 @@ import {
   Bell,
   ChevronRight,
   ExternalLink,
-  LifeBuoy,
   LogOut,
   Menu,
-  RefreshCw,
   Search,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { APP_NAME } from "@/constants";
-import { useAppDispatch, useCurrentUser, useRootSelector } from "@/hooks";
-import { setMobileNav } from "@/features/ui/uiSlice";
-import { bootstrapResources } from "@/store";
-import { Badge, Button, IconButton } from "@/components/ui/primitives";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useCurrentUser, useDebouncedValue, usePermission } from "@/hooks";
+import { setMobileNav, toast } from "@/store/slices/uiSlice";
+import { patientService } from "@/pages/patients/patient.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { billingService } from "@/pages/billing/billing.service";
+import { Badge, Button, IconButton, Avatar } from "@/components/ui/primitives";
 import {
   DropdownMenu,
   MenuLabel,
@@ -24,10 +25,8 @@ import {
   Tooltip,
   menuItemClass,
 } from "@/components/ui/overlays";
-import { Avatar } from "@/components/ui/primitives";
 import { relativeTime } from "@/utils";
-import { logoutUser } from "@/features/auth/authSlice";
-import { usePermission } from "@/hooks";
+import { logoutUser } from "@/store/slices/authSlice";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -43,12 +42,28 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const user = useCurrentUser();
-  const activities = useRootSelector((s) => s.activities.items);
+
+  /**
+   * The account's role label. Deployments differ: some return a denormalised
+   * string on `user.role`, others an object ({ id, name, slug }). The rest of
+   * the app already reads both shapes (see `usePermission`), so render a label
+   * either way — an object here used to crash the whole shell.
+   */
+  const roleLabel =
+    typeof user?.role === "string"
+      ? user.role
+      : ((user?.role as any)?.name ?? (user?.role as any)?.slug ?? "");
+  /**
+   * Notification feed. The activity-log endpoint this used to read is not part
+   * of the backend build, so the feed renders its empty state instead of
+   * requesting an endpoint that does not exist.
+   */
+  const activities: any[] = [];
   const { isSuperAdmin } = usePermission();
   const now = useClock();
 
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
   const trail = useMemo(() => {
     const segments = location.pathname.split("/").filter(Boolean);
@@ -137,14 +152,6 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
         </Tooltip>
       </div>
 
-      <IconButton
-        label="Refresh data"
-        variant="ghost"
-        onClick={() => dispatch(bootstrapResources() as any)}
-      >
-        <RefreshCw />
-      </IconButton>
-
       <DropdownMenu
         align="end"
         trigger={
@@ -211,7 +218,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
                 {user?.firstName} {user?.lastName}
               </span>
               <span className="block text-[10.5px] text-ink-400">
-                {user?.role}
+                {roleLabel}
               </span>
             </span>
             <ChevronRight className="hidden size-3.5 rotate-90 text-ink-400 lg:block" />
@@ -227,7 +234,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <Badge tone="brand" size="xs">
-              {user?.role}
+              {roleLabel}
             </Badge>
             {isSuperAdmin && (
               <Badge tone="ink" size="xs">
@@ -251,18 +258,12 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
             <UserRound className="size-4" /> Profile & facility
           </MenuItem>
           <MenuItem
-            onSelect={() => dispatch(bootstrapResources() as any)}
-            className={menuItemClass()}
-          >
-            <LifeBuoy className="size-4" /> Sync portal data
-          </MenuItem>
-          <MenuItem
             onSelect={async () => {
               await dispatch(logoutUser()).unwrap();
-              window.setTimeout(
-                () => navigate("/accounts/login", { replace: true }),
-                3000,
-              );
+              // The sign-out toast lives in the global host, so it keeps
+              // showing after the redirect — the login screen is reached
+              // immediately, with no "intended route" carried over.
+              navigate("/accounts/login", { replace: true, state: null });
             }}
             className={cn(menuItemClass("danger"), "border-t border-ink-100")}
           >
@@ -282,6 +283,10 @@ const labelFromSegment = (seg: string) =>
       ? "Record"
       : seg.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+/** Invoice number in whatever shape the backend sent (no crash on missing). */
+const invoiceNo = (i: any): string =>
+  String(i?.number ?? i?.invoiceNumber ?? i?.code ?? i?.billNo ?? "");
+
 export function GlobalSearch({
   open,
   onClose,
@@ -289,53 +294,96 @@ export function GlobalSearch({
   open: boolean;
   onClose: () => void;
 }) {
+  const dispatch = useAppDispatch();
   const [term, setTerm] = useState("");
   const navigate = useNavigate();
-  const patients = useRootSelector((s) => s.patients.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const invoices = useRootSelector((s) => s.invoices.items);
   const [results, setResults] = useState<any[]>([]);
 
+  /**
+   * Server-side search, debounced (doc §24).
+   *
+   * Typing "Sansar" issues one request, not six, and only the answer to the
+   * term currently in the box is used — a slower response for an older term is
+   * ignored. Nothing is loaded until the user opens the palette and types, and
+   * no collection is pulled into a global store.
+   */
+  const query = useDebouncedValue(term.trim(), 350);
+
+  const [found, setFound] = useState<any>({
+    patients: [],
+    doctors: [],
+    invoices: [],
+  });
+
   useEffect(() => {
-    if (!term.trim()) return setResults([]);
-    const q = term.toLowerCase();
+    let active = true;
+
+    (async () => {
+      if (!open || query.length < 2) {
+        if (active) setFound({ patients: [], doctors: [], invoices: [] });
+        return;
+      }
+      try {
+        const [patientsRes, doctorsRes, invoicesRes] = await Promise.all([
+          patientService.fetchPatients({ search: query, limit: 4 }),
+          doctorService.fetchDoctors({ search: query, limit: 4 }),
+          billingService.fetchInvoices({ limit: 3 }),
+        ]);
+        if (!active) return;
+        setFound({
+          patients:
+            patientsRes.status === 200 ? (patientsRes.data?.data ?? []) : [],
+          doctors:
+            doctorsRes.status === 200 ? (doctorsRes.data?.data ?? []) : [],
+          invoices:
+            invoicesRes.status === 200 ? (invoicesRes.data?.data ?? []) : [],
+        });
+      } catch (e: any) {
+        if (active) {
+          setFound({ patients: [], doctors: [], invoices: [] });
+          dispatch(toast.error("Search failed", e?.message));
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [open, query]);
+
+  useEffect(() => {
+    if (query.length < 2) return setResults([]);
+    const q = query.toLowerCase();
     const out: any[] = [];
-    patients
-      .filter((p: any) =>
-        `${p.firstName} ${p.lastName} ${p.mrn}`.toLowerCase().includes(q),
-      )
-      .slice(0, 4)
-      .forEach((p: any) =>
-        out.push({
-          label: `${p.firstName} ${p.lastName}`,
-          meta: `Patient · ${p.mrn}`,
-          to: `/patients/${p.id}/detail`,
-        }),
-      );
-    doctors
-      .filter((d: any) =>
-        `${d.firstName} ${d.lastName}`.toLowerCase().includes(q),
-      )
-      .slice(0, 4)
-      .forEach((d: any) =>
-        out.push({
-          label: `Dr. ${d.firstName} ${d.lastName}`,
-          meta: `Doctor · ${d.registrationNumber}`,
-          to: `/doctors/${d.id}`,
-        }),
-      );
-    invoices
-      .filter((i: any) => i.number.toLowerCase().includes(q))
+    (found.patients ?? []).slice(0, 4).forEach((p: any) =>
+      out.push({
+        label: `${p.firstName} ${p.lastName}`,
+        meta: `Patient · ${p.mrn}`,
+        to: `/patients/${p.id}/detail`,
+      }),
+    );
+    (found.doctors ?? []).slice(0, 4).forEach((d: any) =>
+      out.push({
+        label: `Dr. ${d.firstName} ${d.lastName}`,
+        meta: `Doctor · ${d.registrationNumber}`,
+        to: `/doctors/${d.id}`,
+      }),
+    );
+    (found.invoices ?? [])
+      // the invoice list endpoint is not searchable, so the returned page is
+      // matched locally; the backend shape varies between deployments
+      // (`number`, `invoiceNumber`, `code`, `billNo`).
+      .filter((i: any) => invoiceNo(i).toLowerCase().includes(q))
       .slice(0, 3)
       .forEach((i: any) =>
         out.push({
-          label: i.number,
-          meta: `Invoice · ${i.paymentStatus}`,
+          label: invoiceNo(i) || `Invoice ${i.id}`,
+          meta: `Invoice · ${i.paymentStatus ?? i.billStatus ?? "—"}`,
           to: `/billing?invoice=${i.id}`,
         }),
       );
     setResults(out);
-  }, [term, patients, doctors, invoices]);
+  }, [found, query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

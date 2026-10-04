@@ -10,11 +10,13 @@ import {
   UserPlus,
   UserRound,
 } from "lucide-react";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
-import { rolesApi, usersApi } from "@/features/slices";
+import { departmentService } from "@/pages/Departments/department.service";
+import { roleService } from "@/pages/admin/role.service";
+import { userService } from "@/pages/users/user.service";
 import { FormSection, PageIntro } from "@/components/common";
-import {  Badge, Button, Panel } from "@/components/ui/primitives";
+import { Badge, Button, Panel } from "@/components/ui/primitives";
 import {
   Checkbox,
   Input,
@@ -22,10 +24,8 @@ import {
   Select,
   Switch,
 } from "@/components/ui/fields";
-import { toast } from "@/features/ui/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
-import { useDispatch } from "react-redux";
-import { departmentsApi } from "@/features/slices";
 import { Stepper } from "@/components/ui/Stepper";
 
 /* ---------------------------------------------------------------------------
@@ -88,26 +88,71 @@ function passwordScore(value: string) {
 export function UsersNewPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { items: roles, status: rolesStatus } = useRootSelector((s) => s.roles);
-  const departments = useRootSelector(
-    (state) =>
-      state.departments.items &&
-      state.departments.items.filter((x) => x.isActive === true),
-  );
+  /**
+   * The two dropdown sources of this wizard (roles + active departments) are
+   * loaded here, through their feature services, into local state.
+   */
+  const [roles, setRoles] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
 
-  // department options for the dropdown
+  /**
+   * Both lists are needed before the wizard can be used (role drives the module
+   * rights of step 2, departments the assignment list), so this is a blocking
+   * initialization: the global loader is up while either list is loading and
+   * comes down once both have settled.
+   */
   useEffect(() => {
-    dispatch(departmentsApi.thunks.fetchAll() as any);
+    if (!rolesLoading && !departmentsLoading) return;
+    dispatch(showLoader("Loading"));
+    return () => {
+      dispatch(hideLoader());
+    };
+  }, [rolesLoading, departmentsLoading, dispatch]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await roleService.fetchRoles();
+        if (active && response.status === 200)
+          setRoles(response.data?.data ?? []);
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load roles", e?.message));
+      } finally {
+        if (active) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [dispatch]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(
+            (response.data?.data ?? []).filter((x: any) => x.isActive === true),
+          );
+        }
+      } catch (e: any) {
+        if (active)
+          dispatch(toast.error("Could not load departments", e?.message));
+      } finally {
+        if (active) setDepartmentsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [showPassword, setShowPassword] = useState(false);
-
-  useEffect(() => {
-    if (rolesStatus === "idle") {
-      dispatch(rolesApi.thunks.fetchAll() as any);
-    }
-  }, [dispatch, rolesStatus]);
 
   const form = useForm({
     initialValues: {
@@ -277,12 +322,13 @@ export function UsersNewPage() {
       },
     };
 
-    await dispatch(
-      usersApi.thunks.createOne({
-        data: payload,
-        successMessage: "User created successfully",
-      } as any),
-    ).unwrap();
+    try {
+      await userService.createUser(payload);
+      dispatch(toast.success("User created successfully"));
+    } catch (e: any) {
+      dispatch(toast.error("Creation failed", e?.message));
+      return;
+    }
     navigate("/users");
   });
 
@@ -518,6 +564,8 @@ export function UsersNewPage() {
                       }
                       value={form.values.primaryRoleId}
                       onChange={(v) => form.setValue("primaryRoleId", v)}
+                      loading={rolesLoading}
+                      loadingLabel="Loading roles…"
                       options={roles.map((r: any) => ({
                         value: String(r.id),
                         label: r.name,
@@ -548,6 +596,8 @@ export function UsersNewPage() {
                       onChange={(v) =>
                         form.setValue("departmentIds", v as string[])
                       }
+                      loading={departmentsLoading}
+                      loadingLabel="Loading departments…"
                       options={departments.map((d: any) => ({
                         value: String(d.id),
                         label: d.name,

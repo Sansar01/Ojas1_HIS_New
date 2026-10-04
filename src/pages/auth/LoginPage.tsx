@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { useAppDispatch, useAuthStatus } from "@/hooks";
-import { login, verifyOtp } from "@/features/auth/authSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { useAuthStatus } from "@/hooks";
+import { login, verifyOtp } from "@/store/slices/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
-import { toast } from "@/features/ui/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 
 export function LoginPage() {
   const dispatch = useAppDispatch();
@@ -41,13 +42,21 @@ export function LoginPage() {
     },
   });
 
-  const goToDashboard = (payload: any) => {
+  /**
+   * Authentication success never opens the Dashboard directly (doc §37/§49).
+   * Session restore and this hand-off both enter the `/permission` bootstrap
+   * stage; that page loads modules → permissions and only then forwards the
+   * user to the route they originally asked for (or /dashboard).
+   */
+  const goToBootstrap = (payload: any) => {
     form.reset();
     // The backend tells us whether a new password is required first.
     const mustChangePassword = Boolean(
       payload?.forcePasswordChange ?? payload?.user?.forcePasswordChange,
     );
-    navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/dashboard", {
+    // No route is carried into the new session: the bootstrap stage decides,
+    // and it always opens the dashboard.
+    navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/permission", {
       replace: true,
     });
   };
@@ -73,7 +82,7 @@ export function LoginPage() {
         );
         return;
       }
-      goToDashboard(result.payload);
+      goToBootstrap(result.payload);
     } else {
       const message =
         (result.payload as string) ||
@@ -96,7 +105,7 @@ export function LoginPage() {
       verifyOtp({ ...otpChallenge, code: code }),
     );
     if (verifyOtp.fulfilled.match(result)) {
-      goToDashboard(result.payload);
+      goToBootstrap(result.payload);
     } else {
       dispatch(
         toast.error(
@@ -107,10 +116,6 @@ export function LoginPage() {
       );
     }
   };
-
-  // const fillDemo = (account: (typeof DEMO)[number]) => {
-  //   form.setMany({ email: account.email, password: account.password });
-  // };
 
   return (
     <AuthLayout

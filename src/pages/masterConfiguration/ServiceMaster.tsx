@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Edit2, RotateCcw, X } from "lucide-react";
+import { Plus, Trash2, Edit2, X } from "lucide-react";
 import { Dialog } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
 import {
@@ -7,19 +7,14 @@ import {
   NumberInput,
   Select,
   SearchInput,
-  fieldClasses,
 } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
-import { cn } from "@/utils/cn";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 
-// Import Service Master API
-import {
-  serviceMasterService,
-  type ServiceMasterItem,
-  type ServiceCategory,
-} from "@/features/masters/serviceMasterService";
+// Service Master API
+import { masterService } from "@/pages/masterConfiguration/master.service";
+import type { ServiceMasterItem, ServiceCategory } from "@/types";
 
 // Service Categories Dropdown Options
 const CATEGORY_OPTIONS: { value: ServiceCategory; label: string }[] = [
@@ -50,39 +45,46 @@ export function ServiceMaster({
 }) {
   const dispatch = useAppDispatch();
 
-  // Data & UI States
+  // Service catalogue — loaded by this dialog whenever it opens (§21/§26)
   const [services, setServices] = useState<ServiceMasterItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  // Form State
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-
-  // Filter States
-  const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-
-  // ─── 1. Load Services ─────────────────────────────────────────────
+  /** service catalogue of this dialog */
   const loadServices = useCallback(async () => {
-    setLoading(true);
     try {
-      const data = await serviceMasterService.list();
-      setServices(data);
-    } catch (error: any) {
-      dispatch(toast.error("Failed to load services", error?.message));
+      setLoading(true);
+      const response = await masterService.fetchServices();
+      if (response.status === 200) setServices(response.data?.data ?? []);
+    } catch (e: any) {
+      dispatch(toast.error("Failed to load services", e?.message));
     } finally {
       setLoading(false);
     }
   }, [dispatch]);
 
   useEffect(() => {
+    if (open) loadServices();
+  }, [open, loadServices]);
+
+  // UI States
+  const [saving, setSaving] = useState(false);
+
+  // Form State
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof FormState, string>>
+  >({});
+
+  // Filter States
+  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
+
+  useEffect(() => {
     if (open) {
-      loadServices();
       resetForm();
     }
-  }, [open, loadServices]);
+  }, [open]);
 
   // ─── 2. Helpers ───────────────────────────────────────────────────
   const resetForm = () => {
@@ -122,7 +124,7 @@ export function ServiceMaster({
     try {
       if (editingId) {
         // Edit Mode
-        await serviceMasterService.update(editingId, {
+        await masterService.updateService(editingId, {
           serviceCode: form.serviceCode.toUpperCase().trim(),
           serviceName: form.serviceName.trim(),
           category: form.category,
@@ -131,7 +133,7 @@ export function ServiceMaster({
         dispatch(toast.success("Service updated successfully"));
       } else {
         // Create Mode
-        await serviceMasterService.create({
+        await masterService.createService({
           serviceCode: form.serviceCode.toUpperCase().trim(),
           serviceName: form.serviceName.trim(),
           category: form.category,
@@ -162,10 +164,11 @@ export function ServiceMaster({
 
   // ─── 5. Soft Delete Handler ───────────────────────────────────────
   const handleDelete = async (row: ServiceMasterItem) => {
-    if (!confirm(`Are you sure you want to delete '${row.serviceName}'?`)) return;
+    if (!confirm(`Are you sure you want to delete '${row.serviceName}'?`))
+      return;
 
     try {
-      await serviceMasterService.remove(row.id);
+      await masterService.deleteService(row.id);
       dispatch(toast.success("Service deleted"));
       loadServices();
     } catch (error: any) {

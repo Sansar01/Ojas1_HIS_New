@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Eye,
   Layers,
@@ -7,13 +7,12 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
-import { departmentsApi } from "@/features/slices";
+import { useAppDispatch } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
+import { departmentService } from "@/pages/Departments/department.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { toast } from "@/store/slices/uiSlice";
 import { formatDate, fullName } from "@/utils";
 import type { Department } from "@/types";
 import {
@@ -38,28 +37,100 @@ import { DepartmentFormDialog } from "./DepartmentsFormPage";
 
 export function DepartmentsPage() {
   const dispatch = useAppDispatch();
-  const { items: departments, status } = useRootSelector((s) => s.departments);
-  const doctors = useRootSelector((s) => s.doctors.items);
-  const specializations = useRootSelector((s) => s.specializations.items);
-  const appointments = useRootSelector((s) => s.appointments.items);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [editing, setEditing] = useState<Partial<Department> | null>(null);
   const [detail, setDetail] = useState<Department | null>(null);
   const [filters, setFilters] = useState({ status: "all" });
-  const [refreshing, setRefreshing] = useState(false);
+
+  /* ------------------------------- local data ----------------------------- */
+
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /** departments + the collections the table columns render */
+  const loadDepartments = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await departmentService.fetchDepartments();
+      if (response.status === 200) setDepartments(response.data?.data ?? []);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not load departments");
+      dispatch(toast.error("Could not load departments", e?.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
 
   useEffect(() => {
-    if (status === "idle") dispatch(departmentsApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+    let active = true;
+    (async () => {
+      try {
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200)
+          setDoctors(response.data?.data ?? []);
+      } catch (e: any) {
+        dispatch(toast.error("Could not load doctors", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  /** re-run the department list API (e.g. after a write) without the full loader flash */
-  const refreshList = async () => {
-    setRefreshing(true);
-    await dispatch(departmentsApi.thunks.fetchAll() as any);
-    setRefreshing(false);
-  };
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load appointments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const table = useTable<Department>(departments as Department[], {
+  useEffect(() => {
+    loadDepartments();
+  }, [loadDepartments]);
+
+  /** re-run the department list API (e.g. after a write) */
+  const refreshList = useCallback(async () => {
+    await loadDepartments();
+  }, [loadDepartments]);
+
+  const remove = useCallback(
+    async (department: Department) => {
+      try {
+        await departmentService.deleteDepartment(department.id);
+        setDepartments((rows) =>
+          rows.filter((row) => row.id !== department.id),
+        );
+        dispatch(
+          toast.success(
+            "Record deleted",
+            `${department.name} was removed from the portal.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Delete failed", e?.message));
+      }
+    },
+    [dispatch, setDepartments],
+  );
+
+  const status = loading ? "loading" : error ? "error" : "ready";
+
+  const table = useTable<Department>(departments, {
     pageSize: 8,
     filters,
     searchFields: [(d) => `${d.name} ${d.code} ${d.description} ${d.floor}`],
@@ -68,8 +139,6 @@ export function DepartmentsPage() {
 
   const stats = (id: string) => ({
     doctors: doctors.filter((d: any) => d.departmentId === id).length,
-    specializations: specializations.filter((s: any) => s.departmentId === id)
-      .length,
     visits: appointments.filter((a: any) => a.departmentId === id).length,
   });
 
@@ -106,7 +175,7 @@ export function DepartmentsPage() {
                 size="sm"
                 variant="outline"
                 icon={<RefreshCw />}
-                loading={refreshing}
+                loading={loading}
                 onClick={refreshList}
               >
                 Refresh
@@ -197,17 +266,6 @@ export function DepartmentsPage() {
               ),
             },
             {
-              key: "specializations",
-              header: "Spec.",
-              align: "center",
-              hideBelow: "sm",
-              render: (d) => (
-                <span className="num text-ink-600">
-                  {stats(d.id).specializations}
-                </span>
-              ),
-            },
-            {
               key: "visits",
               header: "Visits (30d)",
               align: "right",
@@ -228,13 +286,7 @@ export function DepartmentsPage() {
             },
           ]}
           rows={table.rows}
-          status={
-            status === "ready"
-              ? "ready"
-              : status === "error"
-                ? "error"
-                : "loading"
-          }
+          status={status}
           sort={{
             sortBy: table.query.sortBy,
             sortDir: table.query.sortDir,
@@ -259,13 +311,7 @@ export function DepartmentsPage() {
                   icon: <Trash2 />,
                   tone: "danger",
                   hidden: !canDelete("departments"),
-                  onClick: () =>
-                    dispatch(
-                      departmentsApi.thunks.removeOne({
-                        id: d.id,
-                        label: d.name,
-                      } as any),
-                    ),
+                  onClick: () => remove(d),
                 },
               ]}
             />
@@ -350,11 +396,9 @@ export function DepartmentsPage() {
                             Dr. {fullName(d)}
                           </span>
                           <span className="block text-[11px] text-ink-400">
-                            {
-                              specializations.find(
-                                (s: any) => s.id === d.specializationId,
-                              )?.name
-                            }
+                            {(d as any).specialization ||
+                              (d as any).specializationId ||
+                              ""}
                           </span>
                         </span>
                       </span>

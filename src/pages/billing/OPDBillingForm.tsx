@@ -13,7 +13,13 @@ import {
   ArrowLeft,
   Loader2,
 } from "lucide-react";
-import { billingService } from "@/features/billing/billingService";
+import { billingService } from "@/pages/billing/billing.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
+import { useDebouncedValue } from "@/hooks";
+import { patientService } from "@/pages/patients/patient.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
 import { formatMoney } from "@/utils";
 import { cn } from "@/utils/cn";
 
@@ -99,6 +105,7 @@ interface Props {
 }
 
 export function OPDBillingForm({ onClose, onSuccess }: Props) {
+  const dispatch = useAppDispatch();
   const [searchParams] = useSearchParams();
   const urlAppointmentId = searchParams.get("appointment");
   const urlPatientId = searchParams.get("patient");
@@ -106,17 +113,63 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
   // Patient Search
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [allPatients, setAllPatients] = useState<any[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<any>(null);
 
   // Appointments
-  const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>(
     urlAppointmentId || "",
   );
 
-  // Doctors
+  /**
+   * The three collections this counter screen needs (patient picker, visit
+   * reference and doctor referral list) are loaded here, through their own
+   * feature services, into this page's state.
+   */
+  const [allPatients, setAllPatients] = useState<any[]>([]);
+  const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [allDoctors, setAllDoctors] = useState<any[]>([]);
+  const [patientsLoading, setPatientsLoading] = useState(true);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(true);
+  const [doctorsLoading, setDoctorsLoading] = useState(true);
+
+  /** the three collections this counter screen needs */
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await patientService.fetchPatients();
+        if (active && response.status === 200) {
+          setAllPatients(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load patients", e?.message));
+      } finally {
+        if (active) setPatientsLoading(false);
+      }
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAllAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load appointments", e?.message));
+      } finally {
+        if (active) setAppointmentsLoading(false);
+      }
+      try {
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200)
+          setAllDoctors(response.data?.data ?? []);
+      } catch (e: any) {
+        dispatch(toast.error("Could not load doctors", e?.message));
+      } finally {
+        if (active) setDoctorsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Panel / Insurance
   const [panelGroup, setPanelGroup] = useState("GENERAL");
@@ -139,51 +192,26 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
 
   // Additional
   const [remarks, setRemarks] = useState("");
-  const [tokenNo, setTokenNo] = useState("");
   const [currency, setCurrency] = useState("INR");
 
   // UI State
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // --- Load Masters ---
+  // Preselect the appointment / patient passed in the URL once the lists are
+  // available.
   useEffect(() => {
-    async function loadMasters() {
-      try {
-        setLoading(true);
-        const [patRes, aptRes, docRes] = await Promise.all([
-          billingService.getPatients({ limit: 100 }),
-          billingService.getAppointments({}),
-          billingService.getDoctors(),
-        ]);
-
-        const patients = patRes.data || patRes || [];
-        const appointments = aptRes.data || aptRes || [];
-        const doctors = docRes.data || docRes || [];
-
-        setAllPatients(patients);
-        setAllAppointments(appointments);
-        setAllDoctors(doctors);
-
-        // Preselect from URL
-        if (urlAppointmentId) {
-          const apt = appointments.find((a: any) => a.id === urlAppointmentId);
-          if (apt) {
-            selectAppointment(apt, patients);
-          }
-        } else if (urlPatientId) {
-          const pat = patients.find((p: any) => p.id === urlPatientId);
-          if (pat) handleSelectPatient(pat);
-        }
-      } catch (e) {
-        console.error("Failed to load masters", e);
-      } finally {
-        setLoading(false);
-      }
+    if (!allPatients.length) return;
+    if (urlAppointmentId && allAppointments.length) {
+      const apt = allAppointments.find((a: any) => a.id === urlAppointmentId);
+      if (apt) selectAppointment(apt, allPatients);
+    } else if (urlPatientId) {
+      const pat = allPatients.find((p: any) => p.id === urlPatientId);
+      if (pat) handleSelectPatient(pat);
     }
-    loadMasters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [allPatients, allAppointments, urlAppointmentId, urlPatientId]);
+
+  const loading = patientsLoading || appointmentsLoading || doctorsLoading;
 
   // --- Handlers ---
   const handleSelectPatient = (patient: any) => {
@@ -231,19 +259,65 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
     setReceivedAmount(fee);
   };
 
+  /**
+   * Patient lookup — debounced server-side search (the counter does not need
+   * the whole patient table in memory), while the locally loaded page stays a
+   * fallback so typing never blocks on the network.
+   */
+  const debouncedPatientQuery = useDebouncedValue(searchQuery.trim(), 300);
+  const [serverPatients, setServerPatients] = useState<any[]>([]);
+  const [patientSearching, setPatientSearching] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (debouncedPatientQuery.length < 2) {
+        if (active) setServerPatients([]);
+        return;
+      }
+      try {
+        setPatientSearching(true);
+        const response = await patientService.fetchPatients({
+          search: debouncedPatientQuery,
+          limit: 8,
+        });
+        if (active && response.status === 200) {
+          setServerPatients(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active) {
+          setServerPatients([]);
+          dispatch(toast.error("Could not search patients", e?.message));
+        }
+      } finally {
+        if (active) setPatientSearching(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [debouncedPatientQuery]);
+
   const filteredPatientResults = useMemo(() => {
     if (!searchQuery) return [];
     const q = searchQuery.toLowerCase();
-    return allPatients
-      .filter(
-        (p) =>
-          p.uhid?.toLowerCase().includes(q) ||
-          p.firstName?.toLowerCase().includes(q) ||
-          p.lastName?.toLowerCase().includes(q) ||
-          p.mobile?.includes(q),
-      )
+    const local = allPatients.filter(
+      (p) =>
+        p.uhid?.toLowerCase().includes(q) ||
+        p.firstName?.toLowerCase().includes(q) ||
+        p.lastName?.toLowerCase().includes(q) ||
+        p.mobile?.includes(q),
+    );
+    const seen = new Set<string>();
+    return [...local, ...serverPatients]
+      .filter((p) => {
+        const key = String(p.id ?? p.uhid ?? "");
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .slice(0, 8);
-  }, [searchQuery, allPatients]);
+  }, [searchQuery, allPatients, serverPatients]);
 
   const filteredServices = useMemo(() => {
     return SERVICE_MASTER.filter((s) => {
@@ -346,10 +420,12 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
         payload.paymentMode = paymentMode;
       }
 
-      await billingService.createBill(payload);
+      await billingService.createInvoice(payload);
       onSuccess();
     } catch (e: any) {
-      alert(e.message || "Failed to create bill");
+      dispatch(
+        toast.error("Could not create bill", e?.message || "Please try again."),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -422,30 +498,38 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
                 Search
               </button>
 
-              {showSearchResults && filteredPatientResults.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-20 max-h-80 overflow-auto">
-                  {filteredPatientResults.map((p) => (
-                    <div
-                      key={p.id}
-                      className="p-3 hover:bg-brand-50 cursor-pointer flex items-center gap-3 border-b border-slate-100 last:border-b-0"
-                      onClick={() => handleSelectPatient(p)}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold">
-                        {p.firstName?.[0]}
-                        {p.lastName?.[0]}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">
-                          {p.firstName} {p.lastName}
-                        </p>
-                        <p className="text-xs text-slate-500 truncate">
-                          {p.uhid} | {p.mobile}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+              {showSearchResults && patientSearching && (
+                <div className="absolute top-full left-0 w-full mt-1 rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500 shadow-lg z-20">
+                  Searching patients…
                 </div>
               )}
+
+              {showSearchResults &&
+                !patientSearching &&
+                filteredPatientResults.length > 0 && (
+                  <div className="absolute top-full left-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-20 max-h-80 overflow-auto">
+                    {filteredPatientResults.map((p) => (
+                      <div
+                        key={p.id}
+                        className="p-3 hover:bg-brand-50 cursor-pointer flex items-center gap-3 border-b border-slate-100 last:border-b-0"
+                        onClick={() => handleSelectPatient(p)}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-xs font-bold">
+                          {p.firstName?.[0]}
+                          {p.lastName?.[0]}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">
+                            {p.firstName} {p.lastName}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">
+                            {p.uhid} | {p.mobile}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
             </div>
           </div>
 
@@ -577,6 +661,8 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
               label="Doctor *"
               value={doctorId}
               onChange={setDoctorId}
+              loading={doctorsLoading}
+              loadingLabel="Loading doctors…"
               options={[
                 { value: "", label: "Select" },
                 ...allDoctors.map((d) => ({
@@ -998,11 +1084,16 @@ function SelectField({
   value,
   onChange,
   options,
+  loading = false,
+  loadingLabel = "Loading…",
 }: {
   label: string;
   value: string;
   onChange?: (v: string) => void;
   options: (string | { value: string; label: string })[];
+  /** option source still in flight — shown inside the select, not globally */
+  loading?: boolean;
+  loadingLabel?: string;
 }) {
   return (
     <div className="flex flex-col">
@@ -1011,21 +1102,24 @@ function SelectField({
       </label>
       <div className="relative">
         <select
-          className="w-full border border-slate-300 rounded appearance-none focus:outline-none focus:border-brand-500 bg-white py-2 px-3 text-sm"
+          className="w-full border border-slate-300 rounded appearance-none focus:outline-none focus:border-brand-500 bg-white py-2 px-3 text-sm disabled:cursor-wait disabled:bg-slate-50 disabled:text-slate-400"
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
+          disabled={loading}
         >
-          {options.map((opt) => {
-            const o =
-              typeof opt === "string"
-                ? { value: opt, label: opt || "Select" }
-                : opt;
-            return (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            );
-          })}
+          {loading && <option value={value}>{loadingLabel}</option>}
+          {!loading &&
+            options.map((opt) => {
+              const o =
+                typeof opt === "string"
+                  ? { value: opt, label: opt || "Select" }
+                  : opt;
+              return (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              );
+            })}
         </select>
         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
       </div>

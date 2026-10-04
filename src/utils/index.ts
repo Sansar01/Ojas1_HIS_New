@@ -1,4 +1,3 @@
-import { addDays } from "@/data/db";
 import type { Appointment, Doctor, Invoice, ScheduleDay } from "@/types";
 
 /* --------------------------- formatting helpers --------------------------- */
@@ -7,9 +6,19 @@ export const formatMoney = (value: number, symbol = "₹") =>
   `${symbol}${(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 export const formatCompact = (value: number) =>
-  Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
+  Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value || 0);
 
-export const formatDate = (iso?: string | null, opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short", year: "numeric" }) => {
+export const formatDate = (
+  iso?: string | null,
+  opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  },
+) => {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -52,7 +61,10 @@ export const timeToMinutes = (t: string) => {
   return (h || 0) * 60 + (m || 0);
 };
 
-export const calcAge = (dob: string, unit: "Years" | "Months" | "Days" = "Years") => {
+export const calcAge = (
+  dob: string,
+  unit: "Years" | "Months" | "Days" = "Years",
+) => {
   if (!dob) return "—";
   const birth = new Date(dob);
   const now = new Date();
@@ -60,24 +72,31 @@ export const calcAge = (dob: string, unit: "Years" | "Months" | "Days" = "Years"
   const m = now.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) years -= 1;
   if (unit === "Months") return `${years * 12 + Math.max(0, m)} mo`;
-  if (unit === "Days") return `${Math.floor((now.getTime() - birth.getTime()) / 86400000)} d`;
+  if (unit === "Days")
+    return `${Math.floor((now.getTime() - birth.getTime()) / 86400000)} d`;
   return `${Math.max(0, years)} yrs`;
 };
 
-export const initials = (first = "", last = "") =>
-  `${first.trim().charAt(0)}${last.trim().charAt(0)}`.toUpperCase() || "??";
 
-export const fullName = (p?: { firstName?: string; lastName?: string } | null) =>
-  p ? `${p.firstName} ${p.lastName}`.trim() : "Unknown";
+export const fullName = (
+  p?: { firstName?: string; lastName?: string } | null,
+) => (p ? `${p.firstName} ${p.lastName}`.trim() : "Unknown");
 
 export const toCSV = (rows: Record<string, any>[]) => {
   if (!rows.length) return "";
   const headers = Object.keys(rows[0]);
   const escape = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  return [headers.join(","), ...rows.map((r) => headers.map((h) => escape(r[h])).join(","))].join("\n");
+  return [
+    headers.join(","),
+    ...rows.map((r) => headers.map((h) => escape(r[h])).join(",")),
+  ].join("\n");
 };
 
-export const downloadText = (filename: string, content: string, type = "text/csv") => {
+export const downloadText = (
+  filename: string,
+  content: string,
+  type = "text/csv",
+) => {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -87,32 +106,51 @@ export const downloadText = (filename: string, content: string, type = "text/csv
   setTimeout(() => URL.revokeObjectURL(url), 400);
 };
 
-export const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+/** ISO date (YYYY-MM-DD) `days` away from `base`. */
+export const addDays = (base: Date, days: number): string => {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 };
 
-export const todayISO = () => addDays(new Date(), 0);
+export const todayISO = (): string => addDays(new Date(), 0);
+
+/** Stable-enough local id for rows created in the UI (prescription lines, …). */
+export const idGen = (prefix: string) =>
+  `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 
 /* ------------------------- invoice & money maths ------------------------- */
 
-export function invoiceTotals(invoice: Pick<Invoice, "items" | "discountType" | "discountValue" | "taxRate" | "payments">) {
-  const subtotal = invoice.items.reduce((s, i) => s + Number(i.quantity || 0) * Number(i.unitPrice || 0), 0);
-  const discount = invoice.discountType === "Percent" ? Math.round((subtotal * Number(invoice.discountValue || 0)) / 100) : Number(invoice.discountValue || 0);
+export function invoiceTotals(
+  invoice: Pick<
+    Invoice,
+    "items" | "discountType" | "discountValue" | "taxRate" | "payments"
+  >,
+) {
+  const subtotal = invoice.items.reduce(
+    (s, i) => s + Number(i.quantity || 0) * Number(i.unitPrice || 0),
+    0,
+  );
+  const discount =
+    invoice.discountType === "Percent"
+      ? Math.round((subtotal * Number(invoice.discountValue || 0)) / 100)
+      : Number(invoice.discountValue || 0);
   const taxable = Math.max(0, subtotal - discount);
   const tax = Math.round((taxable * Number(invoice.taxRate || 0)) / 100);
   const total = taxable + tax;
-  const paid = (invoice.payments ?? []).reduce((s, p) => s + Number(p.amount || 0), 0);
-  return { subtotal, discount, taxable, tax, total, paid, remaining: Math.max(0, total - paid) };
-}
-
-export function derivePaymentStatus(total: number, paid: number, current?: string): Invoice["paymentStatus"] {
-  if (current === "Cancelled") return "Cancelled";
-  if (current === "Refunded") return "Refunded";
-  if (paid <= 0) return "Pending";
-  if (paid >= total) return "Paid";
-  return "Partially Paid";
+  const paid = (invoice.payments ?? []).reduce(
+    (s, p) => s + Number(p.amount || 0),
+    0,
+  );
+  return {
+    subtotal,
+    discount,
+    taxable,
+    tax,
+    total,
+    paid,
+    remaining: Math.max(0, total - paid),
+  };
 }
 
 /* --------------------- appointment slot generation engine ---------------- */
@@ -132,47 +170,59 @@ export function generateSlots(
 ): SlotOption[] {
   if (!doctor) return [];
   const weekday = new Date(date).getDay();
-  const day: ScheduleDay | undefined = doctor.schedule?.find((s) => s.day === weekday);
+  const day: ScheduleDay | undefined = doctor.schedule?.find(
+    (s) => s.day === weekday,
+  );
   if (!day || !day.enabled) return [];
 
   const startMin = timeToMinutes(day.start);
   const endMin = timeToMinutes(day.end);
-  const step = Math.max(5, Number(doctor.slotDuration || 20) + Number(doctor.bufferTime || 0));
+  const step = Math.max(
+    5,
+    Number(doctor.slotDuration || 20) + Number(doctor.bufferTime || 0),
+  );
   const booked = new Map<number, Appointment>();
   existing
-    .filter((a) => a.date === date && a.doctorId === doctor.id && !["Cancelled", "No Show"].includes(a.status))
+    .filter(
+      (a) =>
+        a.date === date &&
+        a.doctorId === doctor.id &&
+        !["Cancelled", "No Show"].includes(a.status),
+    )
     .forEach((a) => booked.set(timeToMinutes(a.time), a));
   const isToday = date === now.toISOString().slice(0, 10);
   const nowMin = now.getHours() * 60 + now.getMinutes();
 
   const slots: SlotOption[] = [];
   let capacity = 0;
-  for (let m = startMin; m + Number(doctor.slotDuration || 20) <= endMin; m += step) {
+  for (
+    let m = startMin;
+    m + Number(doctor.slotDuration || 20) <= endMin;
+    m += step
+  ) {
     const time = minutesToTime(m);
     let state: SlotOption["state"] = "available";
     if (booked.has(m)) state = "booked";
     else if (isToday && m < nowMin) state = "past";
-    else if (capacity >= Number(doctor.maxPatientsPerDay || 99)) state = "unavailable";
+    else if (capacity >= Number(doctor.maxPatientsPerDay || 99))
+      state = "unavailable";
     if (state === "available" || state === "booked") capacity += 1;
     slots.push({
       time,
       minute: m,
       state,
-      label: state === "booked" ? `Booked · ${booked.get(m)!.code}` : state === "past" ? "Elapsed" : state === "unavailable" ? "Capacity reached" : "Open",
+      label:
+        state === "booked"
+          ? `Booked · ${booked.get(m)!.code}`
+          : state === "past"
+            ? "Elapsed"
+            : state === "unavailable"
+              ? "Capacity reached"
+              : "Open",
     });
   }
   return slots;
 }
 
-export function nextAvailableDate(doctor: Doctor | undefined, appointments: Appointment[]) {
-  for (let i = 0; i < 21; i++) {
-    const date = addDays(new Date(), i);
-    const slots = generateSlots(doctor, date, appointments);
-    if (slots.some((s) => s.state === "available")) return date;
-  }
-  return addDays(new Date(), 0);
-}
-
 export const range = (n: number) => Array.from({ length: n }, (_, i) => i);
 
-export { addDays };

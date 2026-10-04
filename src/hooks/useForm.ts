@@ -1,18 +1,18 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAppDispatch } from "@/hooks";
-import { FORM_INVALID } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { FORM_INVALID } from "@/store/slices/uiSlice";
 
 /* ---------------------------------------------------------------------------
  * useForm — schema validation, error mapping, invalid-field focus and
  * duplicate-submission protection. Every form in the portal runs on this,
- * including the stepped inline forms (see <FormDialog /> in components/common)
+ * including the stepped record forms (see <Dialog /> in components/ui/overlays)
  * which validate the required fields of a step before allowing progress.
  *
  * Field-level validation model
  * ---------------------------
  *  validateOnChange : validate a field the moment it is edited (default true,
- *                     the original behaviour — FormDialog steps rely on it)
+ *                     the original behaviour — the stepped <Dialog /> forms rely on it)
  *  validateOnBlur   : validate a field when it loses focus
  *  touched          : a field only *shows* its error once it was blurred or a
  *                     step/submit attempt was made (see errorFor)
@@ -279,9 +279,7 @@ export function useForm<T extends Record<string, any>>({
         const key = String(name);
         const shouldValidate =
           validateNow &&
-          (validateOnChange ||
-            touchedRef.current[key] ||
-            attemptedRef.current);
+          (validateOnChange || touchedRef.current[key] || attemptedRef.current);
 
         if (shouldValidate) {
           const message = validateField(name, value, nextValues);

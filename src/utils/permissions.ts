@@ -1,7 +1,7 @@
 // src/utils/permissions.ts — tightened per cleanup plan
 
 import type { Permission } from "@/types";
-import type { EntitlementModule, Entitlements } from "@/types/entitlement";
+import type { EntitlementModule, Entitlements } from "@/types";
 
 const normalize = (value: string = "") =>
   value
@@ -129,17 +129,6 @@ export function hasFeature(
             singularize(normalize(featureCode))),
     ),
   );
-}
-
-export function isModuleRegistered(
-  entitlements: Entitlements | any,
-  module: string,
-): boolean {
-  const modulesList: EntitlementModule[] = Array.isArray(entitlements)
-    ? entitlements
-    : (entitlements?.modules ?? []);
-
-  return Boolean(findModule(modulesList, module));
 }
 
 export function canAccessModule(

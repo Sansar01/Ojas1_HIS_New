@@ -368,24 +368,6 @@ export function Progress({
   );
 }
 
-export function Divider({
-  className,
-  vertical,
-}: {
-  className?: string;
-  vertical?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        vertical ? "w-px self-stretch" : "h-px w-full",
-        "bg-ink-100",
-        className,
-      )}
-    />
-  );
-}
-
 /* --------------------------------- Kpi Card -------------------------------- */
 
 export function Kpi({

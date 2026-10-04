@@ -9,20 +9,22 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { useRootSelector } from "@/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
-import { authApi } from "@/services/apiClient";
-import { setResetEmail } from "@/features/auth/authSlice";
+import {
+  resetPasswordWithCode,
+  sendResetCode,
+  setResetEmail,
+} from "@/store/slices/authSlice";
 import { Button } from "@/components/ui/primitives";
 import { Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
-import { toast } from "@/features/ui/uiSlice";
-import { useDispatch } from "react-redux";
+import { toast } from "@/store/slices/uiSlice";
 
 /* ------------------------------ Change password ----------------------------- */
 
 export function ForgotPasswordPage() {
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [codeSent, setCodeSent] = useState(false);
@@ -62,7 +64,7 @@ export function ForgotPasswordPage() {
     setLoading(true);
     setError("");
     try {
-      await authApi.sendResetCode(values.email);
+      await dispatch(sendResetCode(values.email)).unwrap();
       // Remember the address the code was sent to so step 2 can show it
       // read-only and submit against the correct account.
       dispatch(setResetEmail(values.email));
@@ -172,9 +174,9 @@ const score = (pw: string): number => {
 };
 
 export function ResetPasswordPage() {
-  const dispatch = useDispatch();
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const storeEmail = useRootSelector((s) => s.auth.reset.email) ?? "";
+  const storeEmail = useAppSelector((s) => s.auth.reset.email) ?? "";
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -213,12 +215,14 @@ export function ResetPasswordPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     setLoading(true);
     try {
-      await authApi.resetPasswordWithCode({
-        email: storeEmail,
-        code: values.code,
-        // send the new password only — never the confirmation field
-        newPassword: values.password,
-      });
+      await dispatch(
+        resetPasswordWithCode({
+          email: storeEmail,
+          code: values.code,
+          // send the new password only — never the confirmation field
+          newPassword: values.password,
+        }),
+      ).unwrap();
       setDone(true);
       setTimeout(() => navigate("/accounts/login"), 2200);
     } catch (e: any) {

@@ -12,11 +12,15 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { useAppDispatch, useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
-import { changePassword, logout } from "@/features/auth/authSlice";
-import { clearEntitlements } from "@/features/entitlement/entitlementSlice";
-import { authApi } from "@/services/apiClient";
+import {
+  changePassword,
+  logout,
+  logoutRequest,
+} from "@/store/slices/authSlice";
+import { clearModules } from "@/store/slices/moduleSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Button } from "@/components/ui/primitives";
 import { Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
@@ -38,7 +42,10 @@ import { fullName } from "@/utils";
 const MIN_LENGTH = 8;
 
 const rules = (value: string) => [
-  { label: `At least ${MIN_LENGTH} characters`, ok: value.length >= MIN_LENGTH },
+  {
+    label: `At least ${MIN_LENGTH} characters`,
+    ok: value.length >= MIN_LENGTH,
+  },
   { label: "One upper case letter", ok: /[A-Z]/.test(value) },
   { label: "One number", ok: /[0-9]/.test(value) },
   { label: "One symbol", ok: /[^A-Za-z0-9]/.test(value) },
@@ -52,7 +59,7 @@ function strengthOf(value: string) {
 export function ForcePasswordChange() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const session = useRootSelector((s) => s.auth.session);
+  const session = useAppSelector((s) => s.auth.session);
   const user = session?.user;
 
   const [showOld, setShowOld] = useState(false);
@@ -108,29 +115,29 @@ export function ForcePasswordChange() {
         }),
       ).unwrap();
 
-      // // Password replaced → end the session and make the user sign in again
-      // // with the new credentials (the flag is already cleared, so the login
-      // // screen will send them straight to the dashboard afterwards).
-      // authApi.logout().catch(() => undefined); // best-effort: clear the refresh cookie
-      // dispatch(clearEntitlements());
-      // dispatch(logout()); // clears the session + localStorage (no toast)
+      // Password replaced — the session is deliberately kept alive and the user
+      // is sent to the login screen (the force-password flag is already cleared).
       navigate("/accounts/login", { replace: true });
     } catch (error: any) {
       const message =
         typeof error === "string"
           ? error
-          : error?.message || "Could not update the password. Please try again.";
+          : error?.message ||
+            "Could not update the password. Please try again.";
       setServerError(message);
+      dispatch(toast.error("Could not change password", message));
       // keep focus on the field the user most likely got wrong
-      form.focusField(/current|old/i.test(message) ? "oldPassword" : "newPassword");
+      form.focusField(
+        /current|old/i.test(message) ? "oldPassword" : "newPassword",
+      );
     } finally {
       setSubmitting(false);
     }
   });
 
   const signOut = () => {
-    authApi.logout().catch(() => undefined);
-    dispatch(clearEntitlements());
+    dispatch(logoutRequest() as any); // best-effort: clear the refresh cookie
+    dispatch(clearModules());
     dispatch(logout());
     navigate("/accounts/login", { replace: true });
   };
@@ -204,7 +211,11 @@ export function ForcePasswordChange() {
                 aria-label={showOld ? "Hide password" : "Show password"}
                 className="pointer-events-auto rounded p-0.5 text-ink-400 transition-colors hover:text-ink-700"
               >
-                {showOld ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                {showOld ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
               </button>
             }
           />
@@ -234,7 +245,11 @@ export function ForcePasswordChange() {
                   aria-label={showNew ? "Hide password" : "Show password"}
                   className="pointer-events-auto rounded p-0.5 text-ink-400 transition-colors hover:text-ink-700"
                 >
-                  {showNew ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  {showNew ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
                 </button>
               }
             />
@@ -257,7 +272,11 @@ export function ForcePasswordChange() {
                 ))}
               </div>
               <span className="text-[11px] font-medium text-ink-400">
-                {["Too weak", "Weak", "Fair", "Strong", "Excellent"][strength.passed]}
+                {
+                  ["Too weak", "Weak", "Fair", "Strong", "Excellent"][
+                    strength.passed
+                  ]
+                }
               </span>
             </div>
 

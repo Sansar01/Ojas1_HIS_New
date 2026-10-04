@@ -5,8 +5,12 @@ import { useAuthStatus, usePermission } from "@/hooks";
 import {
   selectMustChangePassword,
   selectUser,
-} from "@/features/auth/authSlice";
-import { useRootSelector } from "@/hooks";
+} from "@/store/slices/authSlice";
+import {
+  selectBootstrapReady,
+  selectBootstrapStatus,
+} from "@/store/slices/bootstrapSlice";
+import { useAppSelector } from "@/store/hooks";
 import {
   ForbiddenState,
   LoadingBlock,
@@ -40,8 +44,8 @@ export function Splash({
 /** Blocks unauthenticated visitors, remembers the attempted URL. */
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
-  const session = useRootSelector(selectUser);
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const session = useAppSelector(selectUser);
+  const mustChange = useAppSelector(selectMustChangePassword);
   const location = useLocation();
 
   if ((status === "restoring" || status === "idle") && !session) {
@@ -49,10 +53,11 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!session) {
+    // After a voluntary sign-out there is no route to come back to: the next
+    // login must open the dashboard, not the page the user happened to leave.
     return (
       <Navigate
         to="/accounts/login"
-        state={{ from: location.pathname }}
         replace
       />
     );
@@ -68,8 +73,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 /** Redirects signed-in users away from public auth screens. */
 export function PublicOnly({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
-  const user = useRootSelector(selectUser);
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const user = useAppSelector(selectUser);
+  const mustChange = useAppSelector(selectMustChangePassword);
+  const bootstrapReady = useAppSelector(selectBootstrapReady);
 
   if ((status === "idle" || status === "restoring") && !user) {
     return <Splash label="Checking authentication" />;
@@ -77,7 +83,16 @@ export function PublicOnly({ children }: { children: React.ReactNode }) {
 
   if (user)
     return (
-      <Navigate to={mustChange ? FORCE_PASSWORD_PATH : "/dashboard"} replace />
+      <Navigate
+        to={
+          mustChange
+            ? FORCE_PASSWORD_PATH
+            : bootstrapReady
+              ? "/dashboard"
+              : "/permission"
+        }
+        replace
+      />
     );
   return <>{children}</>;
 }
@@ -91,8 +106,8 @@ export function RequirePasswordChange({
   children: React.ReactNode;
 }) {
   const status = useAuthStatus();
-  const session = useRootSelector((s) => s.auth.session) as any;
-  const mustChange = useRootSelector(selectMustChangePassword);
+  const session = useAppSelector((s) => s.auth.session) as any;
+  const mustChange = useAppSelector(selectMustChangePassword);
 
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash label="Checking your session" />;
@@ -101,8 +116,50 @@ export function RequirePasswordChange({
     return <Navigate to="/accounts/login" replace />;
   }
   if (!mustChange) {
-    return <Navigate to="/dashboard" replace />;
+    // no forced change pending → normal path: the bootstrap stage
+    return <Navigate to="/permission" replace />;
   }
+  return <>{children}</>;
+}
+
+/**
+ * Application bootstrap gate (doc §37–52).
+ * ----------------------------------------
+ * Wrap the whole protected application in it: it is the one place that
+ * enforces
+ *
+ *   authenticated
+ *   AND modules loaded
+ *   AND permissions loaded
+ *
+ * before any protected page (or the sidebar inside it) is rendered.
+ *
+ * While the bootstrap stage has not reported `ready`, the visitor is sent to
+ * `/permission`, which then hands over to the dashboard — no route is carried
+ * across the stage. A hard refresh lands here with `bootstrap: idle`, so the
+ * flow re-runs instead of trusting a token in localStorage (§41).
+ */
+export function RequireBootstrap({ children }: { children: React.ReactNode }) {
+  const status = useAuthStatus();
+  const session = useAppSelector(selectUser);
+  const bootstrapStatus = useAppSelector(selectBootstrapStatus);
+
+  if ((status === "restoring" || status === "idle") && !session) {
+    return <Splash />;
+  }
+
+  if (!session) {
+    return (
+      <Navigate to="/accounts/login" replace />
+    );
+  }
+
+  if (bootstrapStatus !== "ready") {
+    return (
+      <Navigate to="/permission" replace />
+    );
+  }
+
   return <>{children}</>;
 }
 
@@ -146,10 +203,10 @@ export function ModuleRoute({
   children: React.ReactNode;
 }) {
   const { entitlements, loading, ready } = usePermission();
-  const globalLoaderVisible = useRootSelector((s) => s.ui.loader.count > 0);
+  const globalLoaderVisible = useAppSelector((s) => s.ui.loader.count > 0);
 
   // Only ONE loading indicator at a time.
-  // While the modules API is in flight, fetchEntitlements has already raised
+  // While the modules API is in flight, fetchModules has already raised
   // the global loader ("Loading modules") — rendering an inline spinner in the
   // same window reads as two loaders stacked on top of each other. So the
   // content area stays empty and the global loader does the talking.
@@ -179,21 +236,4 @@ export function ModuleRoute({
   }
 
   return <>{children}</>;
-}
-
-/** Inline permission gate for buttons, rows and menu items. */
-export function PermissionGuard({
-  module,
-  action = "view",
-  children,
-  fallback = null,
-}: {
-  /** module key exactly as the entitlements API spells it */
-  module: string;
-  action?: Permission;
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
-}) {
-  const { can } = usePermission();
-  return <>{can(module, action) ? children : fallback}</>;
 }

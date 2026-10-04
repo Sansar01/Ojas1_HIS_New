@@ -1,30 +1,77 @@
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "react-router-dom";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as DropdownPrimitive from "@radix-ui/react-dropdown-menu";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CircleAlert, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { Button, IconButton } from "@/components/ui/primitives";
+import { useAppDispatch } from "@/store/hooks";
+import { FORM_INVALID } from "@/store/slices/uiSlice";
+import { formRegistry } from "@/hooks/useForm";
+
+/* ------------------- stepped form section detection ------------------------ */
+/* Record forms group their fields in <FormSection>; when a dialog body holds
+   two or more of those sections it is presented as a guided, multi-step form.
+   Each step validates its own required fields before the next step unlocks. */
+
+function containsSection(el: React.ReactNode): boolean {
+  if (!React.isValidElement(el)) return false;
+  if ((el.type as any)?.__formStep === true) return true;
+  return React.Children.toArray((el.props as any)?.children ?? []).some(
+    containsSection,
+  );
+}
+
+function firstSection(
+  el: React.ReactNode,
+): { title?: string; description?: string } | null {
+  if (!React.isValidElement(el)) return null;
+  if ((el.type as any)?.__formStep === true) return el.props as any;
+  for (const child of React.Children.toArray(
+    (el.props as any)?.children ?? [],
+  )) {
+    const found = firstSection(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function collectNames(node: React.ReactNode, acc: string[] = []): string[] {
+  React.Children.forEach(node, (child) => {
+    if (!React.isValidElement(child)) return;
+    const props = child.props as any;
+    if (typeof props.name === "string" && props.name) acc.push(props.name);
+    if (props.children !== undefined) collectNames(props.children, acc);
+  });
+  return acc;
+}
 
 /* ---------------------------------- Dialog --------------------------------- */
 
+
 export function Dialog({
-  open,
+  open = true,
   onOpenChange,
   title,
   description,
   children,
   footer,
-  size = "md",
+  size = "lg",
   trigger,
   className,
   height,
+  submitLabel,
+  loading,
+  footerNote,
+  form,
+  onSubmit,
 }: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
   title: React.ReactNode;
   description?: React.ReactNode;
   children: React.ReactNode;
@@ -34,6 +81,17 @@ export function Dialog({
   className?: string;
   /** Optional body height, e.g. "36rem" or "calc(100vh - 12rem)". Defaults to the standard dialog height. */
   height?: string;
+  /**
+   * Record forms: when `onSubmit` (or `form`) is given the dialog switches to
+   * form mode — a <form> wrapper, a submit button with `submitLabel`, and the
+   * stepped navigation for `<FormSection>`-based layouts. Plain dialogs pass
+   * none of these and keep the simple `footer`.
+   */
+  submitLabel?: string;
+  loading?: boolean;
+  footerNote?: React.ReactNode;
+  form?: any;
+  onSubmit?: (e?: any) => void;
 }) {
   const widths = {
     sm: "max-w-md",
@@ -42,6 +100,160 @@ export function Dialog({
     xl: "max-w-6xl",
     full: "max-w-[min(96rem,96vw)]",
   }[size];
+
+  /* ------------------------------ form mode ------------------------------ */
+  // Record forms keep the established stepped-form behaviour: the fields
+  // stay at the call site, the dialog owns the step engine and the footer.
+  const dispatch = useAppDispatch();
+  const location = useLocation();
+  const api = form ?? formRegistry.current;
+  const kids = React.Children.toArray(children).filter((k) =>
+    React.isValidElement(k),
+  );
+  const isForm = Boolean(onSubmit || form);
+  const stepLike = kids.filter(containsSection);
+  const trailing = kids.filter((k) => !containsSection(k));
+  const multi = isForm && stepLike.length >= 2;
+  const [step, setStep] = useState(0);
+  const [doneSteps, setDoneSteps] = useState<number[]>([]);
+
+  // Close the form only when the route changes *while* the form is open
+  const prevPathRef = useRef(location.pathname);
+  useEffect(() => {
+    if (!isForm) return;
+    if (prevPathRef.current !== location.pathname) {
+      onOpenChange?.(false);
+      prevPathRef.current = location.pathname;
+    }
+  }, [isForm, location.pathname, onOpenChange]);
+
+  const steps = multi
+    ? stepLike.map((el, i) => {
+        const meta = firstSection(el);
+        const isLast = i === stepLike.length - 1;
+        return {
+          index: i,
+          title: meta?.title ?? `Step ${i + 1}`,
+          description: meta?.description,
+          node:
+            isLast && trailing.length ? (
+              <>
+                {el}
+                {trailing}
+              </>
+            ) : (
+              el
+            ),
+          names: collectNames(
+            isLast && trailing.length ? [el, ...trailing] : el,
+          ),
+        };
+      })
+    : [
+        {
+          index: 0,
+          title: typeof title === "string" ? title : "Details",
+          description: undefined,
+          node: <>{kids}</>,
+          names: collectNames(children),
+        },
+      ];
+
+  const current = steps[Math.min(step, steps.length - 1)];
+  const requiredIn = (names: string[]) =>
+    api?.schema
+      ? names.filter((n) =>
+          (api.schema as any)[n]?.some(
+            (r: any) =>
+              r.required || r.min || r.pattern || r.email || r.validate,
+          ),
+        )
+      : [];
+
+  const goNext = () => {
+    if (!api) {
+      setStep((s) => Math.min(steps.length - 1, s + 1));
+      return;
+    }
+    const errs = api.validateFields(current.names);
+    if (Object.keys(errs).length) {
+      dispatch(FORM_INVALID());
+      api.focusField(Object.keys(errs)[0]);
+      return;
+    }
+    setDoneSteps((d) => (d.includes(current.index) ? d : [...d, current.index]));
+    setStep((s) => Math.min(steps.length - 1, s + 1));
+  };
+
+  const submit = (e?: any) => {
+    e?.preventDefault?.();
+    if (!api || steps.length === 1) return onSubmit?.(e);
+    const all = steps.flatMap((s) => s.names);
+    const errs = api.validateFields(all);
+    const bad = Object.keys(errs);
+    if (bad.length) {
+      dispatch(FORM_INVALID());
+      const idx = steps.findIndex((s) => s.names.includes(bad[0]));
+      if (idx > -1) setStep(idx);
+      window.setTimeout(() => api.focusField(bad[0]), 120);
+      return;
+    }
+    setDoneSteps(steps.map((s) => s.index));
+    return onSubmit?.(e);
+  };
+
+  const progress =
+    steps.length === 1 ? 100 : Math.round((doneSteps.length / steps.length) * 100);
+  const remaining = requiredIn(current.names).filter(
+    (n) => (api?.errors as any)?.[n],
+  ).length;
+
+  const formFooter = (
+    <div className="flex w-full flex-wrap items-center justify-between gap-3">
+      <p className="flex items-center gap-2 text-[11.5px] text-ink-500">
+        {remaining > 0 ? (
+          <span className="inline-flex items-center gap-1.5 font-semibold text-coral-600">
+            <CircleAlert className="size-3.5" /> {remaining} required field
+            {remaining > 1 ? "s" : ""} still empty in this step
+          </span>
+        ) : (
+          (footerNote ?? "Fields marked with an asterisk are required.")
+        )}
+      </p>
+      <div className="flex items-center gap-2">
+        {multi && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={current.index === 0}
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            icon={<ArrowLeft />}
+          >
+            Previous
+          </Button>
+        )}
+        {multi && current.index < steps.length - 1 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={goNext}
+            iconRight={<ArrowRight />}
+          >
+            Next step
+          </Button>
+        )}
+        <Button
+          size="sm"
+          loading={loading}
+          onClick={(e) => submit(e)}
+          disabled={multi && current.index < steps.length - 1}
+        >
+          {submitLabel ?? "Save record"}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       {trigger && (
@@ -85,17 +297,129 @@ export function Dialog({
             <div
               className={cn(
                 "px-5 py-4",
-                height ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[calc(100vh-13rem)] overflow-y-auto",
+                height
+                  ? "min-h-0 flex-1 overflow-y-auto"
+                  : "max-h-[calc(100vh-13rem)] overflow-y-auto",
               )}
               style={height ? { height } : undefined}
               data-height={height ? "custom" : undefined}
             >
-              {children}
+              {isForm ? (
+                <>
+                  {multi && (
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-brand-700">
+                        Step {current.index + 1} of {steps.length}
+                      </span>
+                      <span className="text-ink-300">&middot;</span>
+                      <span className="text-[11px] text-ink-400">
+                        {progress}% complete
+                      </span>
+                    </div>
+                  )}
+
+                  {multi && (
+                    <ol className="mb-4 flex gap-1.5 overflow-x-auto border-b border-ink-100 pb-2.5 no-scrollbar">
+                      {steps.map((s) => {
+                        const complete = doneSteps.includes(s.index);
+                        const active = s.index === current.index;
+                        const maxDone = doneSteps.length
+                          ? Math.max(...doneSteps)
+                          : -1;
+                        const reachable =
+                          s.index <= current.index || s.index <= maxDone + 1;
+                        const locked = !reachable;
+                        const required = requiredIn(s.names).length;
+                        return (
+                          <li key={s.index}>
+                            <button
+                              onClick={() => {
+                                if (reachable) return setStep(s.index);
+                                dispatch(FORM_INVALID());
+                                api?.focusField(
+                                  requiredIn(
+                                    steps[maxDone + 1]?.names ?? current.names,
+                                  ).find((n) => (api?.errors as any)?.[n]) ??
+                                    steps[maxDone + 1]?.names[0] ??
+                                    current.names[0],
+                                );
+                                setStep(Math.min(steps.length - 1, maxDone + 1));
+                              }}
+                              className={cn(
+                                "group flex w-full min-w-[11rem] items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all",
+                                active
+                                  ? "bg-white shadow-card ring-1 ring-brand-200"
+                                  : "hover:bg-white/70",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "num mt-0.5 grid size-5.5 shrink-0 place-items-center rounded-md text-[11px] font-bold transition-colors",
+                                  complete
+                                    ? "bg-mint-500 text-white"
+                                    : active
+                                      ? "bg-brand-600 text-white"
+                                      : "bg-ink-100 text-ink-400",
+                                )}
+                              >
+                                {complete ? (
+                                  <Check className="size-3" strokeWidth={3.5} />
+                                ) : (
+                                  s.index + 1
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span
+                                  className={cn(
+                                    "block truncate text-[12.5px] font-semibold",
+                                    active ? "text-ink-900" : "text-ink-600",
+                                  )}
+                                >
+                                  {s.title}
+                                </span>
+                                <span className="mt-0.5 block truncate text-[10.5px] text-ink-400">
+                                  {required
+                                    ? `${required} required field${required > 1 ? "s" : ""}`
+                                    : "optional"}
+                                </span>
+                              </span>
+                              {locked && (
+                                <CircleAlert className="mt-1 size-3.5 shrink-0 text-ink-300" />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      submit(e);
+                    }}
+                    className="space-y-1"
+                  >
+                    {current.node}
+                    <button type="submit" className="sr-only">
+                      Submit
+                    </button>
+                  </form>
+                </>
+              ) : (
+                children
+              )}
             </div>
-            {footer && (
+            {isForm ? (
               <footer className="no-print flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-ink-25/60 px-5 py-3.5">
-                {footer}
+                {formFooter}
               </footer>
+            ) : (
+              footer && (
+                <footer className="no-print flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-ink-25/60 px-5 py-3.5">
+                  {footer}
+                </footer>
+              )
             )}
           </DialogPrimitive.Content>
         </div>
@@ -414,7 +738,6 @@ export function Tabs({
   );
 }
 
-export const TabsContent = TabsPrimitive.Content;
 
 /* --------------------------------- Tooltip ---------------------------------- */
 

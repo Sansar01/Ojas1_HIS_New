@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { masterService } from "@/pages/masterConfiguration/master.service";
 import {
   ClipboardList,
   Percent,
@@ -12,15 +13,13 @@ import { PageIntro } from "@/components/common";
 import {
   Button,
   Kpi,
-  Panel,
   PanelHeader,
   StatusBadge,
 } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/fields";
 import { DataTable, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
-import { cn } from "@/utils/cn";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 
 // Modals
 import { GlobalConfiguration } from "@/pages/masterConfiguration/GlobalConfiguration";
@@ -30,51 +29,16 @@ import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
 
 // Live Panel API
-import {
-  panelService,
-  type PanelMasterItem,
-} from "@/features/masters/panelService";
 
-import {
-  LAB_ITEMS,
-  type ItemType,
-  type LabItem,
-  type ModalType,
-} from "@/types/masterConfig.data";
+import type { PanelMasterItem } from "@/types";
+
+import { type ItemType, type ModalType } from "@/types/masterConfig.data";
 
 const ITEM_TYPES = [
   { value: "laboratory", label: "Laboratory" },
   { value: "radiology", label: "Radiology" },
   { value: "medical", label: "Medical Items" },
   { value: "others", label: "Others Item" },
-];
-
-const LAB_COLUMNS: Column<LabItem>[] = [
-  {
-    key: "code",
-    header: "Code",
-    render: (r) => (
-      <span className="font-mono text-[12px] text-ink-500">{r.code}</span>
-    ),
-  },
-  {
-    key: "name",
-    header: "Name",
-    render: (r) => <span className="font-medium text-ink-900">{r.name}</span>,
-  },
-  { key: "category", header: "Category", hideBelow: "md" },
-  { key: "unit", header: "Unit", hideBelow: "lg" },
-  {
-    key: "rate",
-    header: "Rate",
-    align: "right",
-    render: (r) => <span className="font-semibold">₹{r.rate}</span>,
-  },
-  {
-    key: "active",
-    header: "Status",
-    render: (r) => <StatusBadge status={r.active ? "Active" : "Inactive"} />,
-  },
 ];
 
 // ─── LIVE PANEL COLUMNS (matches API response) ───────────────────
@@ -128,15 +92,15 @@ const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
   {
     key: "active",
     header: "Status",
-    render: (r) => (
-      <StatusBadge status={r.isActive ? "Active" : "Inactive"} />
-    ),
+    render: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} />,
   },
 ];
 
 export function MasterConfigurationPage() {
   const dispatch = useAppDispatch();
-  const [activeModal, setActiveModal] = useState<ModalType | "service-master" | "rate-managment" | "">("");
+  const [activeModal, setActiveModal] = useState<
+    ModalType | "service-master" | "rate-managment" | ""
+  >("");
   const [itemType, setItemType] = useState<ItemType | "">("");
 
   // ─── LIVE PANEL STATE ──────────────────────────────────────────
@@ -147,9 +111,10 @@ export function MasterConfigurationPage() {
   const fetchPanels = useCallback(async () => {
     setPanelsLoading(true);
     try {
-      const res = await panelService.list({ limit: 50 });
-      setPanels(res.data ?? []);
-      setPanelCount(res.meta?.total ?? res.data?.length ?? 0);
+      const res: any = await masterService.fetchPanels({ limit: "50" });
+      const body: any = res.data ?? {};
+      setPanels(body.data ?? []);
+      setPanelCount(body.meta?.total ?? body.data?.length ?? 0);
     } catch (error: any) {
       dispatch(toast.error("Failed to load panels", error?.message));
     } finally {
@@ -265,30 +230,6 @@ export function MasterConfigurationPage() {
 
       {/* ─── TWO TABLES ────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-1">
-        {/* Lab Items (still demo data for now) */}
-        {/* <DataTable<LabItem>
-          columns={LAB_COLUMNS}
-          rows={LAB_ITEMS}
-          dense
-          rowKey={(r) => r.code}
-          clickRowHint={false}
-          header={
-            <PanelHeader
-              title="Lab Items"
-              action={
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Plus />}
-                  onClick={() => openItemModal("laboratory")}
-                >
-                  Add Item
-                </Button>
-              }
-            />
-          }
-        /> */}
-
         {/* 👇 LIVE PANEL TABLE */}
         <DataTable<PanelMasterItem>
           columns={PANEL_COLUMNS}

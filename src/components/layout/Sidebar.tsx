@@ -2,19 +2,18 @@ import { NavLink } from "react-router-dom";
 import { ChevronLeft, HeartPulse, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { APP_NAME, APP_SUBTITLE } from "@/constants";
-import { useAppDispatch } from "@/hooks";
-import { setMobileNav, toggleSidebar } from "@/features/ui/uiSlice";
-import { useRootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setMobileNav, toggleSidebar } from "@/store/slices/uiSlice";
 import { getModuleIconByCode } from "@/utils/moduleIcons";
 import { useState } from "react";
 
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const dispatch = useAppDispatch();
-  const entitlements = useRootSelector((s) => s.entitlement);
+  const entitlements = useAppSelector((s) => s.modules);
 
   // API-driven modules — single runtime source per cleanup plan
   // Filter by isActive if backend provides it
-  const allowedModules = (entitlements?.modules || []).filter(
+  const allowedModules = (entitlements?.availableModules || []).filter(
     (m: any) => m.isActive !== false,
   );
 

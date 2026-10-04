@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
-import { useAppDispatch, useRootSelector, useSidebarSync } from "@/hooks";
-import { setMobileNav, setSidebar } from "@/features/ui/uiSlice";
-import { bootstrapResources } from "@/store";
-import { useEffect } from "react";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useSidebarSync } from "@/hooks";
+import { setMobileNav, setSidebar } from "@/store/slices/uiSlice";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
 import { LoaderOverlay } from "@/components/ui/feedback";
@@ -12,17 +11,16 @@ import { createPortal } from "react-dom";
 
 export function DashboardLayout() {
   const dispatch = useAppDispatch();
-  const collapsed = useRootSelector((s) => s.ui.sidebarCollapsed);
-  const mobileNavOpen = useRootSelector((s) => s.ui.mobileNavOpen);
-  const loaderCount = useRootSelector((s) => s.ui.loader.count);
-  const loaderLabel = useRootSelector((s) => s.ui.loader.label);
+  const collapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
+  const mobileNavOpen = useAppSelector((s) => s.ui.mobileNavOpen);
+  const loaderCount = useAppSelector((s) => s.ui.loader.count);
+  const loaderLabel = useAppSelector((s) => s.ui.loader.label);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
-  useEffect(() => {
-    dispatch(bootstrapResources() as any);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch]);
+  // The shell owns no page data (API/Redux strategy): every page fetches what
+  // it renders through its own feature service, when it renders. The header's
+  // refresh action simply re-mounts/reloads the active page.
 
   return (
     <div className="app-grid-bg flex h-screen overflow-hidden bg-ink-25 text-ink-800">
@@ -63,8 +61,6 @@ export function DashboardLayout() {
           className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
         >
           <div className="mx-auto w-full max-w-[1600px]">
-            {/* inline (non-modal) create/edit forms are mounted here */}
-            <div id="portal-form" />
             <Outlet />
           </div>
         </main>

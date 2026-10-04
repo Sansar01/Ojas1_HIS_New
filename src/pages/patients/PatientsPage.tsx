@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Ban,
@@ -10,13 +10,11 @@ import {
   Users,
 } from "lucide-react";
 import { BLOOD_GROUPS, GENDERS } from "@/constants";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
-import { patientsApi } from "@/features/slices";
+import { useAppDispatch } from "@/store/hooks";
+import { usePermission, useTable } from "@/hooks";
+import { patientService } from "@/pages/patients/patient.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { toast } from "@/store/slices/uiSlice";
 import { calcAge, formatDate, fullName } from "@/utils";
 import type { Patient, Status } from "@/types";
 import {
@@ -35,18 +33,19 @@ import {
 } from "@/components/ui/table";
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { PageIntro } from "@/components/common";
-import { toDisplayBloodGroup } from "@/types/bloodGroup";
-
-const bloodGroupApiValue = (bloodGroup: string) =>
-  bloodGroup.replace("+", "_POSITIVE").replace("-", "_NEGATIVE").toUpperCase();
+import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
 
 /* ---------------------------------- list ---------------------------------- */
 
+/**
+ * Patient registry.
+ *
+ * Data comes from `patient.service` (list) and `appointment.service` (visit
+ * counter) straight into this page's local state — no slice, no bootstrap step.
+ */
 export function PatientsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { items: patients, status } = useRootSelector((s) => s.patients);
-  const appointments = useRootSelector((s) => s.appointments.items);
   const { canEdit, canDelete, canCreate } = usePermission();
   const [filters, setFilters] = useState({
     gender: "all",
@@ -55,14 +54,59 @@ export function PatientsPage() {
   });
   const { ask, confirmNode } = useConfirmDialog();
 
-  const table = useTable<Patient>(patients as Patient[], {
+  /* ------------------------------ local data ------------------------------ */
+
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPatients = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await patientService.fetchPatients();
+      if (response.status === 200) setPatients(response.data?.data ?? []);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not load patients");
+      dispatch(toast.error("Could not load patients", e?.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
+  // the "visits" column is derived from the appointment list — the page asks
+  // for exactly the two collections it renders and nothing else
+  const [appointments, setAppointments] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load appointments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    loadPatients();
+  }, [loadPatients]);
+
+  const table = useTable<Patient>(patients, {
     pageSize: 8,
     filters: {
       ...filters,
       bloodGroup:
         filters.bloodGroup === "all"
           ? "all"
-          : [filters.bloodGroup, bloodGroupApiValue(filters.bloodGroup)],
+          : [filters.bloodGroup, toBackendBloodGroup(filters.bloodGroup)],
     },
     searchFields: [
       (p) => `${p.firstName} ${p.lastName} ${p.mrn} ${p.mobile} ${p.email}`,
@@ -76,10 +120,6 @@ export function PatientsPage() {
     },
   });
 
-  useEffect(() => {
-    dispatch(patientsApi.thunks.fetchAll() as any);
-  }, [dispatch]);
-
   const visits = useMemo(() => {
     const map = new Map<string, number>();
     appointments.forEach((a: any) =>
@@ -88,16 +128,50 @@ export function PatientsPage() {
     return map;
   }, [appointments]);
 
-  const toggle = (p: Patient) => {
-    const next: Status = p?.status === "active" ? "inactive" : "active";
-    dispatch(
-      patientsApi.thunks.toggleActive({
-        id: p.id,
-        status: next,
-        label: fullName(p),
-      } as any),
-    );
-  };
+  /* ------------------------------ mutations ------------------------------- */
+
+  const toggle = useCallback(
+    async (patient: Patient) => {
+      const next: Status = patient?.status === "active" ? "inactive" : "active";
+      try {
+        await patientService.updatePatient(patient.id, { status: next });
+        setPatients((rows) =>
+          rows.map((row) =>
+            row.id === patient.id ? { ...row, status: next } : row,
+          ),
+        );
+        dispatch(
+          toast.info(
+            next === "active" ? "Marked active" : "Marked inactive",
+            `${fullName(patient)} is now ${next}.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Status change failed", e?.message));
+      }
+    },
+    [dispatch, setPatients],
+  );
+
+  const remove = useCallback(
+    async (patient: Patient) => {
+      try {
+        await patientService.deletePatient(patient.id);
+        setPatients((rows) => rows.filter((row) => row.id !== patient.id));
+        dispatch(
+          toast.success(
+            "Record deleted",
+            `${fullName(patient)} was removed from the portal.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Delete failed", e?.message));
+      }
+    },
+    [dispatch, setPatients],
+  );
+
+  const status = loading ? "loading" : error ? "error" : "ready";
 
   return (
     <>
@@ -113,7 +187,7 @@ export function PatientsPage() {
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
-              onClick={() => dispatch(patientsApi.thunks.fetchAll() as any)}
+              onClick={loadPatients}
             >
               Refresh
             </Button>
@@ -122,15 +196,12 @@ export function PatientsPage() {
         meta={
           <>
             <Badge tone="brand" dot>
-              {
-                (patients ?? [])?.filter((p: any) => p?.status === "active")
-                  .length
-              }{" "}
+              {patients.filter((p: any) => p?.status === "active").length}{" "}
               active
             </Badge>
             <Badge tone="lagoon">
               {
-                (appointments ?? [])?.filter(
+                appointments.filter(
                   (a: any) => a.date === new Date().toISOString().slice(0, 10),
                 ).length
               }{" "}
@@ -281,14 +352,8 @@ export function PatientsPage() {
             },
           ]}
           rows={table.rows}
-          status={
-            status === "ready"
-              ? "ready"
-              : status === "error"
-                ? "error"
-                : "loading"
-          }
-          onRetry={() => dispatch(patientsApi.thunks.fetchAll() as any)}
+          status={status}
+          onRetry={loadPatients}
           sort={{
             sortBy: table.query.sortBy,
             sortDir: table.query.sortDir,
@@ -326,14 +391,7 @@ export function PatientsPage() {
                       title: `Delete ${fullName(p)}?`,
                       description: `MRN ${p.mrn} and its linked appointments, consultations and invoices will be removed from the registry. This cannot be undone.`,
                       confirmLabel: "Delete patient",
-                      action: async () => {
-                        await dispatch(
-                          patientsApi.thunks.removeOne({
-                            id: p.id,
-                            label: fullName(p),
-                          } as any),
-                        );
-                      },
+                      action: () => remove(p),
                     }),
                 },
               ]}

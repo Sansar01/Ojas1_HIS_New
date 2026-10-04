@@ -10,16 +10,11 @@ import {
   Receipt,
   Trash2,
 } from "lucide-react";
-import { todayISO } from "@/data/db";
+import { todayISO } from "@/utils";
 import { usePermission } from "@/hooks";
 import { downloadText, formatDate, formatMoney, toCSV } from "@/utils";
 import { cn } from "@/utils/cn";
-import {
-  Avatar,
-  Button,
-  Panel,
-  StatusBadge,
-} from "@/components/ui/primitives";
+import { Avatar, Button, Panel, StatusBadge } from "@/components/ui/primitives";
 import { Select, DatePicker } from "@/components/ui/fields";
 import {
   DataTable,
@@ -29,12 +24,15 @@ import {
 } from "@/components/ui/table";
 import { Dialog, Tabs } from "@/components/ui/overlays";
 import { PageIntro, StatStrip } from "@/components/common";
-import { billingService } from "@/features/billing/billingService";
+import { billingService } from "@/pages/billing/billing.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { OPDBillingForm } from "@/pages/billing/OPDBillingForm";
 import { PaymentDialog } from "@/pages/billing/PaymentDialog";
 import { InvoiceSheet } from "@/pages/billing/InvoiceSheet";
 
 export function BillingPage() {
+  const dispatch = useAppDispatch();
   const [params] = useSearchParams();
   const { canCreate, canEdit, canDelete } = usePermission();
 
@@ -76,9 +74,10 @@ export function BillingPage() {
   // --- API Calls ---
   const fetchSummary = useCallback(async () => {
     try {
-      const summary = await billingService.getDailySummary(
-        filters.date || undefined
-      );
+      const body: any =
+        (await billingService.fetchDailySummary(filters.date || undefined))
+          ?.data ?? {};
+      const summary: any = body.data ?? body;
       setKpis({
         totalAmount: summary.totalAmount || 0,
         totalCollected: summary.totalCollected || 0,
@@ -87,54 +86,81 @@ export function BillingPage() {
       });
     } catch (e: any) {
       console.error("Summary error", e);
+      dispatch(toast.error("Could not load billing summary", e?.message));
     }
   }, [filters.date]);
 
-  const fetchBills = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await billingService.getBills({
-        page: pagination.page,
-        limit: pagination.limit,
-        paymentStatus: filters.paymentStatus,
-        date: filters.date,
-      });
-      setBills(res.data || []);
-      setPagination((p) => ({
-        ...p,
-        total: res.meta?.total || 0,
-        totalPages: res.meta?.totalPages || 1,
-      }));
-    } catch (e: any) {
-      setError(e.message || "Failed to load invoices");
-    } finally {
-      setLoading(false);
-    }
-  }, [pagination.page, pagination.limit, filters]);
+  /**
+   * Invoice list of this page: always fetched here through `billing.service`
+   * — there is no shared snapshot any more, so the table can never show rows
+   * another screen loaded.
+   */
+  const fetchBills = useCallback(
+    async (_force = false) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res: any = await billingService.fetchInvoices({
+          page: pagination.page,
+          limit: pagination.limit,
+          paymentStatus: filters.paymentStatus,
+          date: filters.date,
+        });
+        const body: any = res.data ?? {};
+        setBills(body.data || []);
+        // keep the pagination object identical when nothing changed: a new
+        // object would re-create fetchBills → reloadAll → a second request
+        // for the same page (doc §29).
+        setPagination((p) => {
+          const total = body.meta?.total || 0;
+          const totalPages = body.meta?.totalPages || 1;
+          return p.total === total && p.totalPages === totalPages
+            ? p
+            : { ...p, total, totalPages };
+        });
+      } catch (e: any) {
+        setError(e.message || "Failed to load invoices");
+        dispatch(toast.error("Could not load invoices", e?.message));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [pagination.page, pagination.limit, filters],
+  );
 
   const fetchPayments = useCallback(async () => {
     try {
-      const res = await billingService.getPayments({
+      const res: any = await billingService.fetchPayments({
         page: payPagination.page,
         limit: payPagination.limit,
       });
-      setPayments(res.data || []);
-      setPayPagination((p) => ({
-        ...p,
-        total: res.meta?.total || 0,
-        totalPages: res.meta?.totalPages || 1,
-      }));
+      const body: any = res.data ?? {};
+      setPayments(body.data || []);
+      setPayPagination((p) => {
+        const total = body.meta?.total || 0;
+        const totalPages = body.meta?.totalPages || 1;
+        return p.total === total && p.totalPages === totalPages
+          ? p
+          : { ...p, total, totalPages };
+      });
     } catch (e: any) {
       console.error("Payments error", e);
+      dispatch(toast.error("Could not load payments", e?.message));
     }
   }, [payPagination.page, payPagination.limit]);
 
-  const reloadAll = useCallback(() => {
-    fetchSummary();
-    fetchBills();
-    fetchPayments();
-  }, [fetchSummary, fetchBills, fetchPayments]);
+  const reloadAll = useCallback(
+    (force = false) => {
+      fetchSummary();
+      fetchBills(force);
+      fetchPayments();
+    },
+    [fetchSummary, fetchBills, fetchPayments],
+  );
+
+  /** Rows + table status of the invoice tab. */
+  const invoiceRows = bills;
+  const invoiceStatus = loading ? "loading" : error ? "error" : "ready";
 
   useEffect(() => {
     reloadAll();
@@ -145,7 +171,7 @@ export function BillingPage() {
     downloadText(
       `invoices-${todayISO()}.csv`,
       toCSV(
-        bills.map((i) => ({
+        invoiceRows.map((i) => ({
           Invoice: i.billNo,
           Patient: i.patient
             ? `${i.patient.firstName} ${i.patient.lastName || ""}`
@@ -155,8 +181,8 @@ export function BillingPage() {
           Paid: i.paidAmount,
           Balance: i.dueAmount,
           Status: i.paymentStatus,
-        }))
-      )
+        })),
+      ),
     );
   };
 
@@ -164,10 +190,12 @@ export function BillingPage() {
     const reason = prompt(`Enter reason for cancelling bill ${bill.billNo}:`);
     if (!reason) return;
     try {
-      await billingService.cancelBill(bill.id, reason);
-      reloadAll();
+      await billingService.cancelInvoice(bill.id, reason);
+      reloadAll(true);
     } catch (e: any) {
-      alert(e.message || "Failed to cancel bill");
+      dispatch(
+        toast.error("Could not cancel bill", e?.message || "Please try again."),
+      );
     }
   };
 
@@ -178,7 +206,7 @@ export function BillingPage() {
         onClose={() => setEditing(false)}
         onSuccess={() => {
           setEditing(false);
-          reloadAll();
+          reloadAll(true);
         }}
       />
     );
@@ -194,7 +222,11 @@ export function BillingPage() {
         onCreate={() => setEditing(true)}
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" icon={<RefreshCw />} onClick={reloadAll}>
+            <Button
+              variant="outline"
+              icon={<RefreshCw />}
+              onClick={() => reloadAll(true)}
+            >
               Refresh
             </Button>
             <Button
@@ -345,7 +377,7 @@ export function BillingPage() {
                     <span
                       className={cn(
                         "num text-[13px] font-bold",
-                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600"
+                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600",
                       )}
                     >
                       {formatMoney(i.dueAmount)}
@@ -359,8 +391,8 @@ export function BillingPage() {
                   render: (i) => <StatusBadge status={i.paymentStatus} />,
                 },
               ]}
-              rows={bills}
-              status={loading ? "loading" : error ? "error" : "ready"}
+              rows={invoiceRows}
+              status={invoiceStatus}
               onRetry={fetchBills}
               onRowClick={(i) => setViewing(i)}
               actions={(i) => (
@@ -438,8 +470,7 @@ export function BillingPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-semibold text-ink-900">
-                        {formatMoney(p.amount)} ·{" "}
-                        {p.patient?.name || "Patient"}
+                        {formatMoney(p.amount)} · {p.patient?.name || "Patient"}
                       </p>
                       <p className="num truncate text-[11.5px] text-ink-400">
                         Receipt: {p.receiptNo} · Bill: {p.billNo} ·{" "}
@@ -461,7 +492,7 @@ export function BillingPage() {
           onClose={() => setPaying(null)}
           onSuccess={() => {
             setPaying(null);
-            reloadAll();
+            reloadAll(true);
           }}
         />
       )}

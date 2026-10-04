@@ -1,6 +1,6 @@
 /* ------------------------------- Specializations ------------------------------ */
 
-import { PageIntro, FormDialog, FormRow } from "@/components/common";
+import { PageIntro, FormRow } from "@/components/common";
 import { Input, Select, Textarea } from "@/components/ui/fields";
 import { Panel, Button, StatusBadge, Badge } from "@/components/ui/primitives";
 import {
@@ -9,35 +9,135 @@ import {
   RowActions,
   Pagination,
 } from "@/components/ui/table";
-import { specializationsApi } from "@/features/slices";
-import {
-  useAppDispatch,
-  useRootSelector,
-  usePermission,
-  useTable,
-} from "@/hooks";
+import { specializationService } from "@/pages/Specializations/specialization.service";
+import { useAppDispatch } from "@/store/hooks";
+import { departmentService } from "@/pages/Departments/department.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { toast } from "@/store/slices/uiSlice";
+import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { Specialization, Status } from "@/types";
 import { cn } from "@/utils/cn";
 import { Layers, Pencil, Ban, CheckCircle2, Trash2 } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Dialog } from "@/components/ui/overlays";
 
 export function SpecializationsPage() {
   const dispatch = useAppDispatch();
-  const { items: specializations, status } = useRootSelector(
-    (s) => s.specializations,
-  );
-  const departments = useRootSelector((s) => s.departments.items);
-  const doctors = useRootSelector((s) => s.doctors.items);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [editing, setEditing] = useState<Partial<Specialization> | null>(null);
   const [filters, setFilters] = useState({ department: "all", status: "all" });
 
-  useEffect(() => {
-    // if (status === "idle") dispatch(specializationsApi.thunks.fetchAll() as any);
-  }, [status, dispatch]);
+  /* ------------------------------- local data ----------------------------- */
 
-  const table = useTable<Specialization>(specializations as Specialization[], {
+  const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /** the specialization list this page renders */
+  const loadSpecializations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await specializationService.fetchSpecializations();
+      if (response.status === 200) {
+        setSpecializations(response.data?.data ?? []);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Could not load specializations");
+      dispatch(toast.error("Could not load specializations", e?.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadSpecializations();
+  }, [loadSpecializations]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200)
+          setDoctors(response.data?.data ?? []);
+      } catch (e: any) {
+        dispatch(toast.error("Could not load doctors", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleStatus = useCallback(
+    async (row: Specialization) => {
+      const next: Status = row.status === "active" ? "inactive" : "active";
+      try {
+        await specializationService.updateSpecialization(row.id, {
+          ...row,
+          status: next,
+        });
+        setSpecializations((rows) =>
+          rows.map((item) =>
+            item.id === row.id ? { ...item, status: next } : item,
+          ),
+        );
+        dispatch(
+          toast.info(
+            next === "active" ? "Marked active" : "Marked inactive",
+            `${row.name} is now ${next}.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Status change failed", e?.message));
+      }
+    },
+    [dispatch, setSpecializations],
+  );
+
+  const remove = useCallback(
+    async (row: Specialization) => {
+      try {
+        await specializationService.deleteSpecialization(row.id);
+        setSpecializations((rows) => rows.filter((item) => item.id !== row.id));
+        dispatch(
+          toast.success(
+            "Record deleted",
+            `${row.name} was removed from the portal.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Delete failed", e?.message));
+      }
+    },
+    [dispatch, setSpecializations],
+  );
+
+  const status = loading ? "loading" : error ? "error" : "ready";
+
+  const table = useTable<Specialization>(specializations, {
     pageSize: 8,
     filters,
     searchFields: [(s) => `${s.name} ${s.code} ${s.description}`],
@@ -180,13 +280,7 @@ export function SpecializationsPage() {
             },
           ]}
           rows={table.rows}
-          status={
-            status === "ready"
-              ? "ready"
-              : status === "error"
-                ? "error"
-                : "loading"
-          }
+          status={status}
           sort={{
             sortBy: table.query.sortBy,
             sortDir: table.query.sortDir,
@@ -205,29 +299,14 @@ export function SpecializationsPage() {
                   label: s.status === "active" ? "Deactivate" : "Activate",
                   icon: s.status === "active" ? <Ban /> : <CheckCircle2 />,
                   hidden: !canEdit("specializations"),
-                  onClick: () =>
-                    dispatch(
-                      specializationsApi.thunks.toggleActive({
-                        id: s.id,
-                        status: (s.status === "active"
-                          ? "inactive"
-                          : "active") as Status,
-                        label: s.name,
-                      } as any),
-                    ),
+                  onClick: () => toggleStatus(s),
                 },
                 {
                   label: "Delete",
                   icon: <Trash2 />,
                   tone: "danger",
                   hidden: !canDelete("specializations"),
-                  onClick: () =>
-                    dispatch(
-                      specializationsApi.thunks.removeOne({
-                        id: s.id,
-                        label: s.name,
-                      } as any),
-                    ),
+                  onClick: () => remove(s),
                 },
               ]}
             />
@@ -265,7 +344,25 @@ function SpecializationForm({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const departments = useRootSelector((s) => s.departments.items);
+  // department dropdown of this dialog — loaded by the dialog itself
+  const [departments, setDepartments] = useState<any[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const form = useForm({
     initialValues: {
       name: initial.name ?? "",
@@ -286,26 +383,31 @@ function SpecializationForm({
 
   const save = form.handleSubmit(async (values) => {
     const data = { ...values, code: values.code.toUpperCase() };
-    if (initial.id)
-      await dispatch(
-        specializationsApi.thunks.updateOne({
-          id: initial.id,
-          data,
-          successMessage: "Specialization updated",
-        } as any),
+    try {
+      if (initial.id) {
+        await specializationService.updateSpecialization(initial.id, data);
+        dispatch(toast.success("Specialization updated"));
+      } else {
+        await specializationService.createSpecialization({
+          ...data,
+          createdAt: new Date().toISOString(),
+        });
+        dispatch(toast.success("Specialization created"));
+      }
+    } catch (e: any) {
+      dispatch(
+        toast.error(
+          initial.id ? "Update failed" : "Creation failed",
+          e?.message,
+        ),
       );
-    else
-      await dispatch(
-        specializationsApi.thunks.createOne({
-          data: { ...data, createdAt: new Date().toISOString() },
-          successMessage: "Specialization created",
-        } as any),
-      );
+      return;
+    }
     onClose();
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="md"
@@ -368,6 +470,6 @@ function SpecializationForm({
         onChange={(e) => form.setValue("description", e.target.value)}
         error={form.errors.description}
       />
-    </FormDialog>
+    </Dialog>
   );
 }

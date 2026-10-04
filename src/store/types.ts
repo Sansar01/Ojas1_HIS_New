@@ -1,5 +1,6 @@
-import type { store } from "@/store";
+/**
+ * Store type surface (re-exported for convenience).
+ * The real definitions live next to the store in `store.ts`.
+ */
 
-export type RootState = ReturnType<typeof store.getState>;
-export type AppDispatch = typeof store.dispatch;
-export type AppThunk<R = void> = (dispatch: AppDispatch, getState: () => RootState) => R | Promise<R>;
+export type { RootState, AppDispatch, AppThunk } from "./store";

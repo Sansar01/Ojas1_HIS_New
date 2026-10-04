@@ -1,23 +1,16 @@
 import type {
   AppointmentStatus,
   ConsultationStatus,
-  PaymentStatus,
   Permission,
 } from "@/types";
 
 export const APP_NAME = "OJAS1";
 export const APP_SUBTITLE = "Hospital Management Portal";
 
-// MODULES removed per cleanup plan — runtime source is entitlement API (entitlementSlice.modules)
+// MODULES removed per cleanup plan — runtime source is the entitlement API (moduleSlice.modules)
 // MODULE_LABEL and ALL_MODULE_KEYS removed for same reason — single source of truth is backend
 
 export const PERMISSIONS: Permission[] = ["view", "create", "edit", "delete"];
-export const PERMISSION_LABEL: Record<Permission, string> = {
-  view: "View",
-  create: "Create",
-  edit: "Edit",
-  delete: "Delete",
-};
 
 export const APPOINTMENT_STATUSES: AppointmentStatus[] = [
   "Scheduled",
@@ -35,13 +28,6 @@ export const CONSULTATION_STATUSES: ConsultationStatus[] = [
   "Completed",
   "Cancelled",
 ];
-export const PAYMENT_STATUSES: PaymentStatus[] = [
-  "Pending",
-  "Partially Paid",
-  "Paid",
-  "Cancelled",
-  "Refunded",
-];
 
 export const APPT_TYPE_COLORS: Record<string, string> = {
   TELECONSULTATION: "bg-brand-50 text-brand-700 ring-brand-200",
@@ -51,15 +37,6 @@ export const APPT_TYPE_COLORS: Record<string, string> = {
   telemedicine: "bg-mint-50 text-mint-600 ring-mint-500/25",
 };
 
-export const WEEKDAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
 export const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export const GENDERS = ["Male", "Female", "Other"] as const;
@@ -87,23 +64,6 @@ export const guardianRelations: Record<string, string> = {
   Guardian: "GUARDIAN",
   Other: "OTHER",
 };
-export const PAYMENT_METHODS = [
-  "Cash",
-  "Card",
-  "UPI",
-  "Insurance",
-  "Bank Transfer",
-  "Wallet",
-];
-export const INVOICE_CATEGORIES = [
-  "Consultation",
-  "Procedure",
-  "Lab",
-  "Pharmacy",
-  "Room & Board",
-  "Service",
-  "Other",
-];
 
 export const AVATAR_COLORS = [
   "bg-brand-500",
@@ -140,38 +100,6 @@ export const PRIORITY_OPTIONS = [
   { value: "1", label: "Urgent" },
   { value: "2", label: "Emergency" },
 ] as const;
-
-export interface StaticSpecialization {
-  id: string;
-  name: string;
-  code: string;
-}
-
-export const STATIC_SPECIALIZATIONS: StaticSpecialization[] = [
-  { id: "Cardiology", name: "Cardiology", code: "CARD" },
-  { id: "General Medicine", name: "General Medicine", code: "GEN_MED" },
-  { id: "Pediatrics", name: "Pediatrics", code: "PED" },
-  { id: "Orthopedics", name: "Orthopedics", code: "ORTHO" },
-  { id: "Dermatology", name: "Dermatology", code: "DERM" },
-  { id: "Neurology", name: "Neurology", code: "NEURO" },
-  {
-    id: "Gynecology & Obstetrics",
-    name: "Gynecology & Obstetrics",
-    code: "OBGYN",
-  },
-  {
-    id: "ENT (Ear, Nose, Throat)",
-    name: "ENT (Ear, Nose, Throat)",
-    code: "ENT",
-  },
-  { id: "Ophthalmology", name: "Ophthalmology", code: "EYE" },
-  { id: "Gastroenterology", name: "Gastroenterology", code: "GASTRO" },
-  { id: "Pulmonology", name: "Pulmonology", code: "PULMO" },
-  { id: "Psychiatry", name: "Psychiatry", code: "PSYCH" },
-  { id: "Endocrinology", name: "Endocrinology", code: "ENDO" },
-  { id: "Urology", name: "Urology", code: "URO" },
-  { id: "Oncology", name: "Oncology", code: "ONCO" },
-];
 
 /** Where the forced password change lives — kept in one place. */
 export const FORCE_PASSWORD_PATH = "/accounts/force-password-change";

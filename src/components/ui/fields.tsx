@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Loader2,
   Search,
   X,
 } from "lucide-react";
@@ -299,6 +300,8 @@ export function Select({
   disabled,
   size = "md",
   clearable,
+  loading = false,
+  loadingLabel,
 }: {
   label?: React.ReactNode;
   value: string;
@@ -313,7 +316,19 @@ export function Select({
   disabled?: boolean;
   size?: "sm" | "md";
   clearable?: boolean;
+  /**
+   * The option source is still being fetched. The trigger shows
+   * `loadingLabel` with a spinner and cannot be opened, and the list shows the
+   * same message — an empty dropdown never looks like "no data".
+   */
+  loading?: boolean;
+  /** e.g. "Loading departments…" / "Searching patients…" */
+  loadingLabel?: string;
 }) {
+  // tracked for the guard above: Radix's hidden input can only echo a value
+  // back while this list is closed
+  const [listOpen, setListOpen] = useState(false);
+
   return (
     <Field
       label={label}
@@ -324,8 +339,24 @@ export function Select({
     >
       <SelectPrimitive.Root
         value={value ?? ""}
-        onValueChange={onChange}
-        disabled={disabled}
+        onOpenChange={setListOpen}
+        onValueChange={(next) => {
+          /**
+           * Radix keeps a visually hidden native <select> ("bubble input") in
+           * sync for form libraries. Its <option>s only exist while the list is
+           * open, so a value that arrives from anywhere else — the record an
+           * edit dialog just loaded — has nothing to match there: the hidden
+           * select falls back to "" and Radix echoes that back through
+           * onValueChange, wiping the value that was just set (the doctor the
+           * appointment dialog loaded came back empty, so its slots never
+           * rendered). A real choice is always made while the list is open —
+           * Radix fires the selection first and closes the list after it — so
+           * an empty value that arrives with the list closed is that echo.
+           */
+          if (next === "" && !listOpen && (value ?? "") !== "") return;
+          onChange(next);
+        }}
+        disabled={disabled || loading}
         name={name}
       >
         <SelectPrimitive.Trigger
@@ -335,13 +366,20 @@ export function Select({
             size === "sm" ? "h-9 text-[13px]" : "h-10",
           )}
         >
-          <SelectPrimitive.Value
-            placeholder={placeholder}
-            className={cn(
-              "truncate",
-              value ? "font-medium text-ink-800" : "text-ink-400",
-            )}
-          />
+          {loading ? (
+            <span className="flex min-w-0 items-center gap-2 truncate text-ink-400">
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-600" />
+              <span className="truncate">{loadingLabel ?? "Loading…"}</span>
+            </span>
+          ) : (
+            <SelectPrimitive.Value
+              placeholder={placeholder}
+              className={cn(
+                "truncate",
+                value ? "font-medium text-ink-800" : "text-ink-400",
+              )}
+            />
+          )}
           <span className="flex items-center gap-1">
             {clearable && value && (
               <button
@@ -368,12 +406,19 @@ export function Select({
             className="z-[70] max-h-[19rem] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-ink-100 bg-white shadow-pop animate-fade-in"
           >
             <SelectPrimitive.Viewport className="p-1.5">
-              {options.length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-ink-400">
-                  No options available
+              {loading ? (
+                <div className="flex items-center gap-2 px-3 py-6 text-[13px] text-ink-500">
+                  <Loader2 className="size-3.5 animate-spin text-brand-600" />
+                  {loadingLabel ?? "Loading…"}
                 </div>
-              )}
-              {options.map((opt) => (
+              ) : (
+                <>
+                  {options.length === 0 && (
+                    <div className="px-3 py-6 text-center text-[13px] text-ink-400">
+                      No options available
+                    </div>
+                  )}
+                  {options.map((opt) => (
                 <SelectPrimitive.Item
                   key={opt.value}
                   value={opt.value}
@@ -398,8 +443,10 @@ export function Select({
                       </span>
                     )}
                   </span>
-                </SelectPrimitive.Item>
-              ))}
+                    </SelectPrimitive.Item>
+                  ))}
+                </>
+              )}
             </SelectPrimitive.Viewport>
           </SelectPrimitive.Content>
         </SelectPrimitive.Portal>
@@ -421,6 +468,8 @@ export function MultiSelect<T extends string = string>({
   placeholder = "Select items…",
   className,
   columns = 1,
+  loading = false,
+  loadingLabel,
 }: {
   label?: React.ReactNode;
   values: T[];
@@ -432,6 +481,9 @@ export function MultiSelect<T extends string = string>({
   placeholder?: string;
   className?: string;
   columns?: 1 | 2 | 3;
+  /** the option source is still loading — same contract as `Select` */
+  loading?: boolean;
+  loadingLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -479,13 +531,20 @@ export function MultiSelect<T extends string = string>({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
+          disabled={loading}
           className={cn(
             fieldClasses(!!error),
-            "flex min-h-10 items-center justify-between gap-2 px-3 py-1.5 text-left",
+            "flex min-h-10 items-center justify-between gap-2 px-3 py-1.5 text-left disabled:cursor-wait",
           )}
         >
           <span className="flex flex-wrap gap-1">
-            {values.length === 0 && (
+            {loading && (
+              <span className="flex items-center gap-2 text-[13px] text-ink-400">
+                <Loader2 className="size-3.5 animate-spin text-brand-600" />
+                {loadingLabel ?? "Loading…"}
+              </span>
+            )}
+            {!loading && values.length === 0 && (
               <span className="text-ink-400">{placeholder}</span>
             )}
             {values.map((v) => (

@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, RotateCcw } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Dialog } from "@/components/ui/overlays";
-import { Button, StatusBadge } from "@/components/ui/primitives";
+import { Button } from "@/components/ui/primitives";
 import { SearchInput, Switch, fieldClasses } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch } from "@/hooks";
-import { toast } from "@/features/ui/uiSlice";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
-import {
-  globalMasterService,
-  type MasterCategory,
-  type MasterValueType,
-} from "@/features/masters/globalMasterService"; // Adjust path as needed
+import { masterService } from "@/pages/masterConfiguration/master.service";
+import type { MasterCategory, MasterValueType } from "@/types";
 
 // Hardcoded sidebar configuration to map UI labels to API Enums
 const SIDEBAR_CONFIG = [
@@ -67,8 +64,10 @@ export function GlobalConfiguration({
   const [showInactive, setShowInactive] = useState(false);
 
   const [apiRows, setApiRows] = useState<Row[]>([]);
-  const [sidebarCounts, setSidebarCounts] = useState<Record<string, number>>({});
-  
+  const [sidebarCounts, setSidebarCounts] = useState<Record<string, number>>(
+    {},
+  );
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -76,15 +75,21 @@ export function GlobalConfiguration({
   // 1. Fetch Sidebar Counts (Updates numbers next to categories)
   const fetchCounts = useCallback(async () => {
     try {
-      const tree = await globalMasterService.getSidebar();
+      const res: any = await masterService.fetchGlobalSidebar();
+      const body: any = res?.data ?? {};
+      // the sidebar endpoint answers with the tree either directly or wrapped
+      const tree: any = body?.data ?? body;
       const newCounts: Record<string, number> = {};
       // Flatten the tree to create a quick lookup dictionary e.g., { GROUP_TYPE: 4 }
-      Object.values(tree).flat().forEach((item) => {
-        newCounts[item.type] = item.count;
-      });
+      Object.values(tree ?? {})
+        .flat()
+        .forEach((item: any) => {
+          newCounts[item.type] = item.count;
+        });
       setSidebarCounts(newCounts);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load sidebar counts", error);
+      dispatch(toast.error("Could not load sidebar counts", error?.message));
     }
   }, []);
 
@@ -92,8 +97,20 @@ export function GlobalConfiguration({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await globalMasterService.getByType(activeType as MasterValueType);
-      setApiRows(data);
+      const data: any = await masterService.fetchGlobalByType(
+        activeType as MasterValueType,
+      );
+      // the endpoint answers with the rows directly in most deployments, but
+      // tolerate the enveloped shape as well
+      setApiRows(
+        Array.isArray(data)
+          ? data
+          : Array.isArray(data?.data)
+            ? data.data
+            : Array.isArray(data?.rows)
+              ? data.rows
+              : [],
+      );
     } catch (error: any) {
       dispatch(toast.error("Failed to load data", error?.message));
     } finally {
@@ -127,17 +144,17 @@ export function GlobalConfiguration({
 
     setSaving(true);
     try {
-      await globalMasterService.create({
+      await masterService.createGlobalMaster({
         category: activeCategory as MasterCategory,
         type: activeType as MasterValueType,
         value: val.toUpperCase(), // Best practice: keep masters uppercase
       });
       dispatch(toast.success(`${activeLabel} added successfully`));
       setInputValue("");
-      
+
       // Refresh list & counts after adding
-      fetchData(); 
-      fetchCounts(); 
+      fetchData();
+      fetchCounts();
     } catch (e: any) {
       dispatch(toast.error("Could not save", e?.message));
     } finally {
@@ -149,11 +166,13 @@ export function GlobalConfiguration({
   const handleToggle = async (row: Row) => {
     setTogglingId(row.id);
     try {
-      await globalMasterService.setActive(row.id, !row.isActive); // FIXED method name
+      await masterService.updateGlobalMaster(row.id, {
+        isActive: !row.isActive,
+      });
       dispatch(
         row.isActive
           ? toast.info("Deactivated", row.value)
-          : toast.success("Activated", row.value)
+          : toast.success("Activated", row.value),
       );
       fetchData(); // Reload list
     } catch (e: any) {
@@ -168,17 +187,17 @@ export function GlobalConfiguration({
     if (row.isSystem) {
       dispatch(
         toast.warning(
-          "System default values cannot be deleted. You can deactivate them instead."
-        )
+          "System default values cannot be deleted. You can deactivate them instead.",
+        ),
       );
       return;
     }
 
     if (confirm(`Are you sure you want to delete '${row.value}'?`)) {
       try {
-        await globalMasterService.remove(row.id); // FIXED method name
+        await masterService.deleteGlobalMaster(row.id);
         dispatch(toast.success("Deleted successfully"));
-        
+
         // Refresh list & counts after deleting
         fetchData();
         fetchCounts();
@@ -263,18 +282,18 @@ export function GlobalConfiguration({
                       "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition-colors",
                       isActiveTab
                         ? "bg-brand-600 font-medium text-white"
-                        : "text-ink-700 hover:bg-ink-100"
+                        : "text-ink-700 hover:bg-ink-100",
                     )}
                   >
                     <span className="truncate">{it.label}</span>
-                    
+
                     {/* Shows the count of items in this category */}
                     <span
                       className={cn(
                         "rounded px-1.5 py-0.5 text-[10px] font-semibold",
                         isActiveTab
                           ? "bg-white/25 text-white"
-                          : "bg-ink-200 text-ink-600"
+                          : "bg-ink-200 text-ink-600",
                       )}
                     >
                       {sidebarCounts[it.key] ?? 0}
@@ -330,9 +349,8 @@ export function GlobalConfiguration({
           </div>
 
           {/* DATA TABLE */}
-      
 
-                {/* DATA TABLE */}
+          {/* DATA TABLE */}
           <DataTable<Row>
             columns={columns}
             rows={rows}

@@ -10,25 +10,20 @@ import {
   ShieldCheck,
   Trash2,
   UserCog,
-  UserPlus,
   Users2,
 } from "lucide-react";
 import { APP_NAME, AVATAR_COLORS, PERMISSIONS } from "@/constants";
-import {
-  useAppDispatch,
-  usePermission,
-  useRootSelector,
-  useTable,
-} from "@/hooks";
-import { useRootSelector as _rootSelector } from "@/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { usePermission, useTable, useCurrentUser } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { patientsApi, usersApi } from "@/features/slices";
-import { syncUser } from "@/features/auth/authSlice";
-import { request } from "@/services/apiClient";
-import { API_ENDPOINTS } from "@/config/api";
+import { userService } from "@/pages/users/user.service";
+import { roleService } from "@/pages/admin/role.service";
+import { departmentService } from "@/pages/Departments/department.service";
+import { syncUser } from "@/store/slices/authSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { formatDateTime, fullName, relativeTime } from "@/utils";
 import { cn } from "@/utils/cn";
-import type { Permission, Status, User } from "@/types";
+import type { Permission, Status } from "@/types";
 import {
   Avatar,
   Badge,
@@ -51,17 +46,16 @@ import {
   RowActions,
   TableToolbar,
 } from "@/components/ui/table";
-import { Sheet, Tooltip } from "@/components/ui/overlays";
+import { Dialog, Sheet, Tooltip } from "@/components/ui/overlays";
 import {
-  FormDialog,
   DetailGrid,
   FormRow,
   FormSection,
   SectionPanel,
   PageIntro,
 } from "@/components/common";
-import { useCurrentUser } from "@/hooks";
 import { useNavigate } from "react-router-dom";
+import { User } from "@/types/userTypes";
 
 const normalizeUser = (record: any): User => {
   const primaryRole =
@@ -103,16 +97,36 @@ export function UsersPage() {
   const navigate = useNavigate();
 
   const me = useCurrentUser();
-  const { canCreate, canEdit, canDelete } = usePermission();
+  const { canEdit, canDelete } = usePermission();
   const [users, setUsers] = useState<User[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const roles = useRootSelector((s) => s.roles.items);
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  // entitlement catalogue stays in Redux (global authorization state) …
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
+  // … while the role list of this screen is page data, loaded through its service
+  const [roles, setRoles] = useState<any[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await roleService.fetchRoles();
+        if (active && response.status === 200)
+          setRoles(response.data?.data ?? []);
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load roles", e?.message));
+      } finally {
+        if (active) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
   const [filters, setFilters] = useState({ role: "all", status: "all" });
   const [editing, setEditing] = useState<Partial<User> | null>(null);
   const [detail, setDetail] = useState<User | null>(null);
@@ -133,26 +147,27 @@ export function UsersPage() {
     },
   });
 
+  /**
+   * The user table and its role/department selectors are page data: each is
+   * fetched here, through its own feature service, into local state.
+   */
   useEffect(() => {
     let active = true;
 
-    request<any[]>({
-      url: API_ENDPOINTS.users,
-      method: "GET",
-    })
-      .then((response) => {
+    setStatus("loading");
+    userService
+      .fetchUsers()
+      .then((res) => {
         if (!active) return;
-        const rawResponse: any = response;
-        const records = Array.isArray(rawResponse)
-          ? rawResponse
-          : Array.isArray(rawResponse.data)
-            ? rawResponse.data
-            : (rawResponse.data?.rows ?? []);
-        setUsers(records.map(normalizeUser));
+        const body: any = res.data ?? {};
+        setUsers((body.data ?? []).map(normalizeUser));
         setStatus("ready");
       })
-      .catch(() => {
-        if (active) setStatus("error");
+      .catch((e: any) => {
+        if (active) {
+          setStatus("error");
+          dispatch(toast.error("Could not load users", e?.message));
+        }
       });
 
     return () => {
@@ -160,25 +175,40 @@ export function UsersPage() {
     };
   }, [refreshKey]);
 
-  const toggleStatus = (user: User) => {
+  const toggleStatus = async (user: User) => {
     const next: Status = user.status === "active" ? "inactive" : "active";
-    dispatch(
-      usersApi.thunks.toggleActive({
-        id: user.id,
-        status: next,
-        label: `${user.firstName} ${user.lastName}`,
-      } as any),
-    );
+    try {
+      await userService.updateUser(user.id, { status: next });
+      setUsers((rows) =>
+        rows.map((row) =>
+          row.id === user.id ? { ...row, status: next } : row,
+        ),
+      );
+      dispatch(
+        toast.info(
+          next === "active" ? "Marked active" : "Marked inactive",
+          `${user.firstName} ${user.lastName} is now ${next}.`,
+        ),
+      );
+    } catch (e: any) {
+      dispatch(toast.error("Status change failed", e?.message));
+    }
   };
 
-  const remove = (user: User) => {
+  const remove = async (user: User) => {
     if (user.id === me?.id) return;
-    dispatch(
-      usersApi.thunks.removeOne({
-        id: user.id,
-        label: `${user.firstName} ${user.lastName}`,
-      } as any),
-    );
+    try {
+      await userService.deleteUser(user.id);
+      setUsers((rows) => rows.filter((row) => row.id !== user.id));
+      dispatch(
+        toast.success(
+          "Record deleted",
+          `${user.firstName} ${user.lastName} was removed from the portal.`,
+        ),
+      );
+    } catch (e: any) {
+      dispatch(toast.error("Delete failed", e?.message));
+    }
   };
 
   return (
@@ -231,6 +261,8 @@ export function UsersPage() {
                 className="w-[10.5rem]"
                 value={filters.role}
                 onChange={(v) => setFilters((f) => ({ ...f, role: v }))}
+                loading={rolesLoading}
+                loadingLabel="Loading roles…"
                 options={[
                   { value: "all", label: "All roles" },
                   ...roles.map((r: any) => ({ value: r.name, label: r.name })),
@@ -326,7 +358,7 @@ export function UsersPage() {
               hideBelow: "lg",
               render: (u) => (
                 <div className="flex items-center gap-1">
-                  {u.modules.slice(0, 4).map((m) => {
+                  {u.modules.slice(0, 4).map((m: any) => {
                     const def = entitlementModules.find(
                       (x: any) =>
                         x.key === m ||
@@ -443,6 +475,7 @@ export function UsersPage() {
         <UserFormDialog
           initial={editing}
           roles={roles as any}
+          rolesLoading={rolesLoading}
           onClose={() => setEditing(null)}
           onSaved={() => setEditing(null)}
         />
@@ -685,11 +718,13 @@ const formatDateSafe = (iso?: string) =>
 function UserFormDialog({
   initial,
   roles,
+  rolesLoading = false,
   onClose,
   onSaved,
 }: {
   initial: Partial<User>;
   roles: any[];
+  rolesLoading?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -697,6 +732,54 @@ function UserFormDialog({
   const isEdit = Boolean(initial.id);
   const me = useCurrentUser();
   const role = roles.find((r) => r.id === initial.roleId);
+
+  // Dropdown data of this dialog — loaded when it opens, through the feature
+  // services, each with its OWN loading flag so the dropdown itself can say what
+  // it is waiting for ("Loading departments…") while the rest of the form stays
+  // usable. No global loader is involved for either call.
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await userService.fetchUsers();
+        if (active && response.status === 200) {
+          setAllUsers(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load users", e?.message));
+      } finally {
+        if (active) setUsersLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active)
+          dispatch(toast.error("Could not load departments", e?.message));
+      } finally {
+        if (active) setDepartmentsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const form = useForm({
     initialValues: {
@@ -736,8 +819,8 @@ function UserFormDialog({
     },
   });
 
-  const entitlementModules = useRootSelector(
-    (s: any) => s.entitlement.modules || [],
+  const entitlementModules = useAppSelector(
+    (s: any) => s.modules.availableModules || [],
   );
   const moduleOptions = useMemo(
     () =>
@@ -801,30 +884,30 @@ function UserFormDialog({
       permissions: values.permissions,
     };
     if (!isEdit) payload.password = values.password;
-    if (isEdit) {
-      const res: any = await dispatch(
-        usersApi.thunks.updateOne({
-          id: initial.id!,
-          data: payload,
-          successMessage: "User updated",
-        } as any),
+    try {
+      if (isEdit) {
+        const res = await userService.updateUser(initial.id!, payload);
+        dispatch(toast.success("User updated"));
+        // editing your own account refreshes the auth snapshot as well
+        const body: any = res.data ?? {};
+        const updated: any = body.data ?? body;
+        if (initial.id === me?.id && updated)
+          dispatch(syncUser(updated as User));
+      } else {
+        await userService.createUser(payload);
+        dispatch(toast.success("User account created"));
+      }
+    } catch (e: any) {
+      dispatch(
+        toast.error(isEdit ? "Update failed" : "Creation failed", e?.message),
       );
-      if (initial.id === me?.id && res?.payload)
-        dispatch(syncUser(res.payload as User));
-    } else {
-      await dispatch(
-        usersApi.thunks.createOne({
-          data: payload,
-          successMessage: "User account created",
-        } as any),
-      );
+      return;
     }
-    dispatch(patientsApi.thunks.fetchAll() as any);
     onSaved();
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="lg"
@@ -959,6 +1042,8 @@ function UserFormDialog({
             required
             value={form.values.roleId}
             onChange={applyRoleDefaults}
+            loading={rolesLoading}
+            loadingLabel="Loading roles…"
             options={roles.map((r) => ({
               value: r.id,
               label: r.name,
@@ -1191,7 +1276,7 @@ function UserFormDialog({
               label="Search & Select Users"
               values={[]}
               onChange={() => {}}
-              options={(useRootSelector((s) => s.users.items) as any[])
+              options={allUsers
                 .filter((u: any) => u.id !== initial.id)
                 .map((u: any) => ({
                   value: u.id,
@@ -1199,6 +1284,8 @@ function UserFormDialog({
                   description: u.role,
                 }))}
               placeholder="Search by name or employee ID"
+              loading={usersLoading}
+              loadingLabel="Loading users…"
               columns={1}
             />
 
@@ -1206,10 +1293,13 @@ function UserFormDialog({
               label="Map to Department(s)"
               values={[]}
               onChange={() => {}}
-              options={(
-                useRootSelector((s) => s.departments.items) as any[]
-              ).map((d: any) => ({ value: d.id, label: d.name }))}
+              options={departments.map((d: any) => ({
+                value: d.id,
+                label: d.name,
+              }))}
               placeholder="Hold Ctrl / Cmd to select multiple"
+              loading={departmentsLoading}
+              loadingLabel="Loading departments…"
               columns={1}
             />
 
@@ -1245,6 +1335,6 @@ function UserFormDialog({
           </p>
         </div>
       )}
-    </FormDialog>
+    </Dialog>
   );
 }

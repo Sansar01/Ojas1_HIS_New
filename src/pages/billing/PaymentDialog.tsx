@@ -2,8 +2,11 @@ import { CircleDollarSign } from "lucide-react";
 import { useForm } from "@/hooks/useForm";
 import { formatMoney } from "@/utils";
 import { Input, NumberInput, Select } from "@/components/ui/fields";
-import { FormDialog } from "@/components/common";
-import { billingService } from "@/features/billing/billingService";
+
+import { billingService } from "@/pages/billing/billing.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
+import { Dialog } from "@/components/ui/overlays";
 
 export function PaymentDialog({
   bill,
@@ -14,6 +17,7 @@ export function PaymentDialog({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const dispatch = useAppDispatch();
   const form = useForm({
     initialValues: {
       amount: bill.dueAmount,
@@ -44,12 +48,17 @@ export function PaymentDialog({
       });
       onSuccess();
     } catch (e: any) {
-      alert(e.message || "Failed to record payment");
+      dispatch(
+        toast.error(
+          "Could not record payment",
+          e?.message || "Please try again.",
+        ),
+      );
     }
   });
 
   return (
-    <FormDialog
+    <Dialog
       open
       onOpenChange={(v) => !v && onClose()}
       size="sm"
@@ -98,6 +107,6 @@ export function PaymentDialog({
           onChange={(e) => form.setValue("notes", e.target.value)}
         />
       </div>
-    </FormDialog>
+    </Dialog>
   );
 }
