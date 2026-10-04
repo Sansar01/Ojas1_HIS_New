@@ -26,7 +26,7 @@
  */
 
 import { useEffect, useMemo } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { AlertTriangle, RefreshCw, ShieldCheck } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchModules } from "@/store/slices/moduleSlice";
@@ -36,34 +36,24 @@ import {
   selectBootstrapError,
   selectBootstrapStatus,
 } from "@/store/slices/bootstrapSlice";
-import { isDeliberateLogout } from "@/store/slices/authSlice";
 import { Splash } from "@/routes/guards";
 import { Button } from "@/components/ui/primitives";
 
-/** Where login sent the user, when they were bounced off a protected route. */
-function useIntendedRoute(): string {
-  const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from;
-  // a voluntary sign-out has no route to restore; and we never bounce back
-  // into the auth screens or into the bootstrap itself
-  if (
-    isDeliberateLogout() ||
-    !from ||
-    from === "/" ||
-    from.startsWith("/accounts") ||
-    from.startsWith("/permission")
-  ) {
-    return "/dashboard";
-  }
-  return from;
-}
+/**
+ * Where the bootstrap stage hands the signed-in user over to.
+ *
+ * Always the dashboard: whoever logs in — superadmin, doctor, nurse, any other
+ * user type — starts from the dashboard. No route is carried across a login, so
+ * the page the *previous* user happened to be on can never be restored.
+ */
+const POST_BOOTSTRAP_ROUTE = "/dashboard";
 
 export function PermissionBootstrapPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const status = useAppSelector(selectBootstrapStatus);
   const error = useAppSelector(selectBootstrapError);
-  const target = useIntendedRoute();
+  const target = POST_BOOTSTRAP_ROUTE;
 
   /**
    * One effect, one owner (§48): the status drives the whole sequence.

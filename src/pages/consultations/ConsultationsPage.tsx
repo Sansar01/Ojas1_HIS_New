@@ -540,15 +540,6 @@ export function ConsultationsPage() {
             </div>
           )}
 
-          {waitingTokens.length === 0 &&
-            skippedTokens.length === 0 &&
-            !currentToken && (
-              <div className="text-center py-8">
-                <p className="text-[13px] text-ink-400 font-medium">
-                  No queue found for {formatDate(queueDate)}
-                </p>
-              </div>
-            )}
         </Panel>
       )}
 
@@ -1565,6 +1556,17 @@ export function ConsultationWorkspacePage() {
         doctor={doctor}
         consultation={record}
         lines={rx}
+        vitals={{
+          bp: form.values.bp,
+          pulse: form.values.pulse,
+          temp: form.values.temp,
+          spo2: form.values.spo2,
+          weight: form.values.weight,
+        }}
+        chiefComplaint={form.values.chiefComplaint}
+        history={form.values.historyOfIllness}
+        examination={form.values.systemicExamination}
+        diagnosis={form.values.diagnosis}
         advice={form.values.advice}
         followUpDate={form.values.followUpDate}
       />

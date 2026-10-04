@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Eye,
@@ -14,12 +14,7 @@ import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppDispatch } from "@/store/hooks";
 import { useAuthStatus } from "@/hooks";
-import {
-  clearDeliberateLogout,
-  isDeliberateLogout,
-  login,
-  verifyOtp,
-} from "@/store/slices/authSlice";
+import { login, verifyOtp } from "@/store/slices/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
@@ -28,7 +23,6 @@ import { toast } from "@/store/slices/uiSlice";
 export function LoginPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const location = useLocation();
   const status = useAuthStatus();
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -60,17 +54,10 @@ export function LoginPage() {
     const mustChangePassword = Boolean(
       payload?.forcePasswordChange ?? payload?.user?.forcePasswordChange,
     );
-    // Intended route: honoured for a visitor who was bounced off a page by an
-    // expired session; ignored after a voluntary sign-out, so that login
-    // always opens the dashboard afresh.
-    const from = isDeliberateLogout()
-      ? undefined
-      : (location.state as { from?: string } | null)?.from;
-    // sign-in succeeded: the marker has done its job
-    clearDeliberateLogout();
+    // No route is carried into the new session: the bootstrap stage decides,
+    // and it always opens the dashboard.
     navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/permission", {
       replace: true,
-      state: from ? { from } : undefined,
     });
   };
 

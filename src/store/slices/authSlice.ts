@@ -38,57 +38,14 @@ import { clearModules } from "./moduleSlice";
 
 /* --------------------------------------------------------------------------- */
 
-/**
- * Deliberate sign-out marker (per browser tab).
- * ---------------------------------------------
- * The guards remember the route a visitor was bounced off ("intended route",
- * `location.state.from`) so a session that expires mid-work can return there
- * after the next login. A *voluntary* sign-out is different: the next sign-in
- * must start from a clean slate, otherwise the route the user happened to be
- * on when they signed out ("/appointments") would be restored again and again
- * by every following login — even though login itself asks for no such route.
- *
- * The marker lives in `sessionStorage`, so it survives client-side navigation
- * and a refresh in the same tab, and it is dropped the moment a sign-in
- * succeeds (`clearDeliberateLogout`).
- */
-const DELIBERATE_LOGOUT_KEY = "authDeliberateLogout";
-
-/** Mark that the user signed out on purpose. */
-export function markDeliberateLogout() {
-  try {
-    sessionStorage.setItem(DELIBERATE_LOGOUT_KEY, "1");
-  } catch {
-    /* private mode / storage disabled — the guards simply keep their old view */
-  }
-}
-
-/** A successful sign-in consumes the marker. */
-export function clearDeliberateLogout() {
-  try {
-    sessionStorage.removeItem(DELIBERATE_LOGOUT_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Did the current tab sign out on purpose (i.e. no route to restore)? */
-export function isDeliberateLogout() {
-  try {
-    return sessionStorage.getItem(DELIBERATE_LOGOUT_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 interface AuthState {
   session: Session | null;
   status:
-    | "idle"
-    | "restoring"
-    | "authenticating"
-    | "authenticated"
-    | "unauthenticated";
+  | "idle"
+  | "restoring"
+  | "authenticating"
+  | "authenticated"
+  | "unauthenticated";
   error: string | null;
   reset: { email: string | null; token: string | null };
 }
@@ -357,9 +314,9 @@ export const changePassword = createAsyncThunk(
         error?.message === "Failed to fetch"
           ? "Unable to reach the server. Please try again."
           : error?.message ||
-            (isForcedChange
-              ? "Could not update the password."
-              : "Unable to send reset link.");
+          (isForcedChange
+            ? "Could not update the password."
+            : "Unable to send reset link.");
       dispatch(
         toast.error(
           isForcedChange
@@ -479,9 +436,8 @@ export const logoutUser = createAsyncThunk(
       localStorage.removeItem(TOKEN_KEY);
       setToken(null);
       setTokenExpiry(null);
-      // A voluntary sign-out must not resurrect the route the user left:
-      // the next login goes to /permission and then /dashboard.
-      markDeliberateLogout();
+      // The next login goes through /permission and opens the dashboard —
+      // the route this user was on is never carried into a new session.
       dispatch(clearModules());
       dispatch(hideLoader());
     }
@@ -519,7 +475,6 @@ const authSlice = createSlice({
       setToken(null);
       setTokenExpiry(null);
       localStorage.removeItem(TOKEN_KEY);
-      markDeliberateLogout();
     },
     syncUser(state, action: PayloadAction<User>) {
       if (state.session && state.session.user.id === action.payload.id) {

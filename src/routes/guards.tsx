@@ -3,7 +3,6 @@ import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
 import {
-  isDeliberateLogout,
   selectMustChangePassword,
   selectUser,
 } from "@/store/slices/authSlice";
@@ -59,7 +58,6 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     return (
       <Navigate
         to="/accounts/login"
-        state={isDeliberateLogout() ? undefined : { from: location.pathname }}
         replace
       />
     );
@@ -137,15 +135,14 @@ export function RequirePasswordChange({
  * before any protected page (or the sidebar inside it) is rendered.
  *
  * While the bootstrap stage has not reported `ready`, the visitor is sent to
- * `/permission` — carrying the route they asked for so the bootstrap can
- * return them there (§49). A hard refresh lands here with `bootstrap: idle`,
- * so the flow re-runs instead of trusting a token in localStorage (§41).
+ * `/permission`, which then hands over to the dashboard — no route is carried
+ * across the stage. A hard refresh lands here with `bootstrap: idle`, so the
+ * flow re-runs instead of trusting a token in localStorage (§41).
  */
 export function RequireBootstrap({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const session = useAppSelector(selectUser);
   const bootstrapStatus = useAppSelector(selectBootstrapStatus);
-  const location = useLocation();
 
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash />;
@@ -153,29 +150,13 @@ export function RequireBootstrap({ children }: { children: React.ReactNode }) {
 
   if (!session) {
     return (
-      <Navigate
-        to="/accounts/login"
-        state={
-          isDeliberateLogout()
-            ? undefined
-            : { from: location.pathname + location.search }
-        }
-        replace
-      />
+      <Navigate to="/accounts/login" replace />
     );
   }
 
   if (bootstrapStatus !== "ready") {
     return (
-      <Navigate
-        to="/permission"
-        state={
-          isDeliberateLogout()
-            ? undefined
-            : { from: location.pathname + location.search }
-        }
-        replace
-      />
+      <Navigate to="/permission" replace />
     );
   }
 
