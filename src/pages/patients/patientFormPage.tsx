@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { useForm, type Rule } from "@/hooks/useForm";
-import { fetchDepartments } from "@/store/slices/departmentSlice";
-import {
-  createPatient,
-  fetchPatient,
-  updatePatient,
-} from "@/store/slices/patientSlice";
+import { departmentService } from "@/pages/Departments/department.service";
+import { patientService } from "@/pages/patients/patient.service";
+import { masterService } from "@/pages/masterConfiguration/master.service";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import type { Department } from "@/types";
 import {
   Emptyish,
   FormRow,
@@ -24,6 +23,7 @@ import {
   Checkbox,
 } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
+import { FormSkeleton } from "@/components/ui/feedback";
 import {
   GENDERS,
   BLOOD_GROUPS,
@@ -31,14 +31,7 @@ import {
   guardianRelations,
 } from "@/constants";
 import type { Patient } from "@/types";
-import {
-  fetchMasterDropdown,
-  selectMasterDropdown,
-} from "@/store/slices/masterSlice";
-import {
-  toBackendBloodGroup,
-  toDisplayBloodGroup,
-} from "@/utils/bloodGroup";
+import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
 
 /* ── HELPERS ────────────────────────────────────────────────── */
 
@@ -53,7 +46,8 @@ const isMobile = (v: string) => {
   );
 };
 const isPincode = (v: string) => /^[1-9]\d{5}$/.test(digits(v));
-const isAadhaar = (v: string) => /^\d{12}$/.test(digits(v)) && !/^0+$/.test(digits(v));
+const isAadhaar = (v: string) =>
+  /^\d{12}$/.test(digits(v)) && !/^0+$/.test(digits(v));
 const isAbha = (v: string) => /^\d{14}$/.test(digits(v));
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 const isPolicyNo = (v: string) => /^[A-Za-z0-9-]{6,}$/.test(v.trim());
@@ -73,7 +67,8 @@ function parseDobInput(raw: string): string {
   const clean = raw.trim().replace(/[^\d-/.]/g, "");
   if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean; // YYYY-MM-DD
   const dmy = clean.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`; // DD/MM/YYYY
+  if (dmy)
+    return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`; // DD/MM/YYYY
   if (/^\d{8}$/.test(clean)) {
     return `${clean.slice(4, 8)}-${clean.slice(2, 4)}-${clean.slice(0, 2)}`; // 15051990
   }
@@ -81,10 +76,12 @@ function parseDobInput(raw: string): string {
 }
 
 /** DOB (YYYY-MM-DD) → Age + Unit (years / months / days) */
-function calcAgeFromDob(dobStr: string): { age: number; unit: "years" | "months" | "days" } | null {
+function calcAgeFromDob(
+  dobStr: string,
+): { age: number; unit: "years" | "months" | "days" } | null {
   const parsedIso = parseDobInput(dobStr);
   if (!parsedIso) return null;
-  
+
   const dob = new Date(`${parsedIso}T00:00:00`);
   if (Number.isNaN(dob.getTime())) return null;
 
@@ -105,7 +102,10 @@ function calcAgeFromDob(dobStr: string): { age: number; unit: "years" | "months"
   }
 
   if (years === 0 && months === 0) {
-    const diffDays = Math.max(0, Math.floor((now.getTime() - dob.getTime()) / 86400000));
+    const diffDays = Math.max(
+      0,
+      Math.floor((now.getTime() - dob.getTime()) / 86400000),
+    );
     return { age: diffDays, unit: "days" };
   }
   if (years === 0) return { age: months, unit: "months" };
@@ -123,27 +123,51 @@ export function PatientsFormPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
-  const patient = useAppSelector((state) =>
-    (state.patients?.items ?? []).find(
-      (item) => item && String(item.id) === id,
-    ),
-  ) as Patient | undefined;
 
-  const [loadingPatient, setLoadingPatient] = useState(Boolean(id));
+  /**
+   * The record of this route is loaded from `patient.service` into local state.
+   * No slice is involved: the form is the only owner of this data, and when the
+   * route changes the value is fetched again.
+   */
+  const [patient, setPatient] = useState<Patient | undefined>(undefined);
+  const [loadingPatient, setLoadingPatient] = useState(false);
 
   useEffect(() => {
-    if (!id) {
-      setLoadingPatient(false);
-      return;
-    }
-    setLoadingPatient(true);
-    dispatch(fetchPatient(id) as any)
-      .unwrap()
-      .catch(() => undefined)
-      .finally(() => setLoadingPatient(false));
-  }, [dispatch, id]);
+    if (!id) return;
+    let active = true;
+    (async () => {
+      // blocking initialization of the edit route → global loader
+      setLoadingPatient(true);
+      dispatch(showLoader("Loading"));
+      try {
+        const response = await patientService.fetchPatientById(id);
+        const body: any = response.data ?? {};
+        if (active && response.status === 200) {
+          setPatient((body.data ?? body) as Patient);
+        }
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load patient", e?.message));
+      }
+      if (active) setLoadingPatient(false);
+      dispatch(hideLoader());
+    })();
+    return () => {
+      active = false;
+      dispatch(hideLoader());
+    };
+  }, [id, dispatch]);
 
-  if (loadingPatient) return null;
+  if (loadingPatient) {
+    return (
+      <div className="space-y-4">
+        <PageIntro
+          title={id ? "Edit patient" : "Register patient"}
+          description="Loading registration form…"
+        />
+        <FormSkeleton fields={10} columns={3} />
+      </div>
+    );
+  }
 
   if (id && !patient) {
     return (
@@ -162,29 +186,63 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const isEdit = Boolean(patient?.id);
-  const departments =
-    useAppSelector((s) =>
-      (s.departments.items ?? []).filter((x) => x.isActive === true),
-    ) ?? [];
 
-  // Panel (insurance/TPA) dropdown — master/reference data owned by the master
-  // domain and cached in Redux, so this form and the panel screens read ONE
-  // copy (doc §21). The merge had dropped this call, which left the panel
-  // selector empty on the registration form.
-  const panelRows = useAppSelector(selectMasterDropdown("PANELS"));
-  const panels = useMemo(
-    () =>
-      (panelRows as any[]).map((p: any) => ({
-        value: p.id,
-        label: p.panelName,
-      })),
-    [panelRows],
-  );
+  /** Department + panel dropdowns — each loaded by this form, when it needs them. */
+  const [departments, setDepartments] = useState<Department[]>([]);
+
+  /**
+   * The registration form cannot be filled without its department list, so this
+   * load is the page's blocking initialization → global loader while it runs
+   * (the panels list below is optional and gets no global UI).
+   */
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      dispatch(showLoader("Loading"));
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(
+            (response.data?.data ?? []).filter(
+              (row: Department) => row.isActive === true,
+            ),
+          );
+        }
+      } catch (e: any) {
+        if (active)
+          dispatch(toast.error("Could not load departments", e?.message));
+      }
+      dispatch(hideLoader());
+    })();
+    return () => {
+      active = false;
+      dispatch(hideLoader());
+    };
+  }, [dispatch]);
+
+  const [panels, setPanels] = useState<{ value: any; label: string }[]>([]);
 
   useEffect(() => {
-    dispatch(fetchDepartments() as any);
-    void dispatch(fetchMasterDropdown({ key: "PANELS" }) as any);
-  }, [dispatch]);
+    let active = true;
+    (async () => {
+      try {
+        const response = await masterService.fetchPanelDropdown();
+        if (active && response.status === 200) {
+          setPanels(
+            (response.data?.data ?? []).map((p: any) => ({
+              value: p.id,
+              label: p.panelName,
+            })),
+          );
+        }
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load panels", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const p = patient as any;
 
@@ -210,7 +268,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     aadhaarNumber: p?.aadhaarNumber ?? "",
     abhaId: p?.abhaId ?? "",
     guardianName: p?.guardianName ?? "",
-    guardianRelation: p?.guardianRelation ? titleCase(String(p.guardianRelation)) : "",
+    guardianRelation: p?.guardianRelation
+      ? titleCase(String(p.guardianRelation))
+      : "",
     guardianMobile: p?.guardianMobile ?? "",
     panelId: p?.panelId ?? "",
     panelPolicyNo: p?.panelPolicyNo ?? p?.insurancePolicyNo ?? "",
@@ -237,7 +297,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     validate: (value: any) => {
       const raw = String(value ?? "").trim();
       if (!raw) return true;
-      const current = DIGIT_FIELDS.has(String(key)) ? digits(raw) : raw.toLowerCase();
+      const current = DIGIT_FIELDS.has(String(key))
+        ? digits(raw)
+        : raw.toLowerCase();
       const existing = DIGIT_FIELDS.has(String(key))
         ? digits(registered(key))
         : registered(key).toLowerCase();
@@ -309,7 +371,8 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
         {
           message: "Enter an age between 0 and 129",
           validate: (value: any) => {
-            if (value === "" || value === null || value === undefined) return true;
+            if (value === "" || value === null || value === undefined)
+              return true;
             const n = Number(value);
             if (Number.isNaN(n)) return "Enter a valid age";
             return n >= 0 && n <= 129 ? true : "Enter an age between 0 and 129";
@@ -321,14 +384,16 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
   const toISO = (date: string) => {
     const parsed = parseDobInput(date);
-    return parsed ? new Date(`${parsed}T00:00:00.000Z`).toISOString() : undefined;
+    return parsed
+      ? new Date(`${parsed}T00:00:00.000Z`).toISOString()
+      : undefined;
   };
 
   const handleDobChange = (rawInput: string) => {
     form.setValue("dateOfBirth", rawInput);
     const parsedIso = parseDobInput(rawInput);
     const ageResult = calcAgeFromDob(parsedIso);
-    
+
     if (ageResult) {
       form.setValue("age", ageResult.age);
       form.setValue("ageUnit", ageResult.unit);
@@ -382,21 +447,19 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       if (payload[k] === "" || payload[k] === undefined) delete payload[k];
     });
 
-    if (isEdit) {
-      await dispatch(
-        updatePatient({
-          id: String(patient!.id),
-          data: payload,
-          successMessage: "Patient updated successfully",
-        } as any),
-      ).unwrap();
-    } else {
-      await dispatch(
-        createPatient({
-          data: payload,
-          successMessage: "Patient registered successfully",
-        } as any),
-      ).unwrap();
+    try {
+      if (isEdit) {
+        await patientService.updatePatient(String(patient!.id), payload);
+        dispatch(toast.success("Patient updated successfully"));
+      } else {
+        await patientService.createPatient(payload);
+        dispatch(toast.success("Patient registered successfully"));
+      }
+    } catch (e: any) {
+      dispatch(
+        toast.error(isEdit ? "Update failed" : "Creation failed", e?.message),
+      );
+      return;
     }
     navigate("/patients");
   };
@@ -455,7 +518,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 options={GENDERS.map((g) => ({ value: g, label: g }))}
                 error={form.errorFor("gender")}
               />
-              
+
               {/* ⚡ DOB: TYPE OR SELECT SUPPORT */}
               <Input
                 name="dateOfBirth"
@@ -540,7 +603,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 type="tel"
                 placeholder="Optional"
                 value={form.values.alternateMobile}
-                onChange={(e) => form.setValue("alternateMobile", e.target.value)}
+                onChange={(e) =>
+                  form.setValue("alternateMobile", e.target.value)
+                }
                 error={form.errorFor("alternateMobile")}
                 trailingIcon={validTick("alternateMobile")}
               />
@@ -672,7 +737,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 type="tel"
                 placeholder="10-digit number"
                 value={form.values.guardianMobile}
-                onChange={(e) => form.setValue("guardianMobile", e.target.value)}
+                onChange={(e) =>
+                  form.setValue("guardianMobile", e.target.value)
+                }
                 error={form.errorFor("guardianMobile")}
                 trailingIcon={validTick("guardianMobile")}
               />

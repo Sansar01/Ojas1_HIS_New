@@ -26,7 +26,7 @@ import {
   registerRefreshHandler,
   registerSessionGate,
   startSessionWatchdog,
-} from "./apiClient";
+} from "./axios";
 
 export function startSessionRuntime(): () => void {
   // 1. Session restore — the auth listener no longer fetches modules; the

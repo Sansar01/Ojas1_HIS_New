@@ -110,13 +110,23 @@ const uiSlice = createSlice({
         });
         if (s.toasts.length > 4) s.toasts.shift();
       })
+      // Plain on/off, not a ref-count: `showLoader` turns the overlay on and
+      // `hideLoader` turns it off, however many times either is called. That is
+      // the whole contract — a component writes
+      //
+      //   dispatch(showLoader("Loading"));
+      //   ... await ...
+      //   dispatch(hideLoader());
+      //
+      // and the overlay can never get stuck because a hide "used up" another
+      // component's show.
       .addCase(showLoader, (s, action) => {
-        s.loader.count += 1;
+        s.loader.count = 1;
         s.loader.label = action.payload ?? s.loader.label;
       })
       .addCase(hideLoader, (s) => {
-        s.loader.count = Math.max(0, s.loader.count - 1);
-        if (s.loader.count === 0) s.loader.label = null;
+        s.loader.count = 0;
+        s.loader.label = null;
       });
   },
 });

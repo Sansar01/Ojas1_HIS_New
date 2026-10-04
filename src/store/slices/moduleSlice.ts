@@ -54,28 +54,25 @@ export const fetchModules = createAsyncThunk(
   async (_, { dispatch, rejectWithValue }) => {
     dispatch(showLoader("Loading"));
     try {
-      const response: any = await moduleApi.available();
+      const response = await moduleApi.available();
+      const body: any = response.data ?? {};
 
-      if (response?.cancelled) {
+      // the session gate answered without sending a request
+      if (body?.cancelled) {
         dispatch(hideLoader());
         return [];
       }
 
-      if (
-        !Array.isArray(response) &&
-        (!response || Object.keys(response).length === 0)
-      ) {
+      if (!Array.isArray(body) && (!body || Object.keys(body).length === 0)) {
         throw new Error(
           "Server returned an empty response (200 with no data).",
         );
       }
-      if (response?.success === false) {
-        throw new Error(
-          response?.message || "Server refused the modules request.",
-        );
+      if (body?.success === false) {
+        throw new Error(body?.message || "Server refused the modules request.");
       }
 
-      const data = response?.data ?? response;
+      const data = body?.data ?? body;
       const modules = Array.isArray(data)
         ? data
         : Array.isArray(data?.modules)

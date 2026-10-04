@@ -14,7 +14,12 @@ import { APP_NAME, FORCE_PASSWORD_PATH } from "@/constants";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppDispatch } from "@/store/hooks";
 import { useAuthStatus } from "@/hooks";
-import { login, verifyOtp } from "@/store/slices/authSlice";
+import {
+  clearDeliberateLogout,
+  isDeliberateLogout,
+  login,
+  verifyOtp,
+} from "@/store/slices/authSlice";
 import { useForm } from "@/hooks/useForm";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
@@ -55,7 +60,14 @@ export function LoginPage() {
     const mustChangePassword = Boolean(
       payload?.forcePasswordChange ?? payload?.user?.forcePasswordChange,
     );
-    const from = (location.state as { from?: string } | null)?.from;
+    // Intended route: honoured for a visitor who was bounced off a page by an
+    // expired session; ignored after a voluntary sign-out, so that login
+    // always opens the dashboard afresh.
+    const from = isDeliberateLogout()
+      ? undefined
+      : (location.state as { from?: string } | null)?.from;
+    // sign-in succeeded: the marker has done its job
+    clearDeliberateLogout();
     navigate(mustChangePassword ? FORCE_PASSWORD_PATH : "/permission", {
       replace: true,
       state: from ? { from } : undefined,

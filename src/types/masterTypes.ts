@@ -3,7 +3,7 @@
  * values, panels, services, tariffs).
  *
  * These are meaningful domain models used across the master-configuration
- * screens (their requests go through `api/apiClient.ts` + `api/endpoints.ts`).
+ * screens (their requests go through `pages/masterConfiguration/master.service.ts`).
  */
 
 /* --------------------------- global master ------------------------------- */

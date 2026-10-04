@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Ban,
@@ -8,7 +8,6 @@ import {
   Clock3,
   Eye,
   Hourglass,
-  Loader2,
   Pencil,
   Star,
   Trash2,
@@ -18,17 +17,11 @@ import { GENDERS, WEEKDAYS_SHORT } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import {
-  deleteDoctor,
-  fetchDoctors,
-  onboardDoctor,
-  setDoctorAvailability,
-  toggleDoctorStatus,
-  updateDoctor,
-} from "@/store/slices/doctorSlice";
-import { fetchDepartments } from "@/store/slices/departmentSlice";
-import { fetchSpecializations } from "@/store/slices/specializationSlice";
-import { fetchAppointments } from "@/store/slices/appointmentSlice";
+import { Skeleton } from "@/components/ui/feedback";
+
+import { departmentService } from "@/pages/Departments/department.service";
+import { specializationService } from "@/pages/Specializations/specialization.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
 import {
   calcAge,
   formatDate,
@@ -69,7 +62,8 @@ import {
 } from "@/components/common";
 
 // Centralized API Imports
-import { doctorApi } from "@/api/doctorApi";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { toast } from "@/store/slices/uiSlice";
 import { Dialog } from "@/components/ui/overlays";
 
 /* ------------------------- Helper Functions -------------------------------- */
@@ -106,9 +100,10 @@ function mapAvailabilityToUi(availability: any[] = []): ScheduleDay[] {
 }
 
 async function getDoctorById(doctorProfileId: string): Promise<Doctor> {
-  const res: any = await doctorApi.getById(doctorProfileId);
+  const res: any = await doctorService.fetchDoctorById(doctorProfileId);
 
-  const profile = res?.data ?? res;
+  const body: any = res?.data ?? {};
+  const profile: any = body.data ?? body;
   if (!profile?.id) throw new Error("Doctor profile not found");
 
   const qualifications =
@@ -386,10 +381,35 @@ function DoctorForm({
   const isDoctorRole = authUser?.userType === "DOCTOR";
 
   const isEdit = Boolean(initial.id);
-  const departments = useAppSelector((s) => s.departments.items);
-  // Specializations are master data: `specializationSlice` is the single
-  // source (the page loads it on mount), so no static fallback list exists.
-  const specializations = useAppSelector((s) => s.specializations.items);
+
+  // reference dropdowns of this form — loaded here, from their own services
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [specializations, setSpecializations] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+      try {
+        const response = await specializationService.fetchSpecializations();
+        if (active && response.status === 200) {
+          setSpecializations(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load specializations", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const form = useForm({
     initialValues: {
@@ -468,28 +488,21 @@ function DoctorForm({
       const doctorProfileId = initial.id || authUser?.doctorProfileId || null;
 
       if (isEdit && doctorProfileId) {
-        await dispatch(
-          updateDoctor({
-            id: doctorProfileId,
-            data: {
-              specialization: specializationName,
-              qualifications: qualificationsString,
-              consultationFee: Number(values.consultationFee),
-              slotDurationMins: Number(values.slotDuration),
-              bufferTimeMins: Number(values.bufferTime),
-              maxPatientsPerDay: Number(values.maxPatientsPerDay),
-              isActive: values.status === "active",
-            },
-            successMessage: "Doctor profile updated",
-          } as any),
-        );
+        await doctorService.updateDoctor(doctorProfileId, {
+          specialization: specializationName,
+          qualifications: qualificationsString,
+          consultationFee: Number(values.consultationFee),
+          slotDurationMins: Number(values.slotDuration),
+          bufferTimeMins: Number(values.bufferTime),
+          maxPatientsPerDay: Number(values.maxPatientsPerDay),
+          isActive: values.status === "active",
+        });
+        dispatch(toast.success("Doctor profile updated"));
 
-        await dispatch(
-          setDoctorAvailability({
-            doctorId: doctorProfileId,
-            slotDurationMins: Number(values.slotDuration),
-            schedule: values.schedule,
-          }),
+        await doctorService.saveDoctorSchedule(
+          doctorProfileId,
+          Number(values.slotDuration),
+          values.schedule,
         );
 
         onClose();
@@ -509,10 +522,22 @@ function DoctorForm({
           schedule: values.schedule,
         };
 
-        const result: any = await dispatch(onboardDoctor(payload)).unwrap();
-
+        // Onboarding = create the profile, then publish its weekly schedule.
+        const created = await doctorService.createDoctor(payload.profile);
+        const createdBody: any = created.data ?? {};
+        const createdDoctor: any = createdBody.data ?? createdBody;
         const newDoctorProfileId =
-          result?.doctorId || result?.id || result?.data?.id || null;
+          createdDoctor?.id ?? createdDoctor?.doctorId ?? null;
+
+        if (!newDoctorProfileId)
+          throw new Error("Doctor ID missing from backend response");
+
+        await doctorService.saveDoctorSchedule(
+          newDoctorProfileId,
+          Number(values.slotDuration),
+          values.schedule,
+        );
+        dispatch(toast.success("Profile Setup Complete!"));
 
         onClose();
 
@@ -520,8 +545,9 @@ function DoctorForm({
           navigate(`/doctors/${newDoctorProfileId}`, { replace: true });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Doctor form save failed:", error);
+      dispatch(toast.error("Setup failed", error?.message || error));
     }
   });
 
@@ -804,10 +830,6 @@ export function DoctorsPage() {
   const isDoctorRole = authUser?.userType === "DOCTOR";
   const doctorProfileId: string | null = authUser?.doctorProfileId ?? null;
 
-  const { items: doctors, status } = useAppSelector((s) => s.doctors);
-  const appointments = useAppSelector((s) => s.appointments.items);
-  const departments = useAppSelector((s) => s.departments.items);
-  const specializations = useAppSelector((s) => s.specializations.items);
   const { canCreate, canEdit, canDelete } = usePermission();
 
   const [filters, setFilters] = useState({
@@ -817,18 +839,140 @@ export function DoctorsPage() {
   });
   const [editing, setEditing] = useState<Partial<Doctor> | null>(null);
 
-  useEffect(() => {
-    // Reference data the profile form needs in every role makes (doc §16/§21:
-    // master data comes from Redux, never from a hardcoded list).
-    dispatch(fetchDepartments() as any);
-    dispatch(fetchSpecializations() as any);
+  /* ------------------------------- local data ----------------------------- */
 
-    if (!isDoctorRole) {
-      // shared collections only the roster renders
-      dispatch(fetchDoctors() as any);
-      dispatch(fetchAppointments() as any);
-    }
-  }, [isDoctorRole, status, dispatch]);
+  // roster + counters of this page (a doctor sees only their own profile, so
+  // the roster request is made only for the administrative roles)
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [specializations, setSpecializations] = useState<any[]>([]);
+
+  /** roster of this page — administrative roles only */
+  useEffect(() => {
+    if (isDoctorRole) return;
+    let active = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200) {
+          setDoctors(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active) {
+          setError(e?.message ?? "Could not load doctors");
+          dispatch(toast.error("Could not load doctors", e?.message));
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isDoctorRole, dispatch]);
+
+  /** counter sources of this page */
+  useEffect(() => {
+    if (isDoctorRole) return;
+    let active = true;
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load appointments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isDoctorRole]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await specializationService.fetchSpecializations();
+        if (active && response.status === 200) {
+          setSpecializations(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load specializations", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleStatus = useCallback(
+    async (doctor: Doctor) => {
+      const next: Status = doctor.status === "active" ? "inactive" : "active";
+      try {
+        await doctorService.updateDoctor(doctor.id, {
+          isActive: next === "active",
+        });
+        setDoctors((rows) =>
+          rows.map((row) =>
+            row.id === doctor.id ? { ...row, status: next } : row,
+          ),
+        );
+        dispatch(
+          toast.info(
+            next === "active" ? "Marked active" : "Marked inactive",
+            `Dr. ${fullName(doctor)} is now ${next}.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Status change failed", e?.message));
+      }
+    },
+    [dispatch, setDoctors],
+  );
+
+  const remove = useCallback(
+    async (doctor: Doctor) => {
+      try {
+        await doctorService.deleteDoctor(doctor.id);
+        setDoctors((rows) => rows.filter((row) => row.id !== doctor.id));
+        dispatch(
+          toast.success(
+            "Record deleted",
+            `Dr. ${fullName(doctor)} was removed from the portal.`,
+          ),
+        );
+      } catch (e: any) {
+        dispatch(toast.error("Delete failed", e?.message));
+      }
+    },
+    [dispatch, setDoctors],
+  );
+
+  const status = loading ? "loading" : error ? "error" : "ready";
 
   useEffect(() => {
     if (isDoctorRole && doctorProfileId) {
@@ -1130,29 +1274,14 @@ export function DoctorsPage() {
                   label: d.status === "active" ? "Deactivate" : "Activate",
                   icon: d.status === "active" ? <Ban /> : <CheckCircle2 />,
                   hidden: !canEdit("doctors"),
-                  onClick: () =>
-                    dispatch(
-                      toggleDoctorStatus({
-                        id: d.id,
-                        status: (d.status === "active"
-                          ? "inactive"
-                          : "active") as Status,
-                        label: `Dr. ${fullName(d)}`,
-                      } as any),
-                    ),
+                  onClick: () => toggleStatus(d),
                 },
                 {
                   label: "Delete doctor",
                   icon: <Trash2 />,
                   tone: "danger",
                   hidden: !canDelete("doctors"),
-                  onClick: () =>
-                    dispatch(
-                      deleteDoctor({
-                        id: d.id,
-                        label: `Dr. ${fullName(d)}`,
-                      } as any),
-                    ),
+                  onClick: () => remove(d),
                 },
               ]}
             />
@@ -1190,6 +1319,7 @@ export function DoctorsPage() {
 /* ------------------------------- profile page ------------------------------- */
 
 export function DoctorDetailPage() {
+  const dispatch = useAppDispatch();
   const { id = "" } = useParams(); // doctorProfileId
   const navigate = useNavigate();
 
@@ -1224,8 +1354,28 @@ export function DoctorDetailPage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [isSavingLeave, setIsSavingLeave] = useState(false);
 
-  const appointments = useAppSelector((s) => s.appointments.items);
   const { canEdit } = usePermission();
+
+  /** the appointments tab of this profile — page data, loaded here */
+  const [appointments, setAppointments] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active)
+          dispatch(toast.error("Could not load appointments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const authUser = useAppSelector((s: any) => s.auth?.session?.user);
   const token = useAppSelector((s: any) => s.auth?.session?.accessToken);
@@ -1247,6 +1397,7 @@ export function DoctorDetailPage() {
       .catch((err: any) => {
         setDoctor(null);
         setError(err?.message || "Could not load doctor profile");
+        dispatch(toast.error("Could not load doctor profile", err?.message));
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -1263,22 +1414,24 @@ export function DoctorDetailPage() {
       pastDate.setDate(pastDate.getDate() - 30);
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + 120);
-      const json: any = await doctorApi.listLeaves(id, {
+      const json: any = await doctorService.fetchDoctorLeaves(id, {
         fromDate: toISODateString(pastDate),
         toDate: toISODateString(futureDate),
       });
-      const list = Array.isArray(json?.data)
-        ? json.data
-        : Array.isArray(json)
-          ? json
+      const body: any = json?.data ?? {};
+      const list = Array.isArray(body)
+        ? body
+        : Array.isArray(body?.data)
+          ? body.data
           : [];
       setLeaves(list);
-    } catch (err) {
+    } catch (err: any) {
       setLeaves([]);
+      dispatch(toast.error("Could not load leave records", err?.message));
     } finally {
       setLeavesLoading(false);
     }
-  }, [id, token]);
+  }, [id, token, dispatch]);
 
   useEffect(() => {
     if (id && token) loadLeaves();
@@ -1330,19 +1483,24 @@ export function DoctorDetailPage() {
         payload.startTime = leaveStart;
         payload.endTime = leaveEnd;
       }
-      const leaveOut: any = await doctorApi
-        .markLeave(id, payload)
+      const leaveOut: any = await doctorService
+        .markDoctorLeave(id, payload)
         .catch((e: any) => {
-        if (e?.status)
-          throw new Error((e.rawText as string) || "Failed to mark leave");
-        throw e;
-      });
-      if (leaveOut?.cancelled) throw new Error("Failed to mark leave");
+          if (e?.status)
+            throw new Error((e.rawText as string) || "Failed to mark leave");
+          throw e;
+        });
+      if (leaveOut?.data?.cancelled) throw new Error("Failed to mark leave");
       await loadLeaves();
       setIsLeaveModalOpen(false);
       setLeaveReason("");
     } catch (err: any) {
-      alert(err.message || "Failed to mark leave");
+      dispatch(
+        toast.error(
+          "Could not mark leave",
+          err?.message || "Please try again.",
+        ),
+      );
     } finally {
       setIsSavingLeave(false);
     }
@@ -1360,23 +1518,29 @@ export function DoctorDetailPage() {
       );
 
       // 2. Submit to API (POST /api/opd/doctors/{id}/availability) -> WORKING!
-      const availOut: any = await doctorApi
-        .saveAvailability(id, payload)
+      const availOut: any = await doctorService
+        .saveDoctorAvailability(id, payload)
         .catch((e: any) => {
-        if (e?.status)
-          throw new Error(
-            (e.rawText as string) || "Failed to save availability",
-          );
-        throw e;
-      });
-      if (availOut?.cancelled) throw new Error("Failed to save availability");
+          if (e?.status)
+            throw new Error(
+              (e.rawText as string) || "Failed to save availability",
+            );
+          throw e;
+        });
+      if (availOut?.data?.cancelled)
+        throw new Error("Failed to save availability");
 
       // 3. Reload doctor profile (PUT API call hata diya hai kyunki backend me PUT route nahi hai)
       await loadDoctorProfile();
 
       setIsScheduleModalOpen(false);
     } catch (err: any) {
-      alert(err.message || "Failed to save schedule & slots");
+      dispatch(
+        toast.error(
+          "Could not save schedule & slots",
+          err?.message || "Please try again.",
+        ),
+      );
     } finally {
       setIsSavingSchedule(false);
     }
@@ -1394,9 +1558,33 @@ export function DoctorDetailPage() {
   };
 
   if (loading)
+    // profile skeleton: the shape of the two columns below, not a bare spinner
     return (
-      <div className="flex justify-center py-20 text-ink-400">
-        <Loader2 className="animate-spin" />
+      <div className="space-y-4" role="status" aria-label="Loading doctor">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,21rem)_1fr]">
+          <div className="rounded-xl border border-ink-100 bg-white p-4">
+            <div className="flex items-center gap-3">
+              <Skeleton className="size-14 rounded-2xl" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-2.5 w-28" />
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} className="h-2.5 w-full" />
+              ))}
+            </div>
+          </div>
+          <div className="rounded-xl border border-ink-100 bg-white p-4">
+            <Skeleton className="h-3.5 w-36" />
+            <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   if (!doctor || error) return <div>Profile unavailable</div>;

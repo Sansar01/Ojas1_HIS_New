@@ -20,6 +20,7 @@ import {
   logoutRequest,
 } from "@/store/slices/authSlice";
 import { clearModules } from "@/store/slices/moduleSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Button } from "@/components/ui/primitives";
 import { Input } from "@/components/ui/fields";
 import { Banner } from "@/components/ui/feedback";
@@ -124,6 +125,7 @@ export function ForcePasswordChange() {
           : error?.message ||
             "Could not update the password. Please try again.";
       setServerError(message);
+      dispatch(toast.error("Could not change password", message));
       // keep focus on the field the user most likely got wrong
       form.focusField(
         /current|old/i.test(message) ? "oldPassword" : "newPassword",

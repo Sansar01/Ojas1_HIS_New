@@ -14,9 +14,23 @@
  * No page or component talks to the auth endpoints directly.
  */
 
-import { apiClient } from "./apiClient";
-import { API_ENDPOINTS } from "./endpoints";
-import type { Session } from "@/types";
+import { axios } from "./axios";
+
+/**
+ * Auth + password endpoints. They live next to the calls that use them (there
+ * is no central endpoint table any more) and are only ever called by
+ * `authSlice` and the recovery screens through it — no page talks to them.
+ */
+const AUTH = {
+  login: "/api/hospital/auth/login",
+  verifyOtp: "/api/hospital/auth/verify-otp",
+  refresh: "/api/hospital/auth/refresh",
+  logout: "/api/hospital/auth/logout",
+  changePassword: "/api/hospital/auth/change-password",
+  sendResetCode: "/api/hospital/auth/send-reset-code",
+  resetPassword: "/api/hospital/auth/reset-password",
+  resetPasswordWithCode: "/api/hospital/auth/reset-password-with-code",
+} as const;
 
 export interface LoginPayload {
   email: string;
@@ -37,18 +51,10 @@ export interface ChangePasswordPayload {
 
 export const authApi = {
   login: (payload: LoginPayload | { email: string; password: string }) =>
-    apiClient<Session>(API_ENDPOINTS.auth.login, {
-      method: "POST",
-      body: payload,
-      skipRefresh: true,
-    }),
+    axios.post(AUTH.login, payload, { skipRefresh: true }),
 
   verifyOtp: (payload: VerifyOtpPayload) =>
-    apiClient<Session>(API_ENDPOINTS.auth.verifyOtp, {
-      method: "POST",
-      body: payload,
-      skipRefresh: true,
-    }),
+    axios.post(AUTH.verifyOtp, payload, { skipRefresh: true }),
 
   /**
    * Exchange the refresh cookie (or an explicit refresh token) for a new
@@ -59,19 +65,13 @@ export const authApi = {
     body?: Record<string, unknown>,
     options: { skipAuth?: boolean } = {},
   ) =>
-    apiClient<Session>(API_ENDPOINTS.auth.refreshToken, {
-      method: "POST",
-      body,
+    axios.post(AUTH.refresh, body, {
       skipRefresh: true,
       skipAuth: options.skipAuth,
     }),
 
   /** Best-effort: clears the httpOnly cookie on the server. */
-  logout: () =>
-    apiClient(API_ENDPOINTS.auth.logout, {
-      method: "POST",
-      skipRefresh: true,
-    }),
+  logout: () => axios.post(AUTH.logout, undefined, { skipRefresh: true }),
 
   /**
    * Password change. `forced` routes to the same backend endpoint with the
@@ -85,37 +85,22 @@ export const authApi = {
       | { email?: string; newPassword: string },
     forced = false,
   ) =>
-    apiClient(
-      forced ? API_ENDPOINTS.password.forceChange : API_ENDPOINTS.password.change,
-      { method: "POST", body: payload, skipRefresh: true },
-    ),
+    axios.post(forced ? AUTH.changePassword : AUTH.changePassword, payload, {
+      skipRefresh: true,
+    }),
 
   /** Step 1 of account recovery — email a reset code. */
   sendResetCode: (email: string) =>
-    apiClient(API_ENDPOINTS.password.forgot, {
-      method: "POST",
-      body: { email },
-      skipRefresh: true,
-    }),
+    axios.post(AUTH.sendResetCode, { email }, { skipRefresh: true }),
 
   /** Step 2 of account recovery — trade the code for a new password. */
   resetPasswordWithCode: (payload: {
     email: string;
     code: string;
     newPassword: string;
-  }) =>
-    apiClient(API_ENDPOINTS.password.resetWithCode, {
-      method: "POST",
-      body: payload,
-      skipRefresh: true,
-    }),
+  }) => axios.post(AUTH.resetPasswordWithCode, payload, { skipRefresh: true }),
 
   /** Signed-in password reset (no code). */
   resetPassword: (payload: { email: string; password: string }) =>
-    apiClient(API_ENDPOINTS.password.reset, {
-      method: "POST",
-      body: payload,
-      skipRefresh: true,
-    }),
+    axios.post(AUTH.resetPassword, payload, { skipRefresh: true }),
 };
-

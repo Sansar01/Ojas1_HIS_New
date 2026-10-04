@@ -1,30 +1,68 @@
 /**
- * Ojas1 HIMS — the ONE Axios client (doc §2, §10, Phase 1).
+ * Ojas1 HIMS — the ONE Axios instance of the application.
  *
- *   ┌──────────────────────────────────────────────────────────────┐
- *   │ axiosClient  = axios.create({ baseURL, withCredentials, … }) │
- *   │   • Authorization header          (request interceptor)      │
- *   │   • proactive + reactive refresh  (interceptors)             │
- *   │   • central error/status handling (response interceptor)     │
- *   └──────────────────────────────────────────────────────────────┘
+ * Feature services import it and call the endpoints directly, exactly like
+ * plain axios:
  *
- * Axios is the transport layer only — it never decides which component needs
- * data, when a page reloads, or what may be cached (doc §2). That belongs to
- * Redux and the pages.
+ *   import { axios } from "@/api/axios";
  *
- * Nothing outside `src/api/` may import this file (Rule 1): pages, components,
- * layouts and hooks talk to the domain modules in `src/api/*Api.ts`, which use
- * `apiClient` (the thin typed wrapper around this instance).
+ *   axios.get("/api/opd/patients", { params })      // list
+ *   axios.post("/api/opd/patients", payload)        // create
+ *   axios.patch(`/api/opd/patients/${id}`, payload) // update
+ *   axios.delete(`/api/opd/patients/${id}`)         // delete
+ *
+ * Everything transport-related lives here and nowhere else:
+ *   • baseURL           → the backend origin (`VITE_API_BASE_URL`)
+ *   • Authorization     → request interceptor
+ *   • proactive/reactive token refresh + 401 replay
+ *   • session gate      → a request never leaves the browser while signed out
+ *                         or while a forced password change is pending
+ *   • duplicate-request guard for concurrent identical GETs
+ *   • timeout + one consistent error shape (`status`, `data`, `rawText`)
+ *
+ * No page, component, hook or service creates its own axios instance, and no
+ * service knows the backend origin — it only knows its own "/api/..." paths.
  */
 
-import axios, { AxiosError, type AxiosInstance } from "axios";
-import { API_BASE_URL, toRequestPath } from "./apiBaseUrl";
-import { API_ENDPOINTS } from "./endpoints";
+import axiosPackage, {
+  type AxiosAdapter,
+  type AxiosError,
+  type AxiosInstance,
+} from "axios";
+
+/* ------------------------------ Base URL --------------------------------- */
+
+/**
+ * The backend origin. `VITE_API_BASE_URL` may be written with or without the
+ * trailing `/api` — service paths already start with `/api/...`, so a trailing
+ * `/api` is trimmed once, here, instead of in every call.
+ *
+ *   VITE_API_BASE_URL=http://localhost:8000        (local backend)
+ *   VITE_API_BASE_URL=https://your-api-host        (production)
+ */
+export const API_BASE_URL: string = String(
+  (import.meta.env as any).VITE_API_BASE_URL ||
+    "https://cloud-his-backend.onrender.com",
+)
+  .replace(/\/+$/, "")
+  .replace(/\/api$/, "");
 
 export const TOKEN_KEY = "authUserToken";
 const REFRESH_KEY = "authRefreshToken";
 const EXPIRY_MARGIN_MS = 30_000;
 export const REQUEST_TIMEOUT_MS = 20_000;
+
+/** Extra per-request flags this app understands (type-checked on call sites). */
+declare module "axios" {
+  export interface AxiosRequestConfig {
+    /** Skip the proactive/reactive token refresh (login, refresh, auth calls). */
+    skipRefresh?: boolean;
+    /** Do not attach the Authorization header. */
+    skipAuth?: boolean;
+    /** Internal: this request already replayed once after a 401. */
+    _retried?: boolean;
+  }
+}
 
 /* --------------------------- Token storage ------------------------------- */
 
@@ -131,14 +169,13 @@ export function registerSessionGate(fn: () => SessionGate | null) {
  * and password change/reset. Everything else is skipped before the network.
  */
 const ALWAYS_ALLOWED_ENDPOINTS: string[] = [
-  API_ENDPOINTS.auth.login,
-  API_ENDPOINTS.auth.logout,
-  API_ENDPOINTS.auth.verifyOtp,
-  API_ENDPOINTS.password.change,
-  API_ENDPOINTS.password.forceChange,
-  API_ENDPOINTS.password.forgot,
-  API_ENDPOINTS.password.reset,
-  API_ENDPOINTS.password.resetWithCode,
+  "/api/hospital/auth/login",
+  "/api/hospital/auth/logout",
+  "/api/hospital/auth/verify-otp",
+  "/api/hospital/auth/change-password",
+  "/api/hospital/auth/send-reset-code",
+  "/api/hospital/auth/reset-password",
+  "/api/hospital/auth/reset-password-with-code",
 ];
 
 /** true only when ordinary (non-auth) traffic is allowed right now. */
@@ -224,7 +261,7 @@ function parseBody(raw: any): { data: any; rawText: string | null } {
     return { data: {}, rawText: null };
   }
   if (typeof raw === "object") {
-    // axios already parsed it (e.g. blob/arraybuffer) — stringify for `rawText`
+    // axios already parsed it — stringify for `rawText`
     return { data: raw, rawText: JSON.stringify(raw) };
   }
   const rawText = String(raw);
@@ -235,41 +272,87 @@ function parseBody(raw: any): { data: any; rawText: string | null } {
   }
 }
 
-/* ---------------------------- Axios instance ----------------------------- */
+/** Marker thrown by the session gate — turned into a cancelled response below. */
+const SESSION_CLOSED = "__session_closed__";
+
+/* ------------------- Duplicate-request guard (GET only) ------------------ */
+
+const inFlightGets = new Map<string, Promise<any>>();
+
+/** Stable stringify (sorted keys) so param order cannot create two keys. */
+const stableKey = (value: any): string => {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableKey).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableKey(value[k])}`)
+    .join(",")}}`;
+};
+
+const defaultAdapter: AxiosAdapter = axiosPackage.getAdapter([
+  "xhr",
+  "http",
+  "fetch",
+]);
 
 /**
- * The single Axios instance of the application (doc §2, §10).
- *
- *   baseURL          → the ONE backend origin (`apiBaseUrl.ts`)
- *   withCredentials  → refresh-token cookie travels on every request
- *   timeout          → an API can never "stick" the UI
- *   transformResponse→ keep the raw body; `apiClient` does the JSON parsing
- *                      so error payloads keep their exact legacy shape
+ * React StrictMode double-invokes effects, and two widgets can ask for the same
+ * page-level resource in the same tick. When an identical GET is already in
+ * flight, the second caller receives that promise instead of opening a second
+ * socket. Writes are never shared, and the entry is dropped as soon as the
+ * request settles — so a stale response can never be served.
  */
-export const axiosClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL.replace(/\/$/, ""),
+const dedupAdapter: AxiosAdapter = (config) => {
+  if ((config.method ?? "get").toLowerCase() !== "get") {
+    return defaultAdapter(config);
+  }
+  const key = `${config.baseURL ?? ""}${config.url ?? ""}?${stableKey(
+    config.params ?? null,
+  )}${config.skipAuth ? "|anon" : ""}`;
+  const pending = inFlightGets.get(key);
+  if (pending) return pending;
+
+  const promise = defaultAdapter(config).finally(() => {
+    if (inFlightGets.get(key) === promise) inFlightGets.delete(key);
+  });
+  inFlightGets.set(key, promise);
+  return promise;
+};
+
+/* ---------------------------- Axios instance ----------------------------- */
+
+export const axios: AxiosInstance = axiosPackage.create({
+  baseURL: API_BASE_URL,
   withCredentials: true,
   timeout: REQUEST_TIMEOUT_MS,
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
-  transformResponse: [(data: any) => data],
   paramsSerializer: {
     // identical query strings to the previous client (`URLSearchParams`)
     serialize: (params: Record<string, any>) =>
       new URLSearchParams(params as any).toString(),
   },
+  adapter: dedupAdapter,
 });
 
 /**
- * Request interceptor — auth header + proactive token refresh.
+ * Request interceptor — session gate, auth header, proactive token refresh.
  * A short-lived access token is renewed *before* the request goes out, so a
  * page load does not pay for a 401 round-trip.
  */
-axiosClient.interceptors.request.use(async (config) => {
-  const skipAuth = Boolean((config as any).skipAuth);
-  const skipRefresh = Boolean((config as any).skipRefresh);
+axios.interceptors.request.use(async (config) => {
+  // Signed out / password change pending: answer locally, never hit the network.
+  if (isRequestBlocked(config.url ?? "")) {
+    throw Object.assign(new Error(SESSION_CLOSED_MESSAGE), {
+      [SESSION_CLOSED]: true,
+      config,
+    });
+  }
+
+  const skipAuth = Boolean(config.skipAuth);
+  const skipRefresh = Boolean(config.skipRefresh);
 
   if (token && !skipRefresh && isTokenExpiringSoon()) {
     const ok = await refreshOnce();
@@ -286,12 +369,30 @@ axiosClient.interceptors.request.use(async (config) => {
 });
 
 /**
- * Response interceptor — one reactive retry after a 401, then a single,
- * consistent error type for every caller (status + parsed body + raw text).
+ * Response interceptor — the gate's "skipped" answer, one reactive retry after
+ * a 401, then a single, consistent error type for every caller
+ * (status + parsed body + raw text).
  */
-axiosClient.interceptors.response.use(
+axios.interceptors.response.use(
   (response) => response,
-  async (error: AxiosError) => {
+  async (error: AxiosError | any) => {
+    // the session gate refused to send — resolve with the cancelled envelope
+    // so screens show "nothing loaded" instead of an error toast on logout
+    if (error?.[SESSION_CLOSED]) {
+      return {
+        data: {
+          success: false,
+          cancelled: true,
+          message: SESSION_CLOSED_MESSAGE,
+        },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config: error.config,
+        request: null,
+      };
+    }
+
     const config: any = error.config ?? {};
     const status = error.response?.status;
 
@@ -307,12 +408,17 @@ axiosClient.interceptors.response.use(
     // reactive refresh: the server rejected a token it considers stale even
     // though our clock did not — renew once and replay the request.
     const alreadyRetried = Boolean(config._retried);
-    if (status === 401 && !config.skipRefresh && !alreadyRetried && isSessionUsable()) {
+    if (
+      status === 401 &&
+      !config.skipRefresh &&
+      !alreadyRetried &&
+      isSessionUsable()
+    ) {
       const refreshed = await refreshOnce();
       if (refreshed && token) {
         config._retried = true;
         (config.headers as any).set?.("Authorization", `Bearer ${token}`);
-        return axiosClient.request(config);
+        return axios.request(config);
       }
       forceLoginRedirect();
       const { data } = parseBody(error.response?.data);
@@ -336,35 +442,4 @@ axiosClient.interceptors.response.use(
   },
 );
 
-/**
- * Build the axios request config for one domain-module call.
- * Kept here so every caller resolves URLs the same way (`toRequestPath`).
- */
-export function buildRequestConfig(
-  endpoint: string,
-  config: {
-    method?: string;
-    body?: any;
-    params?: Record<string, any>;
-    skipRefresh?: boolean;
-    skipAuth?: boolean;
-    headers?: Record<string, string>;
-  } = {},
-) {
-  return {
-    url: toRequestPath(endpoint),
-    method: (config.method ?? "GET") as any,
-    params: config.params,
-    data:
-      config.body === undefined || config.body === null
-        ? undefined
-        : typeof config.body === "string"
-          ? config.body
-          : JSON.stringify(config.body),
-    headers: config.headers ? { ...config.headers } : undefined,
-    skipRefresh: config.skipRefresh,
-    skipAuth: config.skipAuth,
-  };
-}
-
-export default axiosClient;
+export default axios;

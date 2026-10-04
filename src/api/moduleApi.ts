@@ -10,15 +10,13 @@
  * Rule 43 — `/permission` is the single bootstrap owner for this call.
  */
 
-import { apiClient } from "./apiClient";
-import { API_ENDPOINTS } from "./endpoints";
+import { axios } from "./axios";
 import type { EntitlementModule } from "@/types";
+
+/** The module catalogue (+ features) granted to the signed-in user. */
+const MODULES_AVAILABLE = "/api/hospital/roles/entitlements/modules";
 
 export const moduleApi = {
   /** Modules (+ features) the current user is entitled to open. */
-  available: () =>
-    apiClient<EntitlementModule[]>(API_ENDPOINTS.modules.available, {
-      method: "GET",
-    }),
+  available: () => axios.get<EntitlementModule[]>(MODULES_AVAILABLE),
 };
-

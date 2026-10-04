@@ -4,23 +4,19 @@ import {
   Bell,
   ChevronRight,
   ExternalLink,
-  LifeBuoy,
   LogOut,
   Menu,
-  RefreshCw,
   Search,
   UserRound,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { APP_NAME } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { useCurrentUser, usePermission } from "@/hooks";
-import { setMobileNav } from "@/store/slices/uiSlice";
-import { refreshLoadedResources } from "@/store";
-import { fetchPatients } from "@/store/slices/patientSlice";
-import { fetchDoctors } from "@/store/slices/doctorSlice";
-import { fetchInvoices } from "@/store/slices/billingSlice";
-import { fetchActivities } from "@/store/slices/activitySlice";
+import { useCurrentUser, useDebouncedValue, usePermission } from "@/hooks";
+import { setMobileNav, toast } from "@/store/slices/uiSlice";
+import { patientService } from "@/pages/patients/patient.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { billingService } from "@/pages/billing/billing.service";
 import { Badge, Button, IconButton, Avatar } from "@/components/ui/primitives";
 import {
   DropdownMenu,
@@ -57,7 +53,12 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
     typeof user?.role === "string"
       ? user.role
       : ((user?.role as any)?.name ?? (user?.role as any)?.slug ?? "");
-  const activities = useAppSelector((s) => s.activities.items);
+  /**
+   * Notification feed. The activity-log endpoint this used to read is not part
+   * of the backend build, so the feed renders its empty state instead of
+   * requesting an endpoint that does not exist.
+   */
+  const activities: any[] = [];
   const { isSuperAdmin } = usePermission();
   const now = useClock();
 
@@ -151,24 +152,12 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
         </Tooltip>
       </div>
 
-      <IconButton
-        label="Refresh data"
-        variant="ghost"
-        onClick={() => dispatch(refreshLoadedResources() as any)}
-      >
-        <RefreshCw />
-      </IconButton>
-
       <DropdownMenu
         align="end"
         trigger={
           <button
             className="relative grid size-9.5 place-items-center rounded-lg text-ink-600 transition-colors hover:bg-ink-50"
             aria-label="Notifications"
-            // lazy: the feed is page/widget data, so it is requested when the
-            // menu is actually opened — never on application start (strategy
-            // rule: no blanket preloading), and the guard reuses it after.
-            onClick={() => dispatch(fetchActivities() as any)}
           >
             <Bell className="size-4.5" />
             {unread.length > 0 && (
@@ -269,18 +258,12 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
             <UserRound className="size-4" /> Profile & facility
           </MenuItem>
           <MenuItem
-            onSelect={() => dispatch(refreshLoadedResources() as any)}
-            className={menuItemClass()}
-          >
-            <LifeBuoy className="size-4" /> Sync portal data
-          </MenuItem>
-          <MenuItem
             onSelect={async () => {
               await dispatch(logoutUser()).unwrap();
-              window.setTimeout(
-                () => navigate("/accounts/login", { replace: true }),
-                3000,
-              );
+              // The sign-out toast lives in the global host, so it keeps
+              // showing after the redirect — the login screen is reached
+              // immediately, with no "intended route" carried over.
+              navigate("/accounts/login", { replace: true, state: null });
             }}
             className={cn(menuItemClass("danger"), "border-t border-ink-100")}
           >
@@ -311,55 +294,85 @@ export function GlobalSearch({
   open: boolean;
   onClose: () => void;
 }) {
+  const dispatch = useAppDispatch();
   const [term, setTerm] = useState("");
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
-  const patients = useAppSelector((s) => s.patients.items);
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const invoices = useAppSelector((s) => s.invoices.items);
   const [results, setResults] = useState<any[]>([]);
 
-  // Lazy load: the collections behind global search are page-level data, so
-  // they are requested the first time the palette is opened instead of at
-  // application start. The guards make repeats free.
-  useEffect(() => {
-    if (!open) return;
-    dispatch(fetchPatients() as any);
-    dispatch(fetchDoctors() as any);
-    dispatch(fetchInvoices() as any);
-  }, [open, dispatch]);
+  /**
+   * Server-side search, debounced (doc §24).
+   *
+   * Typing "Sansar" issues one request, not six, and only the answer to the
+   * term currently in the box is used — a slower response for an older term is
+   * ignored. Nothing is loaded until the user opens the palette and types, and
+   * no collection is pulled into a global store.
+   */
+  const query = useDebouncedValue(term.trim(), 350);
+
+  const [found, setFound] = useState<any>({
+    patients: [],
+    doctors: [],
+    invoices: [],
+  });
 
   useEffect(() => {
-    if (!term.trim()) return setResults([]);
-    const q = term.toLowerCase();
+    let active = true;
+
+    (async () => {
+      if (!open || query.length < 2) {
+        if (active) setFound({ patients: [], doctors: [], invoices: [] });
+        return;
+      }
+      try {
+        const [patientsRes, doctorsRes, invoicesRes] = await Promise.all([
+          patientService.fetchPatients({ search: query, limit: 4 }),
+          doctorService.fetchDoctors({ search: query, limit: 4 }),
+          billingService.fetchInvoices({ limit: 3 }),
+        ]);
+        if (!active) return;
+        setFound({
+          patients:
+            patientsRes.status === 200 ? (patientsRes.data?.data ?? []) : [],
+          doctors:
+            doctorsRes.status === 200 ? (doctorsRes.data?.data ?? []) : [],
+          invoices:
+            invoicesRes.status === 200 ? (invoicesRes.data?.data ?? []) : [],
+        });
+      } catch (e: any) {
+        if (active) {
+          setFound({ patients: [], doctors: [], invoices: [] });
+          dispatch(toast.error("Search failed", e?.message));
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [open, query]);
+
+  useEffect(() => {
+    if (query.length < 2) return setResults([]);
+    const q = query.toLowerCase();
     const out: any[] = [];
-    patients
-      .filter((p: any) =>
-        `${p.firstName} ${p.lastName} ${p.mrn}`.toLowerCase().includes(q),
-      )
-      .slice(0, 4)
-      .forEach((p: any) =>
-        out.push({
-          label: `${p.firstName} ${p.lastName}`,
-          meta: `Patient · ${p.mrn}`,
-          to: `/patients/${p.id}/detail`,
-        }),
-      );
-    doctors
-      .filter((d: any) =>
-        `${d.firstName} ${d.lastName}`.toLowerCase().includes(q),
-      )
-      .slice(0, 4)
-      .forEach((d: any) =>
-        out.push({
-          label: `Dr. ${d.firstName} ${d.lastName}`,
-          meta: `Doctor · ${d.registrationNumber}`,
-          to: `/doctors/${d.id}`,
-        }),
-      );
-    invoices
-      // backend shape varies between deployments: `number`, `invoiceNumber`,
-      // `code` (see billingApi) or the display field `billNo`.
+    (found.patients ?? []).slice(0, 4).forEach((p: any) =>
+      out.push({
+        label: `${p.firstName} ${p.lastName}`,
+        meta: `Patient · ${p.mrn}`,
+        to: `/patients/${p.id}/detail`,
+      }),
+    );
+    (found.doctors ?? []).slice(0, 4).forEach((d: any) =>
+      out.push({
+        label: `Dr. ${d.firstName} ${d.lastName}`,
+        meta: `Doctor · ${d.registrationNumber}`,
+        to: `/doctors/${d.id}`,
+      }),
+    );
+    (found.invoices ?? [])
+      // the invoice list endpoint is not searchable, so the returned page is
+      // matched locally; the backend shape varies between deployments
+      // (`number`, `invoiceNumber`, `code`, `billNo`).
       .filter((i: any) => invoiceNo(i).toLowerCase().includes(q))
       .slice(0, 3)
       .forEach((i: any) =>
@@ -370,7 +383,7 @@ export function GlobalSearch({
         }),
       );
     setResults(out);
-  }, [term, patients, doctors, invoices]);
+  }, [found, query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

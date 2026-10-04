@@ -2,8 +2,15 @@ import * as React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { HeartPulse } from "lucide-react";
 import { useAuthStatus, usePermission } from "@/hooks";
-import { selectMustChangePassword, selectUser } from "@/store/slices/authSlice";
-import { selectBootstrapReady, selectBootstrapStatus } from "@/store/slices/bootstrapSlice";
+import {
+  isDeliberateLogout,
+  selectMustChangePassword,
+  selectUser,
+} from "@/store/slices/authSlice";
+import {
+  selectBootstrapReady,
+  selectBootstrapStatus,
+} from "@/store/slices/bootstrapSlice";
 import { useAppSelector } from "@/store/hooks";
 import {
   ForbiddenState,
@@ -47,10 +54,12 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!session) {
+    // After a voluntary sign-out there is no route to come back to: the next
+    // login must open the dashboard, not the page the user happened to leave.
     return (
       <Navigate
         to="/accounts/login"
-        state={{ from: location.pathname }}
+        state={isDeliberateLogout() ? undefined : { from: location.pathname }}
         replace
       />
     );
@@ -146,7 +155,11 @@ export function RequireBootstrap({ children }: { children: React.ReactNode }) {
     return (
       <Navigate
         to="/accounts/login"
-        state={{ from: location.pathname + location.search }}
+        state={
+          isDeliberateLogout()
+            ? undefined
+            : { from: location.pathname + location.search }
+        }
         replace
       />
     );
@@ -156,7 +169,11 @@ export function RequireBootstrap({ children }: { children: React.ReactNode }) {
     return (
       <Navigate
         to="/permission"
-        state={{ from: location.pathname + location.search }}
+        state={
+          isDeliberateLogout()
+            ? undefined
+            : { from: location.pathname + location.search }
+        }
         replace
       />
     );

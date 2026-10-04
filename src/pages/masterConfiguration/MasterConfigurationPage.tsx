@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { masterService } from "@/pages/masterConfiguration/master.service";
 import {
   ClipboardList,
   Percent,
@@ -28,13 +29,10 @@ import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
 
 // Live Panel API
-import { masterApi } from "@/api/masterApi";
+
 import type { PanelMasterItem } from "@/types";
 
-import {
-  type ItemType,
-  type ModalType,
-} from "@/types/masterConfig.data";
+import { type ItemType, type ModalType } from "@/types/masterConfig.data";
 
 const ITEM_TYPES = [
   { value: "laboratory", label: "Laboratory" },
@@ -42,7 +40,6 @@ const ITEM_TYPES = [
   { value: "medical", label: "Medical Items" },
   { value: "others", label: "Others Item" },
 ];
-
 
 // ─── LIVE PANEL COLUMNS (matches API response) ───────────────────
 const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
@@ -114,9 +111,10 @@ export function MasterConfigurationPage() {
   const fetchPanels = useCallback(async () => {
     setPanelsLoading(true);
     try {
-      const res: any = await masterApi.listPanels({ limit: "50" });
-      setPanels(res.data ?? []);
-      setPanelCount(res.meta?.total ?? res.data?.length ?? 0);
+      const res: any = await masterService.fetchPanels({ limit: "50" });
+      const body: any = res.data ?? {};
+      setPanels(body.data ?? []);
+      setPanelCount(body.meta?.total ?? body.data?.length ?? 0);
     } catch (error: any) {
       dispatch(toast.error("Failed to load panels", error?.message));
     } finally {
@@ -232,7 +230,6 @@ export function MasterConfigurationPage() {
 
       {/* ─── TWO TABLES ────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-1">
-
         {/* 👇 LIVE PANEL TABLE */}
         <DataTable<PanelMasterItem>
           columns={PANEL_COLUMNS}

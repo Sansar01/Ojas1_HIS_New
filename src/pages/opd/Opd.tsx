@@ -13,8 +13,8 @@ import { PageIntro } from "@/components/common";
 import { Button } from "@/components/ui/primitives";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { consultationApi } from "@/api/consultationApi";
-import { appointmentApi } from "@/api/appointmentApi";
+import { consultationService } from "@/pages/consultations/consultation.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
 
 // --- Types representing your API schema ---
 interface Patient {
@@ -161,18 +161,19 @@ export function OpdExaminationRoom() {
     if (!quiet) setLoading(true);
     try {
       // Nurse-station queue lives in the consultation domain (Rule 23).
-      const resData = await consultationApi.getNurseQueue(
+      const response = await consultationService.fetchNurseQueue(
         selectedDate,
         activeTab === "waiting" ? "waiting" : "done",
       );
-      if (!resData.ok)
+      if (response.status !== 200)
         throw new Error(
-          resData.error || "Server responded with status 401",
+          response.data?.message || "Server responded with status 401",
         );
 
-      const payload: QueueApiResponse = resData.data?.data
-        ? resData.data.data
-        : (resData.data as QueueApiResponse);
+      const body: any = response.data ?? {};
+      const payload: QueueApiResponse = body.data
+        ? body.data
+        : (body as QueueApiResponse);
 
       setQueue(payload.queue || []);
       setSummary(
@@ -314,16 +315,20 @@ export function OpdExaminationRoom() {
         heightCm: vitals.height ? parseFloat(vitals.height) : null,
       };
 
-      const vitalsOut = await consultationApi.saveVitals(vitalsPayload);
-      if (!vitalsOut.ok)
-        throw new Error(vitalsOut.error || "Failed to save patient vitals.");
+      const vitalsOut = await consultationService.saveVitals(vitalsPayload);
+      if (vitalsOut.status !== 200)
+        throw new Error(
+          vitalsOut.data?.message || "Failed to save patient vitals.",
+        );
 
       // =========================================================================
       // STEP B: Check-In Patient (PATCH /api/opd/appointments/:id/check-in)
       // =========================================================================
       let checkInOut: any;
       try {
-        checkInOut = await appointmentApi.checkIn(selectedPatient.appointmentId);
+        checkInOut = await appointmentService.checkInAppointment(
+          selectedPatient.appointmentId,
+        );
       } catch (e: any) {
         if (e?.status)
           throw new Error(
@@ -331,7 +336,7 @@ export function OpdExaminationRoom() {
           );
         throw e;
       }
-      if (checkInOut?.cancelled)
+      if (checkInOut?.data?.cancelled)
         throw new Error("Vitals saved, but check-in failed.");
 
       // Success Flows
@@ -434,12 +439,21 @@ export function OpdExaminationRoom() {
             </div>
 
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                <Loader2
-                  size={24}
-                  className="animate-spin text-teal-600 mb-2"
-                />
-                <span className="text-xs font-medium">Loading patients...</span>
+              // queue skeleton — same rows as the real list, no global loader
+              <div className="space-y-3" role="status" aria-label="Loading queue">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white p-3"
+                  >
+                    <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-gray-100" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="h-3 w-2/5 animate-pulse rounded bg-gray-100" />
+                      <div className="h-2.5 w-3/5 animate-pulse rounded bg-gray-50" />
+                    </div>
+                    <div className="h-5 w-14 shrink-0 animate-pulse rounded-full bg-gray-100" />
+                  </div>
+                ))}
               </div>
             ) : queue.length === 0 ? (
               <div className="text-center py-12 text-sm text-gray-400 flex flex-col items-center justify-center">

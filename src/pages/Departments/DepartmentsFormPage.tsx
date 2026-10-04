@@ -1,14 +1,12 @@
-﻿﻿﻿import { FormRow } from "@/components/common";
+import { useEffect, useState } from "react";
+import { FormRow } from "@/components/common";
 import { Input, Select, Switch, Textarea } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlays";
 import { Button } from "@/components/ui/primitives";
-import {
-  createDepartment,
-  updateDepartment,
-} from "@/store/slices/departmentSlice";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchDoctors } from "@/store/slices/doctorSlice";
-import { useEffect } from "react";
+import { departmentService } from "@/pages/Departments/department.service";
+import { useAppDispatch } from "@/store/hooks";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
 import { Department } from "@/types";
 import { fullName } from "@/utils";
@@ -21,11 +19,28 @@ export function DepartmentFormDialog({
   onClose: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const doctors = useAppSelector((s) => s.doctors.items);
+  // head-of-department dropdown — loaded by this dialog, from its own service
+  const [doctors, setDoctors] = useState<any[]>([]);
 
+  // head-doctor options
   useEffect(() => {
-    dispatch(fetchDoctors() as any);
-  }, [dispatch]);
+    let active = true;
+    (async () => {
+      try {
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200)
+          setDoctors(response.data?.data ?? []);
+      } catch (e: any) {
+        if (active) {
+          setDoctors([]);
+          dispatch(toast.error("Could not load doctors", e?.message));
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const form = useForm({
     initialValues: {
@@ -60,21 +75,23 @@ export function DepartmentFormDialog({
       // Switch below drives the API's isActive flag.
       isActive: values.isActive,
     };
-    if (initial.id)
-      await dispatch(
-        updateDepartment({
-          id: initial.id,
-          data,
-          successMessage: "Department updated",
-        } as any),
+    try {
+      if (initial.id) {
+        await departmentService.updateDepartment(initial.id, data);
+        dispatch(toast.success("Department updated"));
+      } else {
+        await departmentService.createDepartment(data);
+        dispatch(toast.success("Department created"));
+      }
+    } catch (e: any) {
+      dispatch(
+        toast.error(
+          initial.id ? "Update failed" : "Creation failed",
+          e?.message,
+        ),
       );
-    else
-      await dispatch(
-        createDepartment({
-          data,
-          successMessage: "Department created",
-        } as any),
-      );
+      return;
+    }
     onClose();
   });
 

@@ -14,12 +14,7 @@ import { todayISO } from "@/utils";
 import { usePermission } from "@/hooks";
 import { downloadText, formatDate, formatMoney, toCSV } from "@/utils";
 import { cn } from "@/utils/cn";
-import {
-  Avatar,
-  Button,
-  Panel,
-  StatusBadge,
-} from "@/components/ui/primitives";
+import { Avatar, Button, Panel, StatusBadge } from "@/components/ui/primitives";
 import { Select, DatePicker } from "@/components/ui/fields";
 import {
   DataTable,
@@ -29,12 +24,9 @@ import {
 } from "@/components/ui/table";
 import { Dialog, Tabs } from "@/components/ui/overlays";
 import { PageIntro, StatStrip } from "@/components/common";
-import { billingApi } from "@/api/billingApi";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  fetchInvoices,
-  invalidateInvoices,
-} from "@/store/slices/billingSlice";
+import { billingService } from "@/pages/billing/billing.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { OPDBillingForm } from "@/pages/billing/OPDBillingForm";
 import { PaymentDialog } from "@/pages/billing/PaymentDialog";
 import { InvoiceSheet } from "@/pages/billing/InvoiceSheet";
@@ -49,11 +41,6 @@ export function BillingPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [bills, setBills] = useState<any[]>([]);
-  // Shared invoice snapshot (doc §26/§29/§31): the unfiltered first page is the
-  // very list the store already owns, so the page reads it from Redux and only
-  // issues its own query for filtered / paged views.
-  const sharedInvoices = useAppSelector((s) => s.invoices.items) as any[];
-  const sharedStatus = useAppSelector((s) => s.invoices.status);
   const [payments, setPayments] = useState<any[]>([]);
   const [kpis, setKpis] = useState({
     totalAmount: 0,
@@ -87,9 +74,10 @@ export function BillingPage() {
   // --- API Calls ---
   const fetchSummary = useCallback(async () => {
     try {
-      const summary: any = await billingApi.getDailySummary(
-        filters.date || undefined
-      );
+      const body: any =
+        (await billingService.fetchDailySummary(filters.date || undefined))
+          ?.data ?? {};
+      const summary: any = body.data ?? body;
       setKpis({
         totalAmount: summary.totalAmount || 0,
         totalCollected: summary.totalCollected || 0,
@@ -98,64 +86,66 @@ export function BillingPage() {
       });
     } catch (e: any) {
       console.error("Summary error", e);
+      dispatch(toast.error("Could not load billing summary", e?.message));
     }
   }, [filters.date]);
 
-  /** The table shows the unfiltered first page → it is the shared snapshot. */
-  const isDefaultView =
-    filters.paymentStatus === "all" && !filters.date && pagination.page === 1;
-
+  /**
+   * Invoice list of this page: always fetched here through `billing.service`
+   * — there is no shared snapshot any more, so the table can never show rows
+   * another screen loaded.
+   */
   const fetchBills = useCallback(
-    async (force = false) => {
-      if (isDefaultView) {
-        dispatch(fetchInvoices(force || undefined) as any);
-        return;
-      }
+    async (_force = false) => {
       setLoading(true);
       setError(null);
       try {
-        const res: any = await billingApi.list({
+        const res: any = await billingService.fetchInvoices({
           page: pagination.page,
           limit: pagination.limit,
           paymentStatus: filters.paymentStatus,
           date: filters.date,
         });
-        setBills(res.data || []);
+        const body: any = res.data ?? {};
+        setBills(body.data || []);
         // keep the pagination object identical when nothing changed: a new
         // object would re-create fetchBills → reloadAll → a second request
         // for the same page (doc §29).
         setPagination((p) => {
-          const total = res.meta?.total || 0;
-          const totalPages = res.meta?.totalPages || 1;
+          const total = body.meta?.total || 0;
+          const totalPages = body.meta?.totalPages || 1;
           return p.total === total && p.totalPages === totalPages
             ? p
             : { ...p, total, totalPages };
         });
       } catch (e: any) {
         setError(e.message || "Failed to load invoices");
+        dispatch(toast.error("Could not load invoices", e?.message));
       } finally {
         setLoading(false);
       }
     },
-    [dispatch, isDefaultView, pagination.page, pagination.limit, filters],
+    [pagination.page, pagination.limit, filters],
   );
 
   const fetchPayments = useCallback(async () => {
     try {
-      const res: any = await billingApi.getPayments({
+      const res: any = await billingService.fetchPayments({
         page: payPagination.page,
         limit: payPagination.limit,
       });
-      setPayments(res.data || []);
+      const body: any = res.data ?? {};
+      setPayments(body.data || []);
       setPayPagination((p) => {
-        const total = res.meta?.total || 0;
-        const totalPages = res.meta?.totalPages || 1;
+        const total = body.meta?.total || 0;
+        const totalPages = body.meta?.totalPages || 1;
         return p.total === total && p.totalPages === totalPages
           ? p
           : { ...p, total, totalPages };
       });
     } catch (e: any) {
       console.error("Payments error", e);
+      dispatch(toast.error("Could not load payments", e?.message));
     }
   }, [payPagination.page, payPagination.limit]);
 
@@ -168,19 +158,9 @@ export function BillingPage() {
     [fetchSummary, fetchBills, fetchPayments],
   );
 
-  /** Rows + table status of the invoice tab (shared snapshot, or page query). */
-  const invoiceRows = isDefaultView ? sharedInvoices : bills;
-  const invoiceStatus = isDefaultView
-    ? sharedStatus === "loading"
-      ? "loading"
-      : sharedStatus === "error"
-        ? "error"
-        : "ready"
-    : loading
-      ? "loading"
-      : error
-        ? "error"
-        : "ready";
+  /** Rows + table status of the invoice tab. */
+  const invoiceRows = bills;
+  const invoiceStatus = loading ? "loading" : error ? "error" : "ready";
 
   useEffect(() => {
     reloadAll();
@@ -201,8 +181,8 @@ export function BillingPage() {
           Paid: i.paidAmount,
           Balance: i.dueAmount,
           Status: i.paymentStatus,
-        }))
-      )
+        })),
+      ),
     );
   };
 
@@ -210,11 +190,12 @@ export function BillingPage() {
     const reason = prompt(`Enter reason for cancelling bill ${bill.billNo}:`);
     if (!reason) return;
     try {
-      await billingApi.cancel(bill.id, reason);
-      dispatch(invalidateInvoices());
+      await billingService.cancelInvoice(bill.id, reason);
       reloadAll(true);
     } catch (e: any) {
-      alert(e.message || "Failed to cancel bill");
+      dispatch(
+        toast.error("Could not cancel bill", e?.message || "Please try again."),
+      );
     }
   };
 
@@ -225,7 +206,6 @@ export function BillingPage() {
         onClose={() => setEditing(false)}
         onSuccess={() => {
           setEditing(false);
-          dispatch(invalidateInvoices()); // shared snapshot is stale (§3.7)
           reloadAll(true);
         }}
       />
@@ -397,7 +377,7 @@ export function BillingPage() {
                     <span
                       className={cn(
                         "num text-[13px] font-bold",
-                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600"
+                        i.dueAmount > 0 ? "text-coral-600" : "text-mint-600",
                       )}
                     >
                       {formatMoney(i.dueAmount)}
@@ -490,8 +470,7 @@ export function BillingPage() {
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-semibold text-ink-900">
-                        {formatMoney(p.amount)} ·{" "}
-                        {p.patient?.name || "Patient"}
+                        {formatMoney(p.amount)} · {p.patient?.name || "Patient"}
                       </p>
                       <p className="num truncate text-[11.5px] text-ink-400">
                         Receipt: {p.receiptNo} · Bill: {p.billNo} ·{" "}
@@ -513,8 +492,7 @@ export function BillingPage() {
           onClose={() => setPaying(null)}
           onSuccess={() => {
             setPaying(null);
-            dispatch(invalidateInvoices()); // shared snapshot is stale (§3.7)
-            reloadAll();
+            reloadAll(true);
           }}
         />
       )}

@@ -36,6 +36,7 @@ import {
   selectBootstrapError,
   selectBootstrapStatus,
 } from "@/store/slices/bootstrapSlice";
+import { isDeliberateLogout } from "@/store/slices/authSlice";
 import { Splash } from "@/routes/guards";
 import { Button } from "@/components/ui/primitives";
 
@@ -43,8 +44,10 @@ import { Button } from "@/components/ui/primitives";
 function useIntendedRoute(): string {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from;
-  // never bounce back into the auth screens or into the bootstrap itself
+  // a voluntary sign-out has no route to restore; and we never bounce back
+  // into the auth screens or into the bootstrap itself
   if (
+    isDeliberateLogout() ||
     !from ||
     from === "/" ||
     from.startsWith("/accounts") ||

@@ -4,21 +4,12 @@ import { Dialog } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
 import { Input, SearchInput, fieldClasses } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import {
-  fetchServices,
-  fetchTariffs,
-  invalidateMasterDropdowns,
-  selectServices,
-  selectServicesStatus,
-  selectTariffs,
-  selectTariffsStatus,
-} from "@/store/slices/masterSlice";
+import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { cn } from "@/utils/cn";
 
 // Import backend services
-import { masterApi } from "@/api/masterApi";
+import { masterService } from "@/pages/masterConfiguration/master.service";
 import type { TariffMasterItem, ServiceMasterItem } from "@/types";
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -57,12 +48,43 @@ export function TariffMaster({
     null,
   );
 
-  // Shared master data (doc §21) — the same cached catalogue Service Master
-  // shows, so a service added there is already here when this screen opens.
-  const tariffs = useAppSelector(selectTariffs) as TariffMasterItem[];
-  const baseServices = useAppSelector(selectServices) as ServiceMasterItem[];
-  const tariffsStatus = useAppSelector(selectTariffsStatus);
-  const servicesStatus = useAppSelector(selectServicesStatus);
+  // Page data: the tariff list and the service catalogue this screen renders
+  // are requested here, once per open.
+  const [tariffs, setTariffs] = useState<TariffMasterItem[]>([]);
+  const [tariffsLoading, setTariffsLoading] = useState(false);
+  const [baseServices, setBaseServices] = useState<ServiceMasterItem[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(false);
+
+  const loadTariffs = useCallback(async () => {
+    try {
+      setTariffsLoading(true);
+      const response = await masterService.fetchTariffs();
+      if (response.status === 200) setTariffs(response.data?.data ?? []);
+    } catch (e: any) {
+      dispatch(toast.error("Failed to load tariffs", e?.message));
+    } finally {
+      setTariffsLoading(false);
+    }
+  }, [dispatch]);
+
+  const loadServices = useCallback(async () => {
+    try {
+      setServicesLoading(true);
+      const response = await masterService.fetchServices();
+      if (response.status === 200) setBaseServices(response.data?.data ?? []);
+    } catch (e: any) {
+      dispatch(toast.error("Failed to load services", e?.message));
+    } finally {
+      setServicesLoading(false);
+    }
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (open) {
+      loadTariffs();
+      loadServices();
+    }
+  }, [open, loadTariffs, loadServices]);
 
   // Page-only state: the rate matrix of the tariff being edited.
   const [ratesMap, setRatesMap] = useState<RateMap>({});
@@ -73,10 +95,7 @@ export function TariffMaster({
   const [saving, setSaving] = useState(false);
 
   /** Table skeletons mirror the shared request lifecycle. */
-  const loading =
-    detailLoading ||
-    tariffsStatus === "loading" ||
-    servicesStatus === "loading";
+  const loading = detailLoading || tariffsLoading || servicesLoading;
 
   // Inline Form State (For adding new Tariff)
   const [newTariffName, setNewTariffName] = useState("");
@@ -84,22 +103,16 @@ export function TariffMaster({
   const [codeTouched, setCodeTouched] = useState(false); // 👈 Tracks if user manually edited code
 
   // ─── Data Fetching ────────────────────────────────────────────────
-  // Shared list + guard live in `masterSlice` (§16); `force` re-reads it.
-  const loadTariffs = useCallback(
-    (force = false) => {
-      void dispatch(fetchTariffs(force) as any);
-    },
-    [dispatch],
-  );
 
   const loadServicesAndRates = useCallback(
     async (tariffId: string) => {
       setDetailLoading(true);
       try {
-        // service catalogue comes from the shared cache (§21)
-        void dispatch(fetchServices() as any);
+        // service catalogue is this screen's own list (§21)
+        void loadServices();
 
-        const tariffDetail: any = await masterApi.getTariff(tariffId);
+        const detailResponse = await masterService.fetchTariffById(tariffId);
+        const tariffDetail: any = detailResponse.data?.data ?? {};
 
         const initialRates: RateMap = {};
         tariffDetail.rates?.forEach((r: any) => {
@@ -138,20 +151,18 @@ export function TariffMaster({
 
     setSaving(true);
     try {
-      await masterApi.createTariff({
+      await masterService.createTariff({
         tariffCode: newTariffCode.toUpperCase(),
         tariffName: newTariffName,
       });
       dispatch(toast.success("Tariff created successfully"));
-      // the panel form's tariff reference list is stale now (§3.7)
-      dispatch(invalidateMasterDropdowns(["TARIFFS"]));
 
       // Reset Inputs
       setNewTariffName("");
       setNewTariffCode("");
       setCodeTouched(false);
 
-      loadTariffs(true);
+      loadTariffs();
     } catch (error: any) {
       dispatch(toast.error("Failed to create tariff", error.message));
     } finally {
@@ -162,10 +173,9 @@ export function TariffMaster({
   const handleDeleteTariff = async (id: string) => {
     if (!confirm("Are you sure you want to delete this Tariff?")) return;
     try {
-      await masterApi.removeTariff(id);
+      await masterService.deleteTariff(id);
       dispatch(toast.success("Tariff deleted"));
-      dispatch(invalidateMasterDropdowns(["TARIFFS"]));
-      loadTariffs(true);
+      loadTariffs();
     } catch (error: any) {
       dispatch(toast.error("Delete failed", error.message));
     }
@@ -206,7 +216,7 @@ export function TariffMaster({
           discountPercent: Number(data.discountPercent || 0),
         }));
 
-      await masterApi.saveTariffRates(activeTariff.id, payload as any);
+      await masterService.saveTariffRates(activeTariff.id, payload as any);
       dispatch(
         toast.success("Rates saved successfully", activeTariff.tariffName),
       );

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Info,
+  Loader2,
   RefreshCw,
   SearchX,
   X,
@@ -71,6 +72,168 @@ export function CardSkeleton({ count = 4 }: { count?: number }) {
           <Skeleton className="mt-3 h-2.5 w-full" />
         </div>
       ))}
+    </div>
+  );
+}
+
+
+/**
+ * Inline loader — spinner + label for a *inside-a-component* wait.
+ * -----------------------------------------------------------------
+ * Used where a page must stay usable while one small piece loads:
+ * dropdowns ("Loading departments…"), searches ("Searching patients…"),
+ * the slot picker, action buttons. It is never rendered full-screen; the
+ * global loader is reserved for application-critical operations.
+ */
+export function InlineLoader({
+  label = "Loading…",
+  className,
+  align = "start",
+}: {
+  label?: string;
+  className?: string;
+  /** "start" keeps the row left-aligned inside a dropdown, "center" centres it */
+  align?: "start" | "center";
+}) {
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "inline-flex items-center gap-2 text-[12.5px] text-ink-500",
+        align === "center" && "w-full justify-center",
+        className,
+      )}
+    >
+      <Loader2 className="size-3.5 shrink-0 animate-spin text-brand-600" />
+      {label}
+    </span>
+  );
+}
+
+/** Rows of a vertical list panel (roles list, queue, notifications). */
+export function ListSkeleton({
+  rows = 5,
+  className,
+  withMeta = true,
+}: {
+  rows?: number;
+  className?: string;
+  /** show the small second line of each row */
+  withMeta?: boolean;
+}) {
+  return (
+    <div className={cn("divide-y divide-ink-100", className)} aria-hidden="true">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-start gap-3 px-4 py-3">
+          <Skeleton className="size-8 shrink-0 rounded-lg" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="h-3.5 w-2/5" />
+            {withMeta && <Skeleton className="h-2.5 w-3/5" />}
+          </div>
+          <Skeleton className="h-5 w-12 shrink-0 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A form-shaped skeleton (registration / detail forms while they load). */
+export function FormSkeleton({
+  fields = 6,
+  columns = 2,
+  className,
+}: {
+  fields?: number;
+  columns?: 1 | 2 | 3;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("space-y-6", className)}
+      aria-hidden="true"
+      role="status"
+      aria-label="Loading form"
+    >
+      {[0, 1].map((section) => (
+        <div key={section} className="rounded-xl border border-ink-100 bg-white p-4">
+          <Skeleton className="h-3 w-32" />
+          <div
+            className={cn(
+              "mt-4 grid gap-4",
+              columns === 2 && "sm:grid-cols-2",
+              columns === 3 && "sm:grid-cols-2 lg:grid-cols-3",
+            )}
+          >
+            {Array.from({ length: Math.ceil(fields / 2) }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-2.5 w-24" />
+                <Skeleton className="h-10 w-full rounded-lg" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The permission matrix of the Roles page (modules × actions). */
+export function MatrixSkeleton({
+  rows = 5,
+  cols = 4,
+}: {
+  rows?: number;
+  cols?: number;
+}) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-ink-100 bg-white"
+      aria-hidden="true"
+      role="status"
+      aria-label="Loading permissions"
+    >
+      <div className="flex items-center gap-4 border-b border-ink-100 bg-ink-25/70 px-4 py-2.5">
+        <Skeleton className="h-3 w-32" />
+        {Array.from({ length: cols }).map((_, c) => (
+          <Skeleton key={c} className="ml-auto h-3 w-14" />
+        ))}
+      </div>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div
+          key={r}
+          className="flex items-center gap-4 border-b border-ink-50 px-4 py-3 last:border-b-0"
+        >
+          <Skeleton className="h-3.5 w-40" />
+          {Array.from({ length: cols }).map((_, c) => (
+            <Skeleton key={c} className="ml-auto size-4 rounded" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A page-shaped skeleton for a blocking initialization (header + panel). */
+export function PageSkeleton({
+  label = "Loading",
+  className,
+}: {
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-4", className)} role="status" aria-label={label}>
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-10 rounded-xl" />
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-44" />
+          <Skeleton className="h-2.5 w-64" />
+        </div>
+      </div>
+      <div className="rounded-xl border border-ink-100 bg-white p-4">
+        <ListSkeleton rows={4} />
+      </div>
     </div>
   );
 }

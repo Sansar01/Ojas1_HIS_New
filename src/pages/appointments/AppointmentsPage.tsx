@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   CalendarDays,
@@ -18,18 +18,10 @@ import {
 } from "lucide-react";
 import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/utils";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
-import {
-  cancelAppointment,
-  deleteAppointment,
-  fetchAppointments,
-  updateAppointment,
-} from "@/store/slices/appointmentSlice";
-import { fetchDepartments } from "@/store/slices/departmentSlice";
-import { fetchSpecializations } from "@/store/slices/specializationSlice";
-import { fetchDoctors } from "@/store/slices/doctorSlice";
-import { fetchPatients } from "@/store/slices/patientSlice";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { departmentService } from "@/pages/Departments/department.service";
 
 import { toast } from "@/store/slices/uiSlice";
 import {
@@ -57,11 +49,7 @@ import {
   TableToolbar,
 } from "@/components/ui/table";
 import { Dialog, Sheet, Tooltip } from "@/components/ui/overlays";
-import {
-  DetailGrid,
-  PageIntro,
-  SectionPanel,
-} from "@/components/common";
+import { DetailGrid, PageIntro, SectionPanel } from "@/components/common";
 import { AppointmentFormModal } from "./AppointmentFormPage";
 export function SlotPicker({
   doctorId,
@@ -71,6 +59,7 @@ export function SlotPicker({
   onChange,
   loading = false,
   remoteSlots = null,
+  doctors = [],
 }: {
   doctorId: string;
   date: string;
@@ -81,9 +70,10 @@ export function SlotPicker({
   loading?: boolean;
   /** slots returned live from the doctor availability API (overrides generated ones) */
   remoteSlots?: SlotOption[] | null;
+  /** doctor list of the caller — page data, so it is passed in, not read globally */
+  doctors?: any[];
 }) {
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const doctor = doctors.find((d: any) => d.id === doctorId) as any;
+  const doctor = (doctors ?? []).find((d: any) => d.id === doctorId) as any;
   const generated = useMemo(
     () => generateSlots(doctor, date, appointments),
     [doctor, date, appointments],
@@ -92,9 +82,14 @@ export function SlotPicker({
   const slots = remoteSlots && remoteSlots.length ? remoteSlots : generated;
   const available = slots.filter((s) => s.state === "available");
 
+  // Slot-specific loader: the only thing that is loading here is the slot
+  // source (doctor availability + the appointment list it is checked against).
   if (loading)
     return (
-      <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500">
+      <div
+        role="status"
+        className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-ink-200 px-3 py-6 text-[12.5px] text-ink-500"
+      >
         <Loader2 className="size-4 animate-spin text-brand-600" /> Checking
         available slots…
       </div>
@@ -103,7 +98,7 @@ export function SlotPicker({
   if (!doctor)
     return (
       <p className="rounded-lg border border-dashed border-ink-200 px-3 py-6 text-center text-[12.5px] text-ink-400">
-        Select a doctor to load published slots.
+        Select doctor and date to see available slots.
       </p>
     );
   if (!slots.length)
@@ -164,11 +159,63 @@ export function AppointmentsPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { items: appointments, status } = useAppSelector((s) => s.appointments);
-  const patients = useAppSelector((s) => s.patients.items);
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const departments = useAppSelector((s) => s.departments.items);
   const { canCreate, canEdit, canDelete } = usePermission();
+
+  /* ------------------------------- local data ----------------------------- */
+
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadAppointments = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await appointmentService.fetchAppointments();
+      if (response.status === 200) {
+        setAppointments(response.data?.data ?? []);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Could not load appointments");
+      dispatch(toast.error("Could not load appointments", e?.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
+  /**
+   * Department names for the filter + detail view.
+   *
+   * THIS PAGE FETCHES ONE THING: THE APPOINTMENTS. The patient roster and the
+   * doctor roster are deliberately NOT requested here — an appointment row
+   * already embeds its `patient` and `doctor`, so the filter options, the board
+   * and the detail drawer read those instead of pulling two more lists the page
+   * does not actually need.
+   */
+  const [departments, setDepartments] = useState<any[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
+
+  const status = loading ? "loading" : error ? "error" : "ready";
 
   const [view, setView] = useState<"list" | "board">("list");
   const [boardDate, setBoardDate] = useState(addDays(new Date(), 0));
@@ -187,14 +234,12 @@ export function AppointmentsPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   /**
-   * Re-run the appointment list API without the full loader flash.
-   * `force` bypasses the idle-only guard — every caller is an explicit user or
-   * post-mutation refresh, so the default is `true` (Rule 13: reuse cached
-   * data unless the caller knows it is stale).
+   * Re-run the appointment list API (after a write, or from the Refresh
+   * button). The list is page state, so this is a plain local reload.
    */
-  const refreshList = async (force = true) => {
+  const refreshList = async (_force = true) => {
     setRefreshing(true);
-    await dispatch(fetchAppointments(force) as any);
+    await loadAppointments();
     setRefreshing(false);
   };
 
@@ -203,9 +248,14 @@ export function AppointmentsPage() {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
-      await dispatch(
-        cancelAppointment({ id: cancelTarget.id, cancelReason }),
-      ).unwrap();
+      await appointmentService.cancelAppointment(cancelTarget.id, cancelReason);
+      setAppointments((rows) =>
+        rows.map((row) =>
+          row.id === cancelTarget.id
+            ? ({ ...row, status: "Cancelled" } as Appointment)
+            : row,
+        ),
+      );
       dispatch(
         toast.success(
           "Appointment cancelled",
@@ -226,23 +276,17 @@ export function AppointmentsPage() {
     }
   };
 
-  useEffect(() => {
-    // fetch every list this page (and the booking modal) depends on
-    dispatch(fetchAppointments() as any);
-    dispatch(fetchPatients() as any);
-    dispatch(fetchDoctors() as any);
-    dispatch(fetchDepartments() as any);
-    dispatch(fetchSpecializations() as any);
-  }, [dispatch]);
-
-  const patientMap = useMemo(
-    () => new Map(patients.map((p: any) => [p.id, p])),
-    [patients],
-  );
-  const doctorMap = useMemo(
-    () => new Map(doctors.map((d: any) => [d.id, d])),
-    [doctors],
-  );
+  /** doctors that actually appear in the loaded appointments — no roster call */
+  const appointmentDoctors = useMemo(() => {
+    const seen = new Map<string, any>();
+    (appointments as any[]).forEach((a) => {
+      if (!a?.doctorId || seen.has(a.doctorId)) return;
+      seen.set(a.doctorId, { id: a.doctorId, ...(a.doctor ?? {}) });
+    });
+    return [...seen.values()].sort((a, b) =>
+      fullName(a).localeCompare(fullName(b)),
+    );
+  }, [appointments]);
 
   const filtered = useMemo(() => {
     return (appointments as Appointment[]).filter((a) => {
@@ -261,8 +305,8 @@ export function AppointmentsPage() {
     pageSize: 10,
     searchFields: [
       (a: any) => a.code,
-      (a: any) => fullName(a.patient ?? patientMap.get(a.patientId)),
-      (a: any) => `Dr. ${fullName(a.doctor ?? doctorMap.get(a.doctorId))}`,
+      (a: any) => fullName(a.patient),
+      (a: any) => `Dr. ${fullName(a.doctor)}`,
       (a: any) => a.patient?.uhid,
       (a: any) => a.patient?.mobile,
       (a: any) => a.reasonForVisit,
@@ -272,25 +316,42 @@ export function AppointmentsPage() {
       date: (a: any) => `${a.date}${a.time ?? ""}`,
       status: (a: any) => a.status,
       fee: (a: any) => a.fee,
-      patient: (a: any) => fullName(a.patient ?? patientMap.get(a.patientId)),
+      patient: (a: any) => fullName(a.patient),
     },
   });
 
   const detail =
     (appointments as Appointment[]).find((a) => a.id === detailId) ?? null;
 
-  const advance = (a: Appointment, next: AppointmentStatus) =>
-    dispatch(
-      updateAppointment({
-        id: a.id,
-        data: { status: next },
-        successMessage: `${a.code} → ${next}`,
-      } as any),
-    );
+  const advance = async (a: Appointment, next: AppointmentStatus) => {
+    try {
+      await appointmentService.updateAppointment(a.id, { status: next });
+      setAppointments((rows) =>
+        rows.map((row) =>
+          row.id === a.id ? ({ ...row, status: next } as Appointment) : row,
+        ),
+      );
+      dispatch(toast.success(`${a.code} → ${next}`));
+    } catch (e: any) {
+      dispatch(toast.error("Update failed", e?.message));
+    }
+  };
 
   const todayBoard = (appointments as Appointment[]).filter(
     (a) => a.date === boardDate && !["Cancelled", "No Show"].includes(a.status),
   );
+
+  /** doctors with visits on the selected board date (derived, never fetched) */
+  const boardDoctors = useMemo(() => {
+    const seen = new Map<string, any>();
+    todayBoard.forEach((a: any) => {
+      if (!a?.doctorId || seen.has(a.doctorId)) return;
+      seen.set(a.doctorId, { id: a.doctorId, ...(a.doctor ?? {}) });
+    });
+    return [...seen.values()].sort((a, b) =>
+      fullName(a).localeCompare(fullName(b)),
+    );
+  }, [todayBoard]);
 
   const clearParams = () => {
     if (params.get("new") || params.get("focus")) {
@@ -412,93 +473,88 @@ export function AppointmentsPage() {
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(doctors as any[])
-              .filter((d) => d.status === "active")
-              .map((doc) => {
-                const rows = todayBoard
-                  .filter((a) => a.doctorId === doc.id)
-                  .sort((a, b) => a.time.localeCompare(b.time));
-                const slots = generateSlots(
-                  doc,
-                  boardDate,
-                  appointments as any,
-                );
-                const open = slots.filter(
-                  (s) => s.state === "available",
-                ).length;
-                return (
-                  <div
-                    key={doc.id}
-                    className="overflow-hidden rounded-xl border border-ink-100 bg-white"
-                  >
-                    <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-ink-25/70 px-3 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar
-                          name={fullName(doc)}
-                          size="xs"
-                          color="bg-brand-600"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-[12.5px] font-semibold text-ink-900">
-                            Dr. {fullName(doc)}
-                          </p>
-                          <p className="num text-[10.5px] text-ink-400">
-                            {doc.slotDuration}m slots · {open} open
-                          </p>
-                        </div>
-                      </div>
-                      <Badge
-                        tone={
-                          rows.length > doc.maxPatientsPerDay * 0.8
-                            ? "coral"
-                            : "brand"
-                        }
+            {(boardDoctors as any[]).map((doc) => {
+              const rows = todayBoard
+                .filter((a) => a.doctorId === doc.id)
+                .sort((a, b) => a.time.localeCompare(b.time));
+              const slots = generateSlots(doc, boardDate, appointments as any);
+              const open = slots.filter((s) => s.state === "available").length;
+              return (
+                <div
+                  key={doc.id}
+                  className="overflow-hidden rounded-xl border border-ink-100 bg-white"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-ink-25/70 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <Avatar
+                        name={fullName(doc)}
                         size="xs"
-                      >
-                        {rows.length}/{doc.maxPatientsPerDay}
-                      </Badge>
+                        color="bg-brand-600"
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-[12.5px] font-semibold text-ink-900">
+                          Dr. {fullName(doc)}
+                        </p>
+                        <p className="num text-[10.5px] text-ink-400">
+                          {doc.slotDuration
+                            ? `${doc.slotDuration}m slots · `
+                            : ""}
+                          {open} open
+                        </p>
+                      </div>
                     </div>
-                    <ul className="divide-y divide-ink-100">
-                      {rows.length === 0 && (
-                        <li className="px-3 py-6 text-center text-[12px] text-ink-400">
-                          No visits booked
-                        </li>
-                      )}
-                      {rows.map((a) => (
-                        <li
-                          key={a.id}
-                          className="group flex items-center gap-3 px-3 py-2 transition-colors hover:bg-brand-25/60"
-                        >
-                          <span className="num w-12 shrink-0 text-[12px] font-bold text-ink-700">
-                            {a.time}
-                          </span>
-                          <button
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => navigate(`/patients/${a.patientId}`)}
-                          >
-                            <span className="block truncate text-[12.5px] font-medium text-ink-800">
-                              {fullName(patientMap.get(a.patientId))}
-                            </span>
-                            <span className="block truncate text-[11px] text-ink-400">
-                              {a.type} · {a.code}
-                            </span>
-                          </button>
-                          {canEdit("appointments") &&
-                            a.status !== "Completed" && (
-                              <button
-                                onClick={() => advance(a, "Completed")}
-                                className="rounded-md p-1 text-ink-300 opacity-0 transition-all hover:bg-mint-50 hover:text-mint-600 group-hover:opacity-100"
-                                aria-label="Mark completed"
-                              >
-                                <CheckCheck className="size-4" />
-                              </button>
-                            )}
-                        </li>
-                      ))}
-                    </ul>
+                    <Badge
+                      tone={
+                        rows.length > Number(doc.maxPatientsPerDay || 0) * 0.8
+                          ? "coral"
+                          : "brand"
+                      }
+                      size="xs"
+                    >
+                      {rows.length}/{doc.maxPatientsPerDay}
+                    </Badge>
                   </div>
-                );
-              })}
+                  <ul className="divide-y divide-ink-100">
+                    {rows.length === 0 && (
+                      <li className="px-3 py-6 text-center text-[12px] text-ink-400">
+                        No visits booked
+                      </li>
+                    )}
+                    {rows.map((a) => (
+                      <li
+                        key={a.id}
+                        className="group flex items-center gap-3 px-3 py-2 transition-colors hover:bg-brand-25/60"
+                      >
+                        <span className="num w-12 shrink-0 text-[12px] font-bold text-ink-700">
+                          {a.time}
+                        </span>
+                        <button
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => navigate(`/patients/${a.patientId}`)}
+                        >
+                          <span className="block truncate text-[12.5px] font-medium text-ink-800">
+                            {fullName(a.patient)}
+                          </span>
+                          <span className="block truncate text-[11px] text-ink-400">
+                            {a.type} · {a.code}
+                          </span>
+                        </button>
+                        {canEdit("appointments") &&
+                          a.status !== "Completed" && (
+                            <button
+                              onClick={() => advance(a, "Completed")}
+                              className="rounded-md p-1 text-ink-300 opacity-0 transition-all hover:bg-mint-50 hover:text-mint-600 group-hover:opacity-100"
+                              aria-label="Mark completed"
+                            >
+                              <CheckCheck className="size-4" />
+                            </button>
+                          )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
           </div>
         </Panel>
       ) : (
@@ -517,7 +573,7 @@ export function AppointmentsPage() {
                   onChange={(v) => setFilters((f) => ({ ...f, doctor: v }))}
                   options={[
                     { value: "all", label: "All doctors" },
-                    ...doctors.map((d: any) => ({
+                    ...appointmentDoctors.map((d: any) => ({
                       value: d.id,
                       label: `Dr. ${d.lastName}`,
                     })),
@@ -577,17 +633,16 @@ export function AppointmentsPage() {
                 render: (a: any) => (
                   <div className="flex items-center gap-2.5">
                     <Avatar
-                      name={fullName(a.patient ?? patientMap.get(a.patientId))}
+                      name={fullName(a.patient)}
                       size="xs"
                       color="bg-ink-600"
                     />
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-semibold text-ink-900">
-                        {fullName(a.patient ?? patientMap.get(a.patientId))}
+                        {fullName(a.patient)}
                       </p>
                       <p className="num truncate text-[11px] text-ink-400">
-                        {a.code} ·{" "}
-                        {a.patient?.uhid ?? patientMap.get(a.patientId)?.mrn}
+                        {a.code} · {a.patient?.uhid ?? a.patient?.mrn}
                       </p>
                     </div>
                   </div>
@@ -599,7 +654,7 @@ export function AppointmentsPage() {
                 hideBelow: "md",
                 render: (a: any) => (
                   <span className="text-[12.5px] text-ink-600">
-                    Dr. {fullName(a.doctor ?? doctorMap.get(a.doctorId))}
+                    Dr. {fullName(a.doctor)}
                     {a.doctor?.specialization
                       ? ` · ${a.doctor.specialization}`
                       : ""}
@@ -674,7 +729,7 @@ export function AppointmentsPage() {
                   ? "error"
                   : "loading"
             }
-            onRetry={() => dispatch(fetchAppointments(true) as any)}
+            onRetry={loadAppointments}
             sort={{
               sortBy: table.query.sortBy,
               sortDir: table.query.sortDir,
@@ -744,13 +799,22 @@ export function AppointmentsPage() {
                     icon: <Trash2 />,
                     tone: "danger",
                     hidden: !canDelete("appointments"),
-                    onClick: () =>
-                      dispatch(
-                        deleteAppointment({
-                          id: a.id,
-                          label: a.code,
-                        } as any),
-                      ),
+                    onClick: async () => {
+                      try {
+                        await appointmentService.deleteAppointment(a.id);
+                        setAppointments((rows) =>
+                          rows.filter((row) => row.id !== a.id),
+                        );
+                        dispatch(
+                          toast.success(
+                            "Record deleted",
+                            `${a.code} was removed from the portal.`,
+                          ),
+                        );
+                      } catch (e: any) {
+                        dispatch(toast.error("Delete failed", e?.message));
+                      }
+                    },
                   },
                 ]}
               />
@@ -915,22 +979,14 @@ export function AppointmentsPage() {
         {detail && (
           <div className="space-y-5">
             <div className="flex items-center gap-3 rounded-xl border border-ink-100 bg-ink-25/70 p-3.5">
-              <Avatar
-                name={fullName(
-                  detail?.patient ?? patientMap.get(detail.patientId),
-                )}
-                color="bg-brand-600"
-              />
+              <Avatar name={fullName(detail?.patient)} color="bg-brand-600" />
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">
-                  {fullName(detail.patient ?? patientMap.get(detail.patientId))}
+                  {fullName(detail.patient)}
                 </p>
                 <p className="text-[11.5px] text-ink-400">
-                  {detail.patient?.uhid ??
-                    patientMap.get(detail.patientId)?.mrn}{" "}
-                  ·{" "}
-                  {detail.patient?.mobile ??
-                    patientMap.get(detail.patientId)?.mobile}
+                  {detail.patient?.uhid ?? detail.patient?.mrn} ·{" "}
+                  {detail.patient?.mobile ?? detail.patient?.mobile}
                 </p>
               </div>
               <StatusBadge status={detail.status} className="ml-auto" />
@@ -940,7 +996,7 @@ export function AppointmentsPage() {
               items={[
                 {
                   label: "Doctor",
-                  value: `Dr. ${fullName(detail.doctor ?? doctorMap.get(detail.doctorId))}`,
+                  value: `Dr. ${fullName(detail.doctor)}`,
                 },
                 {
                   label: "Department",
@@ -1035,6 +1091,7 @@ export function AppointmentsPage() {
               <SlotPicker
                 doctorId={detail.doctorId}
                 date={detail.date}
+                doctors={appointmentDoctors}
                 appointments={appointments as any}
                 value={detail.time}
                 onChange={() => undefined}
@@ -1047,6 +1104,7 @@ export function AppointmentsPage() {
       <AppointmentFormModal
         open={bookOpen || !!editTarget}
         editing={editTarget}
+        onSaved={loadAppointments}
         onOpenChange={(v) => {
           setBookOpen(v);
           if (!v) setEditTarget(null);

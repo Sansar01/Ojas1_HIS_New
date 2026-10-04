@@ -18,10 +18,10 @@ import {
   History,
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
-import { fetchPatientHistory } from "@/store/slices/consultationSlice";
-import { fetchHospital } from "@/store/slices/hospitalSlice";
+import { consultationService } from "@/pages/consultations/consultation.service";
 import { idGen } from "@/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { formatDate, formatTime } from "@/utils";
@@ -40,8 +40,7 @@ import {
   TableToolbar,
 } from "@/components/ui/table";
 import { PageIntro, PrescriptionPrintPreview } from "@/components/common";
-import { EmptyState } from "@/components/ui/feedback";
-import { consultationApi } from "@/api/consultationApi";
+import { EmptyState, ListSkeleton, Skeleton } from "@/components/ui/feedback";
 
 import { Select } from "@/components/ui/fields";
 
@@ -100,7 +99,9 @@ const celsiusToFahrenheit = (c: string): number | null => {
   return isNaN(n) ? null : Math.round(n * (9 / 5) + 32);
 };
 
-const parseBpString = (bp: string): { sys: number | null; dia: number | null } => {
+const parseBpString = (
+  bp: string,
+): { sys: number | null; dia: number | null } => {
   if (!bp) return { sys: null, dia: null };
   const parts = bp.split("/").map((s) => parseInt(s.trim(), 10));
   return {
@@ -109,13 +110,19 @@ const parseBpString = (bp: string): { sys: number | null; dia: number | null } =
   };
 };
 
-const formatBpFromApi = (sys: number | null | undefined, dia: number | null | undefined): string => {
+const formatBpFromApi = (
+  sys: number | null | undefined,
+  dia: number | null | undefined,
+): string => {
   if (sys == null && dia == null) return "";
   return `${sys ?? "—"}/${dia ?? "—"}`;
 };
 
 const CONSULT_MAP_KEY = "opd_consultation_map";
-const saveConsultationMapping = (appointmentId: string, consultationId: string) => {
+const saveConsultationMapping = (
+  appointmentId: string,
+  consultationId: string,
+) => {
   try {
     const map = JSON.parse(localStorage.getItem(CONSULT_MAP_KEY) || "{}");
     map[appointmentId] = consultationId;
@@ -136,6 +143,7 @@ const getConsultationIdFromMap = (appointmentId: string): string | null => {
    3. SCREEN 1: DOCTOR QUEUE & CONSULTATIONS LIST
    ========================================================================== */
 export function ConsultationsPage() {
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { canCreate, canDelete } = usePermission();
 
@@ -152,15 +160,29 @@ export function ConsultationsPage() {
   const [queueData, setQueueData] = useState<any>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-  const [activeError, setActiveError] = useState<{ patientName: string; message: string } | null>(null);
-  const [queueDate, setQueueDate] = useState<string>(new Date().toLocaleDateString("en-CA"));
+  const [activeError, setActiveError] = useState<{
+    patientName: string;
+    message: string;
+  } | null>(null);
+  const [queueDate, setQueueDate] = useState<string>(
+    new Date().toLocaleDateString("en-CA"),
+  );
 
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ doctor: "all", status: "all", from: "", to: "" });
+  const [filters, setFilters] = useState({
+    doctor: "all",
+    status: "all",
+    from: "",
+    to: "",
+  });
 
   const currentToken = queueData?.currentToken ?? null;
-  const waitingTokens = queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.WAITING) ?? [];
-  const skippedTokens = queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.SKIPPED) ?? [];
+  const waitingTokens =
+    queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.WAITING) ??
+    [];
+  const skippedTokens =
+    queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.SKIPPED) ??
+    [];
 
   const fetchConsultations = useCallback(async () => {
     setLoading(true);
@@ -175,11 +197,12 @@ export function ConsultationsPage() {
       if (filters.from) params.from = filters.from;
       if (filters.to) params.to = filters.to;
 
-      const res = await consultationApi.list(params);
-      if (res.ok) {
-        setConsultations(res.data || []);
-        setTotalItems(res.data?.meta?.total ?? 0);
-        setTotalPages(res.data?.meta?.totalPages ?? 1);
+      const response = await consultationService.fetchConsultations(params);
+      if (response.status === 200) {
+        const body = response.data ?? {};
+        setConsultations(body.data ?? []);
+        setTotalItems(body.meta?.total ?? 0);
+        setTotalPages(body.meta?.totalPages ?? 1);
       }
     } finally {
       setLoading(false);
@@ -190,8 +213,11 @@ export function ConsultationsPage() {
     if (!activeDoctorId) return;
     setLoadingQueue(true);
     try {
-      const res = await consultationApi.getDoctorQueue(activeDoctorId, queueDate);
-      if (res.ok) setQueueData(res.data);
+      const response = await consultationService.fetchDoctorQueue(
+        activeDoctorId,
+        queueDate,
+      );
+      if (response.status === 200) setQueueData(response.data?.data ?? null);
     } finally {
       setLoadingQueue(false);
     }
@@ -213,11 +239,12 @@ export function ConsultationsPage() {
 
     try {
       if (token.status === TOKEN_STATUSES.WAITING) {
-        const callRes = await consultationApi.callToken(tokenId);
-        if (!callRes.ok) {
+        const callRes = await consultationService.callToken(tokenId);
+        if (callRes.status !== 200) {
           setActiveError({
             patientName,
-            message: "Call alert could not be broadcasted on TV display. Please check connection.",
+            message:
+              "Call alert could not be broadcasted on TV display. Please check connection.",
           });
           setActionLoadingId(null);
           return;
@@ -225,8 +252,12 @@ export function ConsultationsPage() {
       }
 
       let consultationId: string | null = null;
-      const postRes = await consultationApi.create({ appointmentId });
-      if (postRes.ok && postRes.data?.id) consultationId = postRes.data.id;
+      const postRes = await consultationService.createConsultation({
+        appointmentId,
+      });
+      if (postRes.status === 200 && postRes.data?.data?.id) {
+        consultationId = postRes.data.data.id;
+      }
       if (!consultationId) consultationId = token.consultationId;
       if (!consultationId)
         consultationId = getConsultationIdFromMap(appointmentId);
@@ -237,12 +268,14 @@ export function ConsultationsPage() {
       } else {
         setActiveError({
           patientName,
-          message: "Patient called successfully, but workspace session creation failed.",
+          message:
+            "Patient called successfully, but workspace session creation failed.",
         });
         fetchDoctorQueue();
       }
     } catch (err: any) {
       setActiveError({ patientName, message: err.message });
+      dispatch(toast.error("Could not start the consultation", err?.message));
     } finally {
       setActionLoadingId(null);
     }
@@ -253,21 +286,30 @@ export function ConsultationsPage() {
     setActionLoadingId("call-next");
     setActiveError(null);
     try {
-      const res = await consultationApi.callNext(activeDoctorId, queueDate);
+      const response = await consultationService.callNextToken(
+        activeDoctorId,
+        queueDate,
+      );
 
-      if (res.ok && res.data?.appointmentId) {
-        const calledToken = res.data;
-        const postRes = await consultationApi.create({
+      if (response.status === 200 && response.data?.data?.appointmentId) {
+        const calledToken = response.data.data;
+        const postRes = await consultationService.createConsultation({
           appointmentId: calledToken.appointmentId,
         });
-        if (postRes.ok && postRes.data?.id) {
-          saveConsultationMapping(calledToken.appointmentId, postRes.data.id);
-          navigate(`/consultation/${postRes.data.id}`);
+        if (postRes.status === 200 && postRes.data?.data?.id) {
+          saveConsultationMapping(
+            calledToken.appointmentId,
+            postRes.data.data.id,
+          );
+          navigate(`/consultation/${postRes.data.data.id}`);
         } else {
           fetchDoctorQueue();
         }
       } else {
-        setActiveError({ patientName: "—", message: "No patients currently waiting in queue." });
+        setActiveError({
+          patientName: "—",
+          message: "No patients currently waiting in queue.",
+        });
       }
     } finally {
       setActionLoadingId(null);
@@ -276,15 +318,15 @@ export function ConsultationsPage() {
 
   const handleSkip = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await consultationApi.skipToken(tokenId);
-    if (res.ok) fetchDoctorQueue();
+    const response = await consultationService.skipToken(tokenId);
+    if (response.status === 200) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
   const handleRequeue = async (tokenId: string) => {
     setActionLoadingId(tokenId);
-    const res = await consultationApi.requeueToken(tokenId);
-    if (res.ok) fetchDoctorQueue();
+    const response = await consultationService.requeueToken(tokenId);
+    if (response.status === 200) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
@@ -303,7 +345,9 @@ export function ConsultationsPage() {
           <>
             {queueData?.stats && (
               <>
-                <Badge tone="amber" dot>{queueData.stats.inProgress} in progress</Badge>
+                <Badge tone="amber" dot>
+                  {queueData.stats.inProgress} in progress
+                </Badge>
                 <Badge tone="mint">{queueData.stats.completed} completed</Badge>
                 <Badge tone="lagoon">{queueData.stats.waiting} waiting</Badge>
               </>
@@ -316,7 +360,14 @@ export function ConsultationsPage() {
                 fetchDoctorQueue();
                 fetchConsultations();
               }}
-              icon={<RefreshCw className={cn("size-3.5", (loading || loadingQueue) && "animate-spin")} />}
+              icon={
+                <RefreshCw
+                  className={cn(
+                    "size-3.5",
+                    (loading || loadingQueue) && "animate-spin",
+                  )}
+                />
+              }
             >
               Sync
             </Button>
@@ -329,11 +380,20 @@ export function ConsultationsPage() {
           <div className="flex items-start gap-3">
             <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amberly-600" />
             <div>
-              <p className="text-[13px] font-semibold text-amberly-950">Action Alert — {activeError.patientName}</p>
-              <p className="mt-0.5 text-[12px] text-amberly-800">{activeError.message}</p>
+              <p className="text-[13px] font-semibold text-amberly-950">
+                Action Alert — {activeError.patientName}
+              </p>
+              <p className="mt-0.5 text-[12px] text-amberly-800">
+                {activeError.message}
+              </p>
             </div>
           </div>
-          <button onClick={() => setActiveError(null)} className="text-[12px] font-medium text-amberly-700">Dismiss</button>
+          <button
+            onClick={() => setActiveError(null)}
+            className="text-[12px] font-medium text-amberly-700"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -358,42 +418,68 @@ export function ConsultationsPage() {
             <Button
               size="sm"
               onClick={handleCallNext}
-              disabled={actionLoadingId === "call-next" || queueData.stats.waiting === 0}
-              icon={<PhoneCall className={cn("size-3.5", actionLoadingId === "call-next" && "animate-pulse")} />}
+              disabled={
+                actionLoadingId === "call-next" || queueData.stats.waiting === 0
+              }
+              icon={
+                <PhoneCall
+                  className={cn(
+                    "size-3.5",
+                    actionLoadingId === "call-next" && "animate-pulse",
+                  )}
+                />
+              }
             >
               {actionLoadingId === "call-next" ? "Calling…" : "Call Next"}
             </Button>
           </div>
 
-          {currentToken && currentToken.status === TOKEN_STATUSES.IN_PROGRESS && (
-            <div className="mb-3 flex items-center gap-3 rounded-xl border-2 border-brand-300 bg-brand-50/50 p-3">
-              <Avatar name={currentToken.patient?.fullName} size="sm" color="bg-brand-600" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-bold text-brand-900">
-                    [{currentToken.tokenNumber}] {currentToken.patient?.fullName}
-                  </span>
-                  <Badge tone="amber" size="xs" dot>In Consultation</Badge>
+          {currentToken &&
+            currentToken.status === TOKEN_STATUSES.IN_PROGRESS && (
+              <div className="mb-3 flex items-center gap-3 rounded-xl border-2 border-brand-300 bg-brand-50/50 p-3">
+                <Avatar
+                  name={currentToken.patient?.fullName}
+                  size="sm"
+                  color="bg-brand-600"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-bold text-brand-900">
+                      [{currentToken.tokenNumber}]{" "}
+                      {currentToken.patient?.fullName}
+                    </span>
+                    <Badge tone="amber" size="xs" dot>
+                      In Consultation
+                    </Badge>
+                  </div>
                 </div>
+                <button
+                  onClick={() => callAndOpenConsultation(currentToken)}
+                  disabled={actionLoadingId === currentToken.id}
+                  className="rounded-lg bg-brand-600 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700"
+                >
+                  Open Workspace
+                </button>
               </div>
-              <button
-                onClick={() => callAndOpenConsultation(currentToken)}
-                disabled={actionLoadingId === currentToken.id}
-                className="rounded-lg bg-brand-600 px-4 py-1.5 text-[12px] font-semibold text-white hover:bg-brand-700"
-              >
-                Open Workspace
-              </button>
-            </div>
-          )}
+            )}
 
           {waitingTokens.length > 0 && (
             <div className="mb-2 mt-4">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">Waiting ({waitingTokens.length})</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+                Waiting ({waitingTokens.length})
+              </p>
               <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {waitingTokens.map((token: any) => (
-                  <div key={token.id} className="group flex min-w-[17rem] shrink-0 flex-col gap-2 rounded-xl border border-ink-100 bg-white p-3 shadow-sm hover:border-brand-300 transition-colors">
+                  <div
+                    key={token.id}
+                    className="group flex min-w-[17rem] shrink-0 flex-col gap-2 rounded-xl border border-ink-100 bg-white p-3 shadow-sm hover:border-brand-300 transition-colors"
+                  >
                     <div className="flex items-center gap-2.5">
-                      <Avatar name={token.patient?.fullName} size="sm" color="bg-lagoon-500" />
+                      <Avatar
+                        name={token.patient?.fullName}
+                        size="sm"
+                        color="bg-lagoon-500"
+                      />
                       <div className="min-w-0 flex-1">
                         <span className="block truncate text-[12.5px] font-semibold text-ink-900">
                           [{token.tokenNumber}] {token.patient?.fullName}
@@ -424,11 +510,20 @@ export function ConsultationsPage() {
 
           {skippedTokens.length > 0 && (
             <div className="mt-4">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-coral-500">Skipped ({skippedTokens.length})</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-coral-500">
+                Skipped ({skippedTokens.length})
+              </p>
               <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {skippedTokens.map((token: any) => (
-                  <div key={token.id} className="flex min-w-[15rem] shrink-0 items-center gap-2.5 rounded-xl border border-coral-200 bg-coral-50/40 p-2.5">
-                    <Avatar name={token.patient?.fullName} size="xs" color="bg-coral-400" />
+                  <div
+                    key={token.id}
+                    className="flex min-w-[15rem] shrink-0 items-center gap-2.5 rounded-xl border border-coral-200 bg-coral-50/40 p-2.5"
+                  >
+                    <Avatar
+                      name={token.patient?.fullName}
+                      size="xs"
+                      color="bg-coral-400"
+                    />
                     <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink-700">
                       [{token.tokenNumber}] {token.patient?.fullName}
                     </span>
@@ -445,18 +540,25 @@ export function ConsultationsPage() {
             </div>
           )}
 
-          {waitingTokens.length === 0 && skippedTokens.length === 0 && !currentToken && (
-            <div className="text-center py-8">
-              <p className="text-[13px] text-ink-400 font-medium">No queue found for {formatDate(queueDate)}</p>
-            </div>
-          )}
+          {waitingTokens.length === 0 &&
+            skippedTokens.length === 0 &&
+            !currentToken && (
+              <div className="text-center py-8">
+                <p className="text-[13px] text-ink-400 font-medium">
+                  No queue found for {formatDate(queueDate)}
+                </p>
+              </div>
+            )}
         </Panel>
       )}
 
       <Panel>
         <TableToolbar
           search={search}
-          onSearch={(val) => { setSearch(val); setPage(1); }}
+          onSearch={(val) => {
+            setSearch(val);
+            setPage(1);
+          }}
           searchPlaceholder="Search records..."
           filters={
             <Select
@@ -464,8 +566,14 @@ export function ConsultationsPage() {
               className="w-[10rem]"
               name="status"
               value={filters.status}
-              onChange={(v) => { setFilters((f) => ({ ...f, status: v })); setPage(1); }}
-              options={[{ value: "all", label: "Any status" }, ...CONSULTATION_STATUSES.map((s) => ({ value: s, label: s }))]}
+              onChange={(v) => {
+                setFilters((f) => ({ ...f, status: v }));
+                setPage(1);
+              }}
+              options={[
+                { value: "all", label: "Any status" },
+                ...CONSULTATION_STATUSES.map((s) => ({ value: s, label: s })),
+              ]}
             />
           }
         />
@@ -474,23 +582,37 @@ export function ConsultationsPage() {
             {
               key: "consultationNo",
               header: "RECORD",
-              render: (c) => <span className="text-[12.5px] font-semibold text-ink-800">{c.consultationNo || "—"}</span>,
+              render: (c) => (
+                <span className="text-[12.5px] font-semibold text-ink-800">
+                  {c.consultationNo || "—"}
+                </span>
+              ),
             },
             {
               key: "patient",
               header: "PATIENT",
-              render: (c) => <span className="text-[13px] font-semibold">{c.patient?.fullName || "—"}</span>,
+              render: (c) => (
+                <span className="text-[13px] font-semibold">
+                  {c.patient?.fullName || "—"}
+                </span>
+              ),
             },
             {
               key: "provisionalDiagnosis",
               header: "DIAGNOSIS",
-              render: (c) => <span className="text-[12.5px]">{c.provisionalDiagnosis || c.finalDiagnosis || "—"}</span>,
+              render: (c) => (
+                <span className="text-[12.5px]">
+                  {c.provisionalDiagnosis || c.finalDiagnosis || "—"}
+                </span>
+              ),
             },
             {
               key: "status",
               header: "STATUS",
               align: "center",
-              render: (c) => <StatusBadge status={formatStatusForUI(c.status)} />,
+              render: (c) => (
+                <StatusBadge status={formatStatusForUI(c.status)} />
+              ),
             },
           ]}
           rows={consultations}
@@ -500,7 +622,11 @@ export function ConsultationsPage() {
           actions={(c) => (
             <RowActions
               items={[
-                { label: "Open workspace", icon: <Stethoscope />, onClick: () => openWorkspace(c) },
+                {
+                  label: "Open workspace",
+                  icon: <Stethoscope />,
+                  onClick: () => openWorkspace(c),
+                },
                 {
                   label: "Delete",
                   icon: <Trash2 />,
@@ -508,8 +634,9 @@ export function ConsultationsPage() {
                   hidden: !canDelete("consultations"),
                   onClick: async () => {
                     if (confirm("Delete this record?")) {
-                      const res = await consultationApi.remove(c.id);
-                      if (res.ok) fetchConsultations();
+                      const response =
+                        await consultationService.deleteConsultation(c.id);
+                      if (response.status === 200) fetchConsultations();
                     }
                   },
                 },
@@ -524,7 +651,10 @@ export function ConsultationsPage() {
               total={totalItems}
               pageSize={limit}
               onPage={setPage}
-              onPageSize={(s) => { setLimit(s); setPage(1); }}
+              onPageSize={(s) => {
+                setLimit(s);
+                setPage(1);
+              }}
               label="consultations"
             />
           }
@@ -540,12 +670,15 @@ export function ConsultationsPage() {
 const SectionDivider = ({ title }: { title: string }) => (
   <div className="relative flex items-center py-2">
     <div className="flex-grow border-t border-ink-200"></div>
-    <span className="flex-shrink-0 mx-4 text-[10px] font-bold text-ink-400 uppercase tracking-widest">{title}</span>
+    <span className="flex-shrink-0 mx-4 text-[10px] font-bold text-ink-400 uppercase tracking-widest">
+      {title}
+    </span>
     <div className="flex-grow border-t border-ink-200"></div>
   </div>
 );
 
 export function ConsultationWorkspacePage() {
+  const dispatch = useAppDispatch();
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const { canEdit } = usePermission();
@@ -558,13 +691,9 @@ export function ConsultationWorkspacePage() {
   const [completing, setCompleting] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [cardTab, setCardTab] = useState<"details" | "history">("details");
-  const hospital = useAppSelector((state) => state.hospital.data);
-  const dispatchHospital = useAppDispatch();
-
-  // facility profile for the print sheet (guarded shared data, §16)
-  useEffect(() => {
-    dispatchHospital(fetchHospital() as any);
-  }, [dispatchHospital]);
+  // The facility-profile endpoint is not part of this backend build, so the
+  // print sheet renders with its generic header.
+  const hospital: any = null;
 
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
@@ -597,9 +726,9 @@ export function ConsultationWorkspacePage() {
     if (!id) return;
     setLoadingRecord(true);
     try {
-      const res = await consultationApi.getById(id);
-      if (!res.ok) throw new Error("Failed");
-      const d = res.data;
+      const response = await consultationService.fetchConsultationById(id);
+      if (response.status !== 200) throw new Error("Failed");
+      const d = response.data?.data;
       setRecord(d);
 
       form.setValues({
@@ -632,29 +761,41 @@ export function ConsultationWorkspacePage() {
   }, [id]);
 
   // Fetch Vitals data separately
-  const fetchVitals = useCallback(async (appointmentId: string) => {
-    try {
-      const res = await consultationApi.getVitalsByAppointment(appointmentId);
-      if (!res.ok || !res.data) return;
-      setVitalsId(res.data.id || null);
-      form.setValues((prev) => ({
-        ...prev,
-        bp: formatBpFromApi(res.data.bloodPressureSys, res.data.bloodPressureDia),
-        pulse: res.data.pulseRate != null ? String(res.data.pulseRate) : "",
-        temp: fahrenheitToCelsius(res.data.temperatureF),
-        weight: res.data.weightKg != null ? String(res.data.weightKg) : "",
-        spo2: res.data.spo2 != null ? String(res.data.spo2) : (res.data.spO2 != null ? String(res.data.spO2) : ""),
-      }));
-    } catch {}
-  }, []);
+  const loadVitals = useCallback(
+    async (appointmentId: string) => {
+      try {
+        const response =
+          await consultationService.fetchVitalsByAppointment(appointmentId);
+        const vitals = response.data?.data;
+        if (response.status !== 200 || !vitals) return;
+        setVitalsId(vitals.id || null);
+        form.setValues((prev) => ({
+          ...prev,
+          bp: formatBpFromApi(vitals.bloodPressureSys, vitals.bloodPressureDia),
+          pulse: vitals.pulseRate != null ? String(vitals.pulseRate) : "",
+          temp: fahrenheitToCelsius(vitals.temperatureF),
+          weight: vitals.weightKg != null ? String(vitals.weightKg) : "",
+          spo2:
+            vitals.spo2 != null
+              ? String(vitals.spo2)
+              : vitals.spO2 != null
+                ? String(vitals.spO2)
+                : "",
+        }));
+      } catch (e: any) {
+        dispatch(toast.error("Could not load consultation", e?.message));
+      }
+    },
+    [dispatch],
+  );
 
   useEffect(() => {
     fetchConsultationById();
   }, [fetchConsultationById]);
 
   useEffect(() => {
-    if (record?.appointmentId) fetchVitals(record.appointmentId);
-  }, [record?.appointmentId, fetchVitals]);
+    if (record?.appointmentId) loadVitals(record.appointmentId);
+  }, [record?.appointmentId, loadVitals]);
 
   /* ==========================================================================
      DEBUNCED AUTO-SAVE LOGIC (Best Practice)
@@ -669,7 +810,7 @@ export function ConsultationWorkspacePage() {
         followUpDate: values.followUpDate || null,
       };
 
-      await consultationApi.updateNote(consultationId, payload);
+      await consultationService.updateConsultationNote(consultationId, payload);
     }, 1500),
     [],
   );
@@ -697,15 +838,20 @@ export function ConsultationWorkspacePage() {
     try {
       // 1. Save consultation note — only the properties the backend's
       //    validation accepts (extra fields get a 400 back).
-      const consultRes = await consultationApi.updateNote(record.id, {
-        chiefComplaints: form.values.chiefComplaint || "",
-        provisionalDiagnosis: form.values.diagnosis || "",
-        specialInstructions: form.values.advice || "",
-        followUpDate: form.values.followUpDate || null,
-      });
+      const consultRes = await consultationService.updateConsultationNote(
+        record.id,
+        {
+          chiefComplaints: form.values.chiefComplaint || "",
+          provisionalDiagnosis: form.values.diagnosis || "",
+          specialInstructions: form.values.advice || "",
+          followUpDate: form.values.followUpDate || null,
+        },
+      );
 
-      if (!consultRes.ok) {
-        setErrorBanner(consultRes.error || "Failed to update consultation.");
+      if (consultRes.status !== 200) {
+        setErrorBanner(
+          consultRes.data?.message || "Failed to update consultation.",
+        );
         return false;
       }
 
@@ -728,13 +874,13 @@ export function ConsultationWorkspacePage() {
         if (!isNaN(weight)) vitalsPayload.weightKg = weight;
         if (!isNaN(spo2)) vitalsPayload.spo2 = spo2;
 
-        const vitalsRes = await consultationApi.saveVitals(
+        const vitalsRes = await consultationService.saveVitals(
           vitalsPayload,
           vitalsId,
         );
 
-        if (vitalsRes.ok && vitalsRes.data?.id) {
-          setVitalsId(vitalsRes.data.id);
+        if (vitalsRes.status === 200 && vitalsRes.data?.data?.id) {
+          setVitalsId(vitalsRes.data.data.id);
         }
       }
 
@@ -748,14 +894,19 @@ export function ConsultationWorkspacePage() {
           mealRelation: line.instructions || "AFTER_FOOD",
         };
         if (line.id.startsWith("rx_"))
-          await consultationApi.addPrescriptionLine(record.id, py);
+          await consultationService.addPrescriptionLine(record.id, py);
         else
-          await consultationApi.updatePrescriptionLine(record.id, line.id, py);
+          await consultationService.updatePrescriptionLine(
+            record.id,
+            line.id,
+            py,
+          );
       }
 
       return true;
     } catch (err: any) {
       setErrorBanner(err.message || "Something went wrong during save.");
+      dispatch(toast.error("Could not save consultation", err?.message));
       return false;
     } finally {
       setSaving(false);
@@ -767,7 +918,9 @@ export function ConsultationWorkspacePage() {
 
     // Business Logic pre-checks: Diagnosis is structurally required to finish
     if (!form.values.diagnosis?.trim()) {
-      setErrorBanner("Diagnosis is mandatory before completing the consultation.");
+      setErrorBanner(
+        "Diagnosis is mandatory before completing the consultation.",
+      );
       return;
     }
 
@@ -777,17 +930,51 @@ export function ConsultationWorkspacePage() {
     setCompleting(true);
     try {
       await handleSaveNote();
-      const res = await consultationApi.complete(record.id);
-      if (res.ok) navigate("/consultations");
+      const response = await consultationService.completeConsultation(
+        record.id,
+      );
+      if (response.status === 200) navigate("/consultations");
     } finally {
       setCompleting(false);
     }
   };
 
   if (loadingRecord) {
+    // The workspace is this page's own data: a layout-shaped skeleton, never
+    // the global loader (the rest of the shell stays interactive).
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <p className="text-[13px] text-ink-400">Loading consultation workspace...</p>
+      <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-56" />
+            <Skeleton className="h-2.5 w-72" />
+          </div>
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="space-y-4">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-ink-100 bg-white p-4"
+              >
+                <Skeleton className="h-3 w-36" />
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {[0, 1, 2, 3].map((f) => (
+                    <div key={f} className="space-y-2">
+                      <Skeleton className="h-2.5 w-24" />
+                      <Skeleton className="h-10 w-full rounded-lg" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-ink-100 bg-white p-4">
+            <Skeleton className="h-3 w-28" />
+            <ListSkeleton rows={5} className="mt-3" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -806,7 +993,8 @@ export function ConsultationWorkspacePage() {
   const bloodType = patient.bloodGroup || "O-";
   const allergies = patient.allergies || "Peanuts";
   const chronic = patient.chronic || "Hypertension";
-  const emergencyContact = patient.emergencyContact || "Mariam Kimura - +91 977453 56829";
+  const emergencyContact =
+    patient.emergencyContact || "Mariam Kimura - +91 977453 56829";
 
   return (
     <div className="min-h-screen bg-[#F4F8F9] font-sans text-ink-900 pb-12 print:bg-white print:pb-0">
@@ -821,12 +1009,15 @@ export function ConsultationWorkspacePage() {
           </button>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-ink-950">
-              Consultation {record.consultationNo || `CNS-${record.id?.slice(0, 4).toUpperCase()}`}
+              Consultation{" "}
+              {record.consultationNo ||
+                `CNS-${record.id?.slice(0, 4).toUpperCase()}`}
             </h1>
           </div>
           <div className="flex items-center gap-2 mt-1.5">
             <span className="text-[13px] font-medium text-ink-500">
-              {formatDate(record.startedAt || new Date())} - {formatTime(record.startedAt || new Date())}
+              {formatDate(record.startedAt || new Date())} -{" "}
+              {formatTime(record.startedAt || new Date())}
             </span>
             <span className="text-ink-300">•</span>
             <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
@@ -876,10 +1067,17 @@ export function ConsultationWorkspacePage() {
               <AlertTriangle className="mt-0.5 size-5 shrink-0 text-coral-600" />
               <div>
                 <p className="text-[13px] font-bold">Action Blocked</p>
-                <p className="mt-0.5 text-[12px] font-medium text-coral-800">{errorBanner}</p>
+                <p className="mt-0.5 text-[12px] font-medium text-coral-800">
+                  {errorBanner}
+                </p>
               </div>
             </div>
-            <button onClick={() => setErrorBanner(null)} className="text-[12px] font-semibold text-coral-700">Dismiss</button>
+            <button
+              onClick={() => setErrorBanner(null)}
+              className="text-[12px] font-semibold text-coral-700"
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       )}
@@ -897,12 +1095,22 @@ export function ConsultationWorkspacePage() {
                 className="h-12 w-12 rounded-lg bg-[#1D6C63] text-white font-bold text-lg"
               />
               <div>
-                <h2 className="text-base font-bold text-ink-900 leading-tight">{patient.fullName || "Unknown Patient"}</h2>
-                <p className="text-[11px] text-ink-500 font-medium mt-0.5">{patientId}</p>
+                <h2 className="text-base font-bold text-ink-900 leading-tight">
+                  {patient.fullName || "Unknown Patient"}
+                </h2>
+                <p className="text-[11px] text-ink-500 font-medium mt-0.5">
+                  {patientId}
+                </p>
                 <div className="flex gap-1.5 mt-1.5">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">{bloodType}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">{patient.gender || "U"}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">{patient.age || "-"} yrs</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">
+                    {bloodType}
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">
+                    {patient.gender || "U"}
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-ink-200 text-ink-600 bg-ink-50">
+                    {patient.age || "-"} yrs
+                  </span>
                 </div>
               </div>
             </div>
@@ -919,7 +1127,9 @@ export function ConsultationWorkspacePage() {
                   onClick={() => setCardTab(t.key)}
                   className={cn(
                     "flex-1 rounded-md py-1.5 text-[11.5px] font-semibold transition-colors",
-                    cardTab === t.key ? "bg-white text-[#1D6C63] shadow-sm" : "text-ink-500 hover:text-ink-800",
+                    cardTab === t.key
+                      ? "bg-white text-[#1D6C63] shadow-sm"
+                      : "text-ink-500 hover:text-ink-800",
                   )}
                 >
                   {t.label}
@@ -932,26 +1142,37 @@ export function ConsultationWorkspacePage() {
                 <div className="space-y-3 text-[12px]">
                   <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
                     <span className="text-ink-500 font-medium">Allergies</span>
-                    <span className="text-coral-600 font-semibold text-right">{allergies}</span>
+                    <span className="text-coral-600 font-semibold text-right">
+                      {allergies}
+                    </span>
                   </div>
                   <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
                     <span className="text-ink-500 font-medium">Chronic</span>
-                    <span className="text-ink-900 font-medium text-right">{chronic}</span>
+                    <span className="text-ink-900 font-medium text-right">
+                      {chronic}
+                    </span>
                   </div>
                   <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
                     <span className="text-ink-500 font-medium">Emergency</span>
-                    <span className="text-ink-900 font-medium text-right text-[11px] whitespace-pre-line">{emergencyContact}</span>
+                    <span className="text-ink-900 font-medium text-right text-[11px] whitespace-pre-line">
+                      {emergencyContact}
+                    </span>
                   </div>
                   <div className="grid grid-cols-[80px_1fr] gap-2 items-start">
                     <span className="text-ink-500 font-medium">Contact</span>
-                    <span className="text-ink-900 font-medium text-right">{patient.phone || "+91 982708 66766"}</span>
+                    <span className="text-ink-900 font-medium text-right">
+                      {patient.phone || "+91 982708 66766"}
+                    </span>
                   </div>
                   <button className="w-full mt-2 py-2 border border-ink-200 rounded-lg text-[12px] font-semibold text-ink-700 hover:bg-ink-50 transition-colors">
                     Open full chart
                   </button>
                 </div>
               ) : (
-                <PatientHistoryPanel patientKey={patient.id} currentId={record?.id} />
+                <PatientHistoryPanel
+                  patientKey={patient.id}
+                  currentId={record?.id}
+                />
               )}
             </div>
           </div>
@@ -959,24 +1180,42 @@ export function ConsultationWorkspacePage() {
           {/* Visit Context */}
           <div className="bg-white rounded-xl border border-ink-200 p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
-              <div className="p-1.5 rounded-md bg-teal-50 text-[#1D6C63]"><ClipboardList className="size-4" /></div>
-              <h3 className="text-[13px] font-bold text-ink-900">Visit context</h3>
+              <div className="p-1.5 rounded-md bg-teal-50 text-[#1D6C63]">
+                <ClipboardList className="size-4" />
+              </div>
+              <h3 className="text-[13px] font-bold text-ink-900">
+                Visit context
+              </h3>
             </div>
             <div className="space-y-4 text-[12px]">
               <div>
-                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">Doctor</p>
-                <p className="font-medium text-ink-900">Dr. {doctor.firstName || ""} {doctor.lastName || ""}</p>
+                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">
+                  Doctor
+                </p>
+                <p className="font-medium text-ink-900">
+                  Dr. {doctor.firstName || ""} {doctor.lastName || ""}
+                </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">Fee</p>
-                <p className="font-medium text-ink-900">₹{record.fee || "1,200"}</p>
+                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">
+                  Fee
+                </p>
+                <p className="font-medium text-ink-900">
+                  ₹{record.fee || "1,200"}
+                </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">Appointment</p>
-                <p className="font-medium text-ink-900">APT-{record.appointmentId?.slice(0, 4) || "9076"}</p>
+                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">
+                  Appointment
+                </p>
+                <p className="font-medium text-ink-900">
+                  APT-{record.appointmentId?.slice(0, 4) || "9076"}
+                </p>
               </div>
               <div>
-                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">Type</p>
+                <p className="text-[10px] font-bold text-ink-400 uppercase tracking-wide mb-0.5">
+                  Type
+                </p>
                 <p className="font-medium text-ink-900">In-Person</p>
               </div>
             </div>
@@ -985,12 +1224,16 @@ export function ConsultationWorkspacePage() {
           {/* Vitals */}
           <div className="bg-white rounded-xl border border-ink-200 p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
-              <div className="p-1.5 rounded-md bg-teal-50 text-[#1D6C63]"><HeartPulse className="size-4" /></div>
+              <div className="p-1.5 rounded-md bg-teal-50 text-[#1D6C63]">
+                <HeartPulse className="size-4" />
+              </div>
               <h3 className="text-[13px] font-bold text-ink-900">Vitals</h3>
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-4">
               <div>
-                <label className="block text-[11px] font-semibold text-ink-500 mb-1">Blood pressure</label>
+                <label className="block text-[11px] font-semibold text-ink-500 mb-1">
+                  Blood pressure
+                </label>
                 <input
                   className="w-full border border-ink-200 rounded-md px-2.5 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
                   placeholder="120/80"
@@ -1000,7 +1243,9 @@ export function ConsultationWorkspacePage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-ink-500 mb-1">Pulse <span className="text-[10px] font-normal">/min</span></label>
+                <label className="block text-[11px] font-semibold text-ink-500 mb-1">
+                  Pulse <span className="text-[10px] font-normal">/min</span>
+                </label>
                 <input
                   className="w-full border border-ink-200 rounded-md px-2.5 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
                   placeholder="72"
@@ -1010,7 +1255,9 @@ export function ConsultationWorkspacePage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-ink-500 mb-1">Temp <span className="text-[10px] font-normal">°C</span></label>
+                <label className="block text-[11px] font-semibold text-ink-500 mb-1">
+                  Temp <span className="text-[10px] font-normal">°C</span>
+                </label>
                 <input
                   className="w-full border border-ink-200 rounded-md px-2.5 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
                   placeholder="36.8"
@@ -1020,7 +1267,9 @@ export function ConsultationWorkspacePage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-ink-500 mb-1">SpO₂ <span className="text-[10px] font-normal">%</span></label>
+                <label className="block text-[11px] font-semibold text-ink-500 mb-1">
+                  SpO₂ <span className="text-[10px] font-normal">%</span>
+                </label>
                 <input
                   className="w-full border border-ink-200 rounded-md px-2.5 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
                   placeholder="98"
@@ -1030,7 +1279,9 @@ export function ConsultationWorkspacePage() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-ink-500 mb-1">Weight <span className="text-[10px] font-normal">kg</span></label>
+                <label className="block text-[11px] font-semibold text-ink-500 mb-1">
+                  Weight <span className="text-[10px] font-normal">kg</span>
+                </label>
                 <input
                   className="w-full border border-ink-200 rounded-md px-2.5 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
                   placeholder="64"
@@ -1049,18 +1300,24 @@ export function ConsultationWorkspacePage() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Chief complaint <span className="text-coral-500">*</span></label>
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Chief complaint <span className="text-coral-500">*</span>
+              </label>
               <textarea
                 className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
                 placeholder="Presenting concern, duration, severity..."
                 value={form.values.chiefComplaint}
-                onChange={(e) => handleSoapChange("chiefComplaint", e.target.value)}
+                onChange={(e) =>
+                  handleSoapChange("chiefComplaint", e.target.value)
+                }
                 disabled={readOnly}
               />
             </div>
 
             <div>
-              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Symptoms & history</label>
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Symptoms & history
+              </label>
               <textarea
                 className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
                 placeholder="Onset, aggravating factors, prior treatment, medications..."
@@ -1076,7 +1333,9 @@ export function ConsultationWorkspacePage() {
           <SectionDivider title="Objective" />
 
           <div>
-            <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Physical examination</label>
+            <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+              Physical examination
+            </label>
             <textarea
               className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
               placeholder="Systemic examination, findings, investigations reviewed..."
@@ -1089,7 +1348,9 @@ export function ConsultationWorkspacePage() {
           </div>
 
           <div className="mt-4">
-            <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Diagnosis / impression <span className="text-coral-500">*</span></label>
+            <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+              Diagnosis / impression <span className="text-coral-500">*</span>
+            </label>
             <textarea
               className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[60px]"
               placeholder="Provisional or confirmed diagnosis"
@@ -1102,7 +1363,9 @@ export function ConsultationWorkspacePage() {
           <SectionDivider title="Prescription" />
 
           <div className="mb-2">
-            <p className="text-[12px] text-ink-500 text-center mb-4">Add medicines with dosage, frequency and duration</p>
+            <p className="text-[12px] text-ink-500 text-center mb-4">
+              Add medicines with dosage, frequency and duration
+            </p>
 
             {rx.length === 0 ? (
               <div className="border border-dashed border-ink-300 rounded-lg py-6 text-center text-[12px] text-ink-400 font-medium bg-ink-50/50">
@@ -1111,7 +1374,10 @@ export function ConsultationWorkspacePage() {
             ) : (
               <div className="space-y-3">
                 {rx.map((line) => (
-                  <div key={line.id} className="flex gap-3 items-start p-3 border border-ink-100 rounded-lg bg-ink-50/30 relative group">
+                  <div
+                    key={line.id}
+                    className="flex gap-3 items-start p-3 border border-ink-100 rounded-lg bg-ink-50/30 relative group"
+                  >
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
                       <div className="md:col-span-5">
                         <input
@@ -1120,7 +1386,13 @@ export function ConsultationWorkspacePage() {
                           value={line.medicine}
                           disabled={readOnly}
                           onChange={(e) =>
-                            setRx((p) => p.map((r) => r.id === line.id ? { ...r, medicine: e.target.value } : r))
+                            setRx((p) =>
+                              p.map((r) =>
+                                r.id === line.id
+                                  ? { ...r, medicine: e.target.value }
+                                  : r,
+                              ),
+                            )
                           }
                         />
                       </div>
@@ -1131,7 +1403,13 @@ export function ConsultationWorkspacePage() {
                           value={line.dosage}
                           disabled={readOnly}
                           onChange={(e) =>
-                            setRx((p) => p.map((r) => r.id === line.id ? { ...r, dosage: e.target.value } : r))
+                            setRx((p) =>
+                              p.map((r) =>
+                                r.id === line.id
+                                  ? { ...r, dosage: e.target.value }
+                                  : r,
+                              ),
+                            )
                           }
                         />
                       </div>
@@ -1142,7 +1420,13 @@ export function ConsultationWorkspacePage() {
                           value={line.frequency}
                           disabled={readOnly}
                           onChange={(e) =>
-                            setRx((p) => p.map((r) => r.id === line.id ? { ...r, frequency: e.target.value } : r))
+                            setRx((p) =>
+                              p.map((r) =>
+                                r.id === line.id
+                                  ? { ...r, frequency: e.target.value }
+                                  : r,
+                              ),
+                            )
                           }
                         />
                       </div>
@@ -1153,7 +1437,13 @@ export function ConsultationWorkspacePage() {
                           value={line.duration}
                           disabled={readOnly}
                           onChange={(e) =>
-                            setRx((p) => p.map((r) => r.id === line.id ? { ...r, duration: e.target.value } : r))
+                            setRx((p) =>
+                              p.map((r) =>
+                                r.id === line.id
+                                  ? { ...r, duration: e.target.value }
+                                  : r,
+                              ),
+                            )
                           }
                         />
                       </div>
@@ -1164,14 +1454,22 @@ export function ConsultationWorkspacePage() {
                           value={line.instructions}
                           disabled={readOnly}
                           onChange={(e) =>
-                            setRx((p) => p.map((r) => r.id === line.id ? { ...r, instructions: e.target.value } : r))
+                            setRx((p) =>
+                              p.map((r) =>
+                                r.id === line.id
+                                  ? { ...r, instructions: e.target.value }
+                                  : r,
+                              ),
+                            )
                           }
                         />
                       </div>
                     </div>
                     {!readOnly && (
                       <button
-                        onClick={() => setRx((p) => p.filter((r) => r.id !== line.id))}
+                        onClick={() =>
+                          setRx((p) => p.filter((r) => r.id !== line.id))
+                        }
                         className="text-coral-400 hover:text-coral-600 p-1.5 bg-white border border-transparent hover:border-coral-200 rounded-md transition-colors print:hidden"
                       >
                         <Trash2 className="size-4" />
@@ -1187,7 +1485,14 @@ export function ConsultationWorkspacePage() {
                 onClick={() =>
                   setRx((p) => [
                     ...p,
-                    { id: idGen("rx"), medicine: "", dosage: "", frequency: "", duration: "", instructions: "" },
+                    {
+                      id: idGen("rx"),
+                      medicine: "",
+                      dosage: "",
+                      frequency: "",
+                      duration: "",
+                      instructions: "",
+                    },
                   ])
                 }
                 className="mt-3 text-[12px] font-semibold text-ink-600 hover:text-[#1D6C63] flex items-center gap-1.5 py-1.5 px-3 border border-ink-200 rounded-md bg-white hover:bg-teal-50 transition-colors print:hidden"
@@ -1202,7 +1507,9 @@ export function ConsultationWorkspacePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="md:col-span-3 space-y-4">
               <div>
-                <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Advice & lifestyle guidance</label>
+                <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                  Advice & lifestyle guidance
+                </label>
                 <textarea
                   className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[80px]"
                   placeholder="Diet, activity, red-flag symptoms, investigations advised..."
@@ -1212,7 +1519,12 @@ export function ConsultationWorkspacePage() {
                 />
               </div>
               <div className="print:hidden">
-                <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Internal notes <span className="text-[10px] font-normal text-ink-400">(not printed)</span></label>
+                <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                  Internal notes{" "}
+                  <span className="text-[10px] font-normal text-ink-400">
+                    (not printed)
+                  </span>
+                </label>
                 <textarea
                   className="w-full border border-ink-200 rounded-lg p-3 text-[13px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-[#1D6C63] focus:ring-1 focus:ring-[#1D6C63] resize-y min-h-[60px] bg-amber-50/30"
                   placeholder="Referrals, coding notes, insurance remarks..."
@@ -1226,14 +1538,18 @@ export function ConsultationWorkspacePage() {
             </div>
 
             <div className="md:col-span-1">
-              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">Follow-up date</label>
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Follow-up date
+              </label>
               <div className="relative">
                 <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-ink-400" />
                 <input
                   type="date"
                   className="w-full border border-ink-200 rounded-lg pl-9 pr-3 py-2 text-[13px] text-ink-900 focus:outline-none focus:border-[#1D6C63]"
                   value={form.values.followUpDate}
-                  onChange={(e) => handleSoapChange("followUpDate", e.target.value)}
+                  onChange={(e) =>
+                    handleSoapChange("followUpDate", e.target.value)
+                  }
                   disabled={readOnly}
                 />
               </div>
@@ -1259,44 +1575,80 @@ export function ConsultationWorkspacePage() {
 /* ==========================================================================
    Patient history panel
    ========================================================================== */
-function PatientHistoryPanel({ patientKey, currentId }: { patientKey?: string; currentId?: string }) {
-  const navigate = useNavigate();
+function PatientHistoryPanel({
+  patientKey,
+  currentId,
+}: {
+  patientKey?: string;
+  currentId?: string;
+}) {
   const dispatch = useAppDispatch();
-  const history = useAppSelector(
-    (s: any) => s.consultationsHistory.patientHistory,
-  );
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  /** previous visits of this patient — page data, loaded when the tab opens */
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!patientKey) return;
-    dispatch(fetchPatientHistory(patientKey) as any);
-  }, [patientKey, dispatch]);
+    let active = true;
+    (async () => {
+      try {
+        setHistoryLoading(true);
+        setHistoryError(null);
+        const response =
+          await consultationService.fetchPatientHistory(patientKey);
+        if (active && response.status === 200) {
+          setHistory(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active) {
+          setHistoryError(e?.message ?? "Could not load history");
+          dispatch(toast.error("Could not load history", e?.message));
+        }
+      } finally {
+        if (active) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [patientKey]);
 
-  const rows = (history?.items ?? [])
+  const rows = history
     .filter((c: any) => String(c.id) !== String(currentId))
     .sort(
       (a: any, b: any) =>
         new Date(b.consultationDate || b.createdAt || 0).getTime() -
         new Date(a.consultationDate || a.createdAt || 0).getTime(),
     );
-  const status = history?.status ?? "loading";
+  const status = historyLoading ? "loading" : historyError ? "error" : "ready";
 
   if (status === "loading") {
-    return (
-      <div className="space-y-2">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-16 animate-pulse rounded-lg bg-ink-100" />
-        ))}
-      </div>
-    );
+    return <ListSkeleton rows={3} withMeta={false} />;
   }
 
   if (status === "error") {
-    return <EmptyState compact icon={<AlertTriangle className="size-4" />} title="Could not load history" />;
+    return (
+      <EmptyState
+        compact
+        icon={<AlertTriangle className="size-4" />}
+        title="Could not load history"
+      />
+    );
   }
 
   if (rows.length === 0) {
-    return <EmptyState compact icon={<History className="size-4" />} title="No previous visits" description="This is the patient's first consultation." />;
+    return (
+      <EmptyState
+        compact
+        icon={<History className="size-4" />}
+        title="No previous visits"
+        description="This is the patient's first consultation."
+      />
+    );
   }
 
   return (
@@ -1309,37 +1661,65 @@ function PatientHistoryPanel({ patientKey, currentId }: { patientKey?: string; c
             key={c.id}
             className={cn(
               "rounded-lg border transition-colors",
-              isOpen ? "border-[#1D6C63]/30 bg-teal-50/30" : "border-ink-200 bg-white",
+              isOpen
+                ? "border-[#1D6C63]/30 bg-teal-50/30"
+                : "border-ink-200 bg-white",
             )}
           >
-            <button onClick={() => setExpanded(isOpen ? null : String(c.id))} className="w-full p-3 text-left">
+            <button
+              onClick={() => setExpanded(isOpen ? null : String(c.id))}
+              className="w-full p-3 text-left"
+            >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11.5px] font-bold text-ink-900">{formatDate(c.consultationDate || c.createdAt)}</span>
-                <span className="text-[10px] font-semibold text-[#1D6C63]">{isOpen ? "Hide" : "View"}</span>
+                <span className="text-[11.5px] font-bold text-ink-900">
+                  {formatDate(c.consultationDate || c.createdAt)}
+                </span>
+                <span className="text-[10px] font-semibold text-[#1D6C63]">
+                  {isOpen ? "Hide" : "View"}
+                </span>
               </div>
-              <p className="mt-1 text-[12px] font-medium text-ink-900 leading-snug">{c.provisionalDiagnosis || c.finalDiagnosis || "—"}</p>
+              <p className="mt-1 text-[12px] font-medium text-ink-900 leading-snug">
+                {c.provisionalDiagnosis || c.finalDiagnosis || "—"}
+              </p>
               <p className="mt-0.5 text-[10.5px] text-ink-500">
                 Dr. {c.doctor?.firstName || ""} {c.doctor?.lastName || ""}
-                {meds.length > 0 && ` · ${meds.length} med${meds.length > 1 ? "s" : ""}`}
+                {meds.length > 0 &&
+                  ` · ${meds.length} med${meds.length > 1 ? "s" : ""}`}
               </p>
             </button>
 
             {isOpen && (
               <div className="border-t border-ink-200/70 p-3 space-y-2.5 text-[11.5px]">
-                <HistoryField label="Chief complaint" value={c.chiefComplaints} />
+                <HistoryField
+                  label="Chief complaint"
+                  value={c.chiefComplaints}
+                />
                 <HistoryField label="History" value={c.history} />
                 <HistoryField label="Examination" value={c.examination} />
                 <HistoryField label="Advice" value={c.specialInstructions} />
 
                 {meds.length > 0 && (
                   <div>
-                    <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-1">Prescription</p>
+                    <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-1">
+                      Prescription
+                    </p>
                     <div className="space-y-1">
                       {meds.map((m: any, i: number) => (
-                        <div key={m.id ?? i} className="rounded-md border border-ink-100 bg-white px-2 py-1.5">
-                          <p className="font-medium text-ink-900">{m.medicineName}</p>
+                        <div
+                          key={m.id ?? i}
+                          className="rounded-md border border-ink-100 bg-white px-2 py-1.5"
+                        >
+                          <p className="font-medium text-ink-900">
+                            {m.medicineName}
+                          </p>
                           <p className="text-[10.5px] text-ink-500">
-                            {[m.dosage, m.frequency, m.durationDays && `${m.durationDays} days`].filter(Boolean).join(" · ")}
+                            {[
+                              m.dosage,
+                              m.frequency,
+                              m.durationDays && `${m.durationDays} days`,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </p>
                         </div>
                       ))}
@@ -1366,7 +1746,9 @@ function HistoryField({ label, value }: { label: string; value?: string }) {
   if (!value) return null;
   return (
     <div>
-      <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-0.5">{label}</p>
+      <p className="text-[9.5px] font-bold uppercase tracking-wide text-ink-400 mb-0.5">
+        {label}
+      </p>
       <p className="text-ink-800 leading-snug whitespace-pre-line">{value}</p>
     </div>
   );

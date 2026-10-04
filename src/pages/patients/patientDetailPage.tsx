@@ -13,16 +13,18 @@ import {
   Button,
   Badge,
 } from "@/components/ui/primitives";
+import { ListSkeleton, Skeleton } from "@/components/ui/feedback";
 import { DataTable } from "@/components/ui/table";
-import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { Patient } from "@/types";
-import { fetchPatient, fetchPatients } from "@/store/slices/patientSlice";
-import { fetchAppointments } from "@/store/slices/appointmentSlice";
-import { fetchConsultations } from "@/store/slices/consultationSlice";
-import { fetchDoctors } from "@/store/slices/doctorSlice";
-import { fetchDepartments } from "@/store/slices/departmentSlice";
-import { fetchInvoices } from "@/store/slices/billingSlice";
+import { patientService } from "@/pages/patients/patient.service";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { consultationService } from "@/pages/consultations/consultation.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { departmentService } from "@/pages/Departments/department.service";
+import { billingService } from "@/pages/billing/billing.service";
 import { fullName, formatDate, calcAge, formatMoney } from "@/utils";
 import { cn } from "@/utils/cn";
 import {
@@ -33,65 +35,137 @@ import {
   Heart,
   Stethoscope,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 export function PatientDetailPage() {
+  const dispatch = useAppDispatch();
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const dispatch = useAppDispatch();
-  const patients = useAppSelector((s) => s.patients.items);
-  const appointments = useAppSelector((s) => s.appointments.items);
-  const consultations = useAppSelector((s) => s.consultations.items);
-  const invoices = useAppSelector((s) => s.invoices.items);
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const departments = useAppSelector((s) => s.departments.items);
   const { canCreate } = usePermission();
   const [tab, setTab] = useState("overview");
-  const [isLoadingPatient, setIsLoadingPatient] = useState(true);
-  const fetchedPatientId = useRef<string | null>(null);
-
-  const patient = patients.find((p: any) => String(p.id) === id) as
-    | Patient
-    | undefined;
 
   /**
-   * Every shared collection this page renders comes from Redux, so the page
-   * asks for each one through its guarded thunk (doc §16): already-loaded
-   * datasets cost nothing, and the shell/Dashboard have usually loaded them
-   * already. The patient record itself is a page-scoped detail fetch.
+   * Everything this page renders is loaded here, through the feature services,
+   * into local state. There is no shared cache and no bootstrap step: opening
+   * the profile asks the backend for the patient plus the four collections the
+   * tabs display, and nothing else.
    */
+  const [patient, setPatient] = useState<Patient | undefined>(undefined);
+  const [isLoadingPatient, setIsLoadingPatient] = useState(false);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+
+  /** the patient record of this route */
   useEffect(() => {
-    dispatch(fetchPatients() as any);
-    dispatch(fetchAppointments() as any);
-    dispatch(fetchConsultations() as any);
-    dispatch(fetchInvoices() as any);
-    dispatch(fetchDoctors() as any);
-    dispatch(fetchDepartments() as any);
-  }, [dispatch]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    if (!id) {
-      setIsLoadingPatient(false);
-      return;
-    }
-    if (fetchedPatientId.current === id) return;
-    fetchedPatientId.current = id;
-
-    setIsLoadingPatient(true);
-    dispatch(fetchPatient(id) as any)
-      .unwrap()
-      .catch(() => undefined)
-      .finally(() => {
-        if (mounted) setIsLoadingPatient(false);
-      });
-
+    if (!id) return;
+    let active = true;
+    (async () => {
+      try {
+        setIsLoadingPatient(true);
+        const response = await patientService.fetchPatientById(id);
+        const body: any = response.data ?? {};
+        if (active && response.status === 200) {
+          setPatient((body.data ?? body) as Patient);
+        }
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load patient", e?.message));
+      } finally {
+        if (active) setIsLoadingPatient(false);
+      }
+    })();
     return () => {
-      mounted = false;
+      active = false;
     };
-  }, [dispatch, id]);
+  }, [id, dispatch]);
+
+  /** the collections the tabs of this page render */
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load appointments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await consultationService.fetchConsultations();
+        if (active && response.status === 200) {
+          setConsultations(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load consultations", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await billingService.fetchInvoices();
+        if (active && response.status === 200) {
+          setInvoices(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load invoices", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await doctorService.fetchDoctors();
+        if (active && response.status === 200)
+          setDoctors(response.data?.data ?? []);
+      } catch (e: any) {
+        dispatch(toast.error("Could not load doctors", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await departmentService.fetchDepartments();
+        if (active && response.status === 200) {
+          setDepartments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        dispatch(toast.error("Could not load departments", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const doctorMap = new Map(doctors.map((d: any) => [d.id, d]));
   const myAppointments = appointments.filter((a: any) => a.patientId === id);
@@ -119,12 +193,34 @@ export function PatientDetailPage() {
   );
 
   if (!patient && isLoadingPatient) {
+    // Patient detail is this page's own data: skeleton, not a global loader.
     return (
-      <SectionPanel title="Loading patient" icon={<UserRound />}>
-        <p className="py-10 text-center text-[13px] text-ink-400">
-          Loading patient record...
-        </p>
-      </SectionPanel>
+      <div className="space-y-4">
+        <SectionPanel title="Patient record" icon={<UserRound />}>
+          <div className="flex items-center gap-4 py-2">
+            <Skeleton className="size-14 rounded-2xl" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-2.5 w-64" />
+            </div>
+          </div>
+        </SectionPanel>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-ink-100 bg-white p-4"
+            >
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-3 h-3.5 w-2/3" />
+              <Skeleton className="mt-2 h-2.5 w-1/2" />
+            </div>
+          ))}
+        </div>
+        <SectionPanel title="Recent activity">
+          <ListSkeleton rows={4} />
+        </SectionPanel>
+      </div>
     );
   }
 

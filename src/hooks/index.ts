@@ -12,6 +12,13 @@ import type { Entitlements } from "@/types";
 
 export { useAppDispatch, useAppSelector, useRootSelector } from "@/store/hooks";
 
+/* ----------------------- feature data (local state) ------------------------ */
+// Pages own their data: they call their feature service inside a plain
+// try/catch and keep the result in local state. There is no generic API hook
+// and no shared cache here — only the debounce helper for API-backed inputs.
+
+export { useDebouncedValue } from "./useDebouncedValue";
+
 export const useCurrentUser = () => useAppSelector(selectUser);
 export const useAuthStatus = () => useAppSelector((s) => s.auth.status);
 

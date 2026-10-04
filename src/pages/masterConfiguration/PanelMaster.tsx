@@ -10,16 +10,12 @@ import {
   Checkbox,
   DatePicker,
 } from "@/components/ui/fields";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import {
-  fetchMasterDropdown,
-  invalidateMasterDropdowns,
-} from "@/store/slices/masterSlice";
 import { YES_NO } from "@/types/masterConfig.data";
 
 // ─── API access ──────────────────────────────────────────────────
-import { masterApi } from "@/api/masterApi";
+import { masterService } from "@/pages/masterConfiguration/master.service";
 import type { CreatePanelPayload, CoPaymentOn } from "@/types";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -111,9 +107,9 @@ export function PanelMaster({
   onOpenChange: (v: boolean) => void;
 }) {
   const dispatch = useAppDispatch();
-  // Reference lists come from the shared master cache (doc §21) instead of
-  // five private copies fetched on every dialog open.
-  const dd = useAppSelector((s) => s.master.dropdowns);
+  // Reference lists are this dialog's own data: it loads them when it opens and
+  // drops them when it closes — nothing is shared through the store (doc §21/§26).
+  const [dropdowns, setDropdowns] = useState<Record<string, any[]>>({});
   const [form, setForm] = useState<PanelForm>(EMPTY);
   const [errors, setErrors] = useState<
     Partial<Record<keyof PanelForm, string>>
@@ -123,50 +119,82 @@ export function PanelMaster({
 
   // ─── Dropdown Options (shared cache → Select options) ──────────
   const groupTypes = useMemo<DropdownOption[]>(
-    () => (dd.GROUP_TYPE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
-    [dd.GROUP_TYPE],
+    () =>
+      (dropdowns.GROUP_TYPE ?? []).map((i: any) => ({
+        value: i.id,
+        label: i.value,
+      })),
+    [dropdowns],
   );
   const paymentModes = useMemo<DropdownOption[]>(
-    () => (dd.PAYMENT_MODE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
-    [dd.PAYMENT_MODE],
+    () =>
+      (dropdowns.PAYMENT_MODE ?? []).map((i: any) => ({
+        value: i.id,
+        label: i.value,
+      })),
+    [dropdowns],
   );
   const panelTypes = useMemo<DropdownOption[]>(
-    () => (dd.PANEL_TYPE?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
-    [dd.PANEL_TYPE],
+    () =>
+      (dropdowns.PANEL_TYPE ?? []).map((i: any) => ({
+        value: i.id,
+        label: i.value,
+      })),
+    [dropdowns],
   );
   const currencies = useMemo<DropdownOption[]>(
-    () => (dd.CURRENCY?.items ?? []).map((i: any) => ({ value: i.id, label: i.value })),
-    [dd.CURRENCY],
+    () =>
+      (dropdowns.CURRENCY ?? []).map((i: any) => ({
+        value: i.id,
+        label: i.value,
+      })),
+    [dropdowns],
   );
   const tariffs = useMemo<DropdownOption[]>(
     () =>
-      (dd.TARIFFS?.items ?? []).map((i: any) => ({
+      (dropdowns.TARIFFS ?? []).map((i: any) => ({
         value: i.id,
         label: `${i.tariffCode} — ${i.tariffName}`,
       })),
-    [dd.TARIFFS],
+    [dropdowns],
   );
 
   // ─── Load all dropdowns when dialog opens ──────────────────────
-  // Each thunk reuses its cached list unless it is missing or stale; one
-  // aggregated toast keeps the failure UX identical to before (doc §13/§16).
+  // One aggregated toast keeps the failure UX identical to before (doc §13/§16).
+  const rows = (res: any): any[] => {
+    const body = res?.data ?? res;
+    if (Array.isArray(body)) return body;
+    return Array.isArray(body?.data) ? body.data : [];
+  };
   const loadDropdowns = useCallback(async () => {
     setLoadingDropdowns(true);
     try {
-      const [gt, , pt, cur] = (await Promise.all([
-        dispatch(fetchMasterDropdown({ key: "GROUP_TYPE" })).unwrap(),
-        dispatch(fetchMasterDropdown({ key: "PAYMENT_MODE" })).unwrap(),
-        dispatch(fetchMasterDropdown({ key: "PANEL_TYPE" })).unwrap(),
-        dispatch(fetchMasterDropdown({ key: "CURRENCY" })).unwrap(),
-        dispatch(fetchMasterDropdown({ key: "TARIFFS" })).unwrap(),
-      ])) as any[];
+      const [gtRes, pmRes, ptRes, curRes, tfRes] = await Promise.all([
+        masterService.fetchGlobalDropdown("GROUP_TYPE"),
+        masterService.fetchGlobalDropdown("PAYMENT_MODE"),
+        masterService.fetchGlobalDropdown("PANEL_TYPE"),
+        masterService.fetchGlobalDropdown("CURRENCY"),
+        masterService.fetchTariffDropdown(),
+      ]);
+      const gt = rows(gtRes);
+      const pt = rows(ptRes);
+      const cur = rows(curRes);
+      setDropdowns({
+        GROUP_TYPE: gt,
+        PAYMENT_MODE: rows(pmRes),
+        PANEL_TYPE: pt,
+        CURRENCY: cur,
+        TARIFFS: rows(tfRes),
+      });
 
       // Auto-select first defaults if form is empty
       setForm((prev) => {
         if (prev.panelName) return prev; // don't overwrite if user already typed
         const inr = cur.find((c: any) => c.value === "INR");
         const credit = pt.find((p: any) =>
-          String(p.value ?? "").toUpperCase().includes("CREDIT"),
+          String(p.value ?? "")
+            .toUpperCase()
+            .includes("CREDIT"),
         );
         return {
           ...prev,
@@ -186,7 +214,7 @@ export function PanelMaster({
     } finally {
       setLoadingDropdowns(false);
     }
-  }, [dispatch]);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -259,9 +287,7 @@ export function PanelMaster({
 
     setSaving(true);
     try {
-      await masterApi.createPanel(payload);
-      // the patient form's panel list is stale now (§3.7)
-      dispatch(invalidateMasterDropdowns(["PANELS"]));
+      await masterService.createPanel(payload);
       dispatch(toast.success("Panel saved successfully", form.panelName));
       setForm(EMPTY);
       onOpenChange(false);
@@ -315,7 +341,8 @@ export function PanelMaster({
               value={form.groupTypeId}
               onChange={(v) => set("groupTypeId", v)}
               options={groupTypes}
-              placeholder={loadingDropdowns ? "Loading..." : "Select group"}
+              loading={loadingDropdowns}
+              loadingLabel="Loading group types…"
             />
             <Input
               name="contactPerson"
@@ -385,7 +412,8 @@ export function PanelMaster({
               onChange={(v) => set("paymentModeId", v)}
               options={paymentModes}
               clearable
-              placeholder={loadingDropdowns ? "Loading..." : "Select mode"}
+              loading={loadingDropdowns}
+              loadingLabel="Loading payment modes…"
             />
 
             {/* Refer Rate = Tariff Master dropdown */}
@@ -395,9 +423,8 @@ export function PanelMaster({
               onChange={(v) => set("opdTariffId", v)}
               options={tariffs}
               clearable
-              placeholder={
-                loadingDropdowns ? "Loading..." : "Select OPD tariff"
-              }
+              loading={loadingDropdowns}
+              loadingLabel="Loading tariffs…"
             />
             <Select
               label="Refer Rate (IPD)"
@@ -405,9 +432,8 @@ export function PanelMaster({
               onChange={(v) => set("ipdTariffId", v)}
               options={tariffs}
               clearable
-              placeholder={
-                loadingDropdowns ? "Loading..." : "Select IPD tariff"
-              }
+              loading={loadingDropdowns}
+              loadingLabel="Loading tariffs…"
             />
             <NumberInput
               label="Credit Limit"
@@ -470,7 +496,8 @@ export function PanelMaster({
               value={form.rateCurrencyId}
               onChange={(v) => set("rateCurrencyId", v)}
               options={currencies}
-              placeholder={loadingDropdowns ? "Loading..." : "Select currency"}
+              loading={loadingDropdowns}
+              loadingLabel="Loading currencies…"
             />
 
             <Select
@@ -478,7 +505,8 @@ export function PanelMaster({
               value={form.panelTypeId}
               onChange={(v) => set("panelTypeId", v)}
               options={panelTypes}
-              placeholder={loadingDropdowns ? "Loading..." : "Select type"}
+              loading={loadingDropdowns}
+              loadingLabel="Loading panel types…"
             />
             <Select
               label="Bill Currency"

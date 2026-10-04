@@ -1,19 +1,14 @@
 import { useEffect, useState } from "react";
 import { DatePicker, Input, Textarea, Select } from "@/components/ui/fields";
 import { Button, Badge } from "@/components/ui/primitives";
-import {
-  createAppointment,
-  fetchAppointment,
-  fetchAppointments,
-  fetchConsultationTypes,
-  generateOpdToken,
-  updateAppointment,
-} from "@/store/slices/appointmentSlice";
-import { fetchDoctorSlots, fetchDoctors } from "@/store/slices/doctorSlice";
-import { fetchPatients } from "@/store/slices/patientSlice";
-import { fetchDepartments } from "@/store/slices/departmentSlice";
-import { fetchSpecializations } from "@/store/slices/specializationSlice";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { appointmentService } from "@/pages/appointments/appointment.service";
+import { doctorService } from "@/pages/doctors/doctor.service";
+import { patientService } from "@/pages/patients/patient.service";
+import { departmentService } from "@/pages/Departments/department.service";
+import { specializationService } from "@/pages/Specializations/specialization.service";
+import { consultationService } from "@/pages/consultations/consultation.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
@@ -103,21 +98,100 @@ interface AppointmentFormModalProps {
   onOpenChange: (open: boolean) => void;
   /** when set, the modal loads the record via appointments getById and saves edits instead of creating */
   editing?: any;
+  /** called after a successful save so the page can refresh its own list */
+  onSaved?: () => void;
 }
 
+/**
+ * Create / reschedule appointment.
+ *
+ * The modal is self-contained: while it is open it loads exactly the data the
+ * booking workflow needs — patients and doctors for the dropdowns, the clinic
+ * lists for the context line, the existing appointments for slot conflicts,
+ * the visit-type master dropdown, and the doctor's available slots whenever the
+ * doctor or the date changes. Everything is local state; nothing is dispatched
+ * to a store and nothing is preloaded before the user opens the form.
+ */
 export function AppointmentFormModal({
   open,
   onOpenChange,
   editing = null,
+  onSaved,
 }: AppointmentFormModalProps) {
   const dispatch = useAppDispatch();
   const isEdit = !!editing?.id;
 
-  const patients = useAppSelector((s) => s.patients.items);
-  const doctors = useAppSelector((s) => s.doctors.items);
-  const departments = useAppSelector((s) => s.departments.items);
-  const specializations = useAppSelector((s) => s.specializations.items);
-  const existingAppointments = useAppSelector((s) => s.appointments.items);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [specializations, setSpecializations] = useState<any[]>([]);
+  // slot-conflict source for the picker below — loaded lazily, only once the
+  // doctor/date pair makes the slot picker relevant (see the effect below)
+  const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
+  // visit types come from the CONSULTATION_TYPE master dropdown
+  const [visitTypes, setVisitTypes] = useState<any[]>([]);
+
+  /**
+   * One loading flag per dropdown (doc: loading-owned-by-context).
+   * The pickers below render their own indicator from these — never the global
+   * loader — so the rest of the dialog stays usable while a list is in flight.
+   */
+  const [patientsLoading, setPatientsLoading] = useState(false);
+  const [doctorsLoading, setDoctorsLoading] = useState(false);
+  const [visitTypesLoading, setVisitTypesLoading] = useState(false);
+  /** the appointment list behind the slot states (see below) */
+  const [slotsSourceLoading, setSlotsSourceLoading] = useState(false);
+
+  const [appointmentsRequested, setAppointmentsRequested] = useState(false);
+
+  /** the reference lists this dialog needs — requested when it opens */
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+
+    const noopFlag = () => {};
+    const load = async (
+      request: Promise<any>,
+      apply: (rows: any[]) => void,
+      setFlag: (v: boolean) => void,
+    ) => {
+      setFlag(true);
+      try {
+        const response = await request;
+        if (active && response?.status === 200)
+          apply(response.data?.data ?? []);
+      } catch (e: any) {
+        dispatch(toast.error("Could not load options", e?.message));
+      } finally {
+        if (active) setFlag(false);
+      }
+    };
+
+    setAppointmentsRequested(false);
+
+    // independent reference lists → one round of parallel requests
+    void Promise.all([
+      load(patientService.fetchPatients(), setPatients, setPatientsLoading),
+      load(doctorService.fetchDoctors(), setDoctors, setDoctorsLoading),
+      // departments/specializations are not inputs of this dialog — they only
+      // resolve the doctor hint below, so they need no own loading flag
+      load(departmentService.fetchDepartments(), setDepartments, noopFlag),
+      load(
+        specializationService.fetchSpecializations(),
+        setSpecializations,
+        noopFlag,
+      ),
+      load(
+        appointmentService.fetchConsultationTypes(),
+        setVisitTypes,
+        setVisitTypesLoading,
+      ),
+    ]);
+
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   const form = useForm({
     initialValues: {
@@ -153,37 +227,18 @@ export function AppointmentFormModal({
   >([]);
 
   useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    dispatch(fetchConsultationTypes() as any)
-      .then(() => null)
-      .catch(() => null);
-    // option lists for the booking fields (guarded shared data, §16)
-    dispatch(fetchPatients() as any);
-    dispatch(fetchDoctors() as any);
-    dispatch(fetchDepartments() as any);
-    dispatch(fetchSpecializations() as any);
-    dispatch(fetchAppointments() as any)
-      .unwrap()
-      .then((data: any) => {
-        if (cancelled) return;
-        const rows = Array.isArray(data) ? data : (data?.data ?? []);
-        const options = (rows as any[])
-          .map((item) => ({
-            value: item.value,
-            label: String(item.value)
-              .replace(/_/g, " ")
-              .toLowerCase()
-              .replace(/\b\w/g, (c) => c.toUpperCase()),
-          }))
-          .filter((o) => o.value);
-        if (options.length) setVisitTypeOptions(options);
-      })
-      .catch(() => undefined); // fall back to static VISIT_TYPES on failure
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+    if (!visitTypes.length) return;
+    const options = visitTypes
+      .map((item: any) => ({
+        value: item.value,
+        label: String(item.value)
+          .replace(/_/g, " ")
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase()),
+      }))
+      .filter((o) => o.value);
+    if (options.length) setVisitTypeOptions(options);
+  }, [visitTypes]);
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [, setEditLoading] = useState(false);
@@ -194,9 +249,14 @@ export function AppointmentFormModal({
     if (!open || !isEdit) return;
     let cancelled = false;
     setEditLoading(true);
-    dispatch(fetchAppointment(editing.id) as any)
-      .unwrap()
-      .then((record: any) => {
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointmentById(
+          editing.id,
+        );
+        const body: any = response.data ?? {};
+        const record: any =
+          response.status === 200 ? (body.data ?? body) : null;
         if (cancelled || !record) return;
         form.reset({
           patientId: record.patientId ?? "",
@@ -215,16 +275,50 @@ export function AppointmentFormModal({
           notes: record.notes ?? "",
           reason: "",
         });
-      })
-      .catch(() => undefined)
-      .finally(() => {
+      } catch (e: any) {
+        if (!cancelled)
+          dispatch(toast.error("Could not load appointment", e?.message));
+      } finally {
         if (!cancelled) setEditLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit]);
+
+  /**
+   * The appointment list is NOT a reference list for this dialog: opening the
+   * modal must not fetch it. It is only needed once the slot picker can show
+   * something — i.e. when a doctor and a date are chosen — and even then it is
+   * requested once, not per re-render.
+   */
+  useEffect(() => {
+    if (!open || appointmentsRequested) return;
+    if (!form.values.doctorId || !form.values.date) return;
+
+    let active = true;
+    setAppointmentsRequested(true);
+    setSlotsSourceLoading(true);
+    (async () => {
+      try {
+        const response = await appointmentService.fetchAppointments();
+        if (active && response.status === 200) {
+          setExistingAppointments(response.data?.data ?? []);
+        }
+      } catch (e: any) {
+        if (active)
+          dispatch(toast.error("Could not load booked slots", e?.message));
+      } finally {
+        if (active) setSlotsSourceLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [open, appointmentsRequested, form.values.doctorId, form.values.date]);
 
   /* ------- runtime: doctor slot-by-id API whenever doctor/date changes ------ */
   const [slotLoading, setSlotLoading] = useState(false);
@@ -238,31 +332,32 @@ export function AppointmentFormModal({
     let cancelled = false;
     setSlotLoading(true);
     setRemoteSlots(null);
-    dispatch(
-      fetchDoctorSlots({
-        doctorId: form.values.doctorId,
-        date: form.values.date,
-      }) as any,
-    )
-      .unwrap()
-      .then((data: any) => {
-        if (!cancelled)
+    (async () => {
+      try {
+        const response = await doctorService.fetchDoctorSlots(
+          form.values.doctorId,
+          form.values.date,
+        );
+        if (!cancelled && response.status === 200) {
           setRemoteSlots(
             normalizeSlots(
-              data,
+              response.data?.data ?? [],
               form.values.date,
               existingAppointments as any[],
               form.values.doctorId,
             ),
           );
-      })
-      .catch(() => {
+        }
+      } catch (e: any) {
         // fall back to schedule-generated slots on failure
-        if (!cancelled) setRemoteSlots(null);
-      })
-      .finally(() => {
+        if (!cancelled) {
+          setRemoteSlots(null);
+          dispatch(toast.error("Could not load available slots", e?.message));
+        }
+      } finally {
         if (!cancelled) setSlotLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -295,22 +390,20 @@ export function AppointmentFormModal({
 
       // 1. Create or Update Appointment
       if (isEdit) {
-        const result = await dispatch(
-          updateAppointment({
-            id: editing.id,
-            data: payload,
-            successMessage: "Appointment updated successfully",
-          } as any),
-        ).unwrap();
-        appointmentId = result?.id ?? editing.id;
+        const result = await appointmentService.updateAppointment(
+          editing.id,
+          payload,
+        );
+        const body: any = result.data ?? {};
+        const saved: any = body.data ?? body;
+        dispatch(toast.success("Appointment updated successfully"));
+        appointmentId = saved?.id ?? editing.id;
       } else {
-        const result = await dispatch(
-          createAppointment({
-            data: payload,
-            successMessage: "Appointment booked successfully",
-          } as any),
-        ).unwrap();
-        appointmentId = result?.id;
+        const result = await appointmentService.createAppointment(payload);
+        const body: any = result.data ?? {};
+        const saved: any = body.data ?? body;
+        dispatch(toast.success("Appointment booked successfully"));
+        appointmentId = saved?.id;
       }
 
       // 2. Post-Booking Chain: Trigger Auto-Token Generation if "Walk-In"
@@ -319,16 +412,26 @@ export function AppointmentFormModal({
         String(values.type).toUpperCase() === "WALK_IN";
 
       if (isWalkIn && appointmentId) {
-        // Dispatches your newly created async thunk elegantly
-        await dispatch(generateOpdToken({ appointmentId }) as any).unwrap();
+        const tokenResponse =
+          await consultationService.generateOpdToken(appointmentId);
+        if (tokenResponse.status === 200) {
+          const tokenBody: any = tokenResponse.data ?? {};
+          const tokenNumber =
+            tokenBody?.tokenNumber ?? tokenBody?.data?.tokenNumber;
+          dispatch(
+            toast.success(
+              "Token Generated Successfully",
+              tokenNumber ? `Queue Token: ${tokenNumber}` : undefined,
+            ),
+          );
+        }
       }
-    } catch (err) {
-      // Caught gracefully; standard alerts are handled by your Redux/Thunk middleware
-      console.error("Booking process chain encountered an error:", err);
+    } catch (err: any) {
+      dispatch(toast.error("Booking failed", err?.message));
     }
 
-    // 3. Re-sync table list and close the form (explicit refresh after a write)
-    dispatch(fetchAppointments(true) as any);
+    // 3. Close the form and let the page refresh its own list
+    onSaved?.();
     form.reset();
     onOpenChange(false);
   });
@@ -408,6 +511,8 @@ export function AppointmentFormModal({
               onChange={(v) => form.setValue("patientId", v)}
               error={form.errors.patientId}
               placeholder="Search registered patients..."
+              loading={patientsLoading}
+              loadingLabel="Searching patients…"
               options={patients
                 .filter((p: any) => p.status === "ACTIVE")
                 .map((p: any) => ({
@@ -425,6 +530,8 @@ export function AppointmentFormModal({
                 value={form.values.doctorId}
                 onChange={(v) => form.setValue("doctorId", v)}
                 error={form.errors.doctorId}
+                loading={doctorsLoading}
+                loadingLabel="Loading doctors…"
                 options={doctors.map((d: any) => ({
                   value: d.id,
                   label: `Dr. ${fullName(d)}`,
@@ -482,6 +589,8 @@ export function AppointmentFormModal({
                 value={form.values.visitType}
                 error={form.errors.visitType}
                 onChange={(v) => form.setValue("visitType", v)}
+                loading={visitTypesLoading}
+                loadingLabel="Loading consultation types…"
                 options={
                   visitTypeOptions.length
                     ? visitTypeOptions
@@ -524,10 +633,11 @@ export function AppointmentFormModal({
               <SlotPicker
                 doctorId={form.values.doctorId}
                 date={form.values.date}
+                doctors={doctors}
                 appointments={existingAppointments}
                 value={form.values.time}
                 onChange={(t) => form.setValue("time", t)}
-                loading={slotLoading}
+                loading={slotLoading || slotsSourceLoading}
                 remoteSlots={remoteSlots}
               />
               {form.errors.time && (

@@ -20,18 +20,3 @@ export interface ApiResponse<T> {
    *  session is waiting on a forced password change (no request was sent) */
   cancelled?: boolean;
 }
-/* ----------------------- shared list/crud state -------------------------- */
-
-/** Shape kept by every collection slice (patients, users, appointments…). */
-export interface CrudState<T = any> {
-  items: T[];
-  status: "idle" | "loading" | "ready" | "error";
-  saving: boolean;
-  error: string | null;
-  lastSync: string | null;
-}
-
-export interface WritePayload<T> {
-  data: Partial<T> & { id?: string };
-  successMessage?: string;
-}

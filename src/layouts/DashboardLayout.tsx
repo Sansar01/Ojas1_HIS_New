@@ -19,8 +19,8 @@ export function DashboardLayout() {
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
   // The shell owns no page data (API/Redux strategy): every page fetches what
-  // it renders, and the cache-guarded thunks keep that to one request per
-  // session. The header's refresh action is `refreshLoadedResources()`.
+  // it renders through its own feature service, when it renders. The header's
+  // refresh action simply re-mounts/reloads the active page.
 
   return (
     <div className="app-grid-bg flex h-screen overflow-hidden bg-ink-25 text-ink-800">

@@ -9,16 +9,11 @@ import {
   SearchInput,
 } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import {
-  fetchServices,
-  selectServices,
-  selectServicesStatus,
-} from "@/store/slices/masterSlice";
 
 // Service Master API
-import { masterApi } from "@/api/masterApi";
+import { masterService } from "@/pages/masterConfiguration/master.service";
 import type { ServiceMasterItem, ServiceCategory } from "@/types";
 
 // Service Categories Dropdown Options
@@ -50,10 +45,26 @@ export function ServiceMaster({
 }) {
   const dispatch = useAppDispatch();
 
-  // Shared service catalogue — one cached copy for every master screen (§21)
-  const services = useAppSelector(selectServices) as ServiceMasterItem[];
-  const servicesStatus = useAppSelector(selectServicesStatus);
-  const loading = servicesStatus === "loading";
+  // Service catalogue — loaded by this dialog whenever it opens (§21/§26)
+  const [services, setServices] = useState<ServiceMasterItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  /** service catalogue of this dialog */
+  const loadServices = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await masterService.fetchServices();
+      if (response.status === 200) setServices(response.data?.data ?? []);
+    } catch (e: any) {
+      dispatch(toast.error("Failed to load services", e?.message));
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (open) loadServices();
+  }, [open, loadServices]);
 
   // UI States
   const [saving, setSaving] = useState(false);
@@ -69,22 +80,11 @@ export function ServiceMaster({
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
-  // ─── 1. Load Services ─────────────────────────────────────────────
-  // The thunk's `condition` decides whether this is a real request (§16);
-  // `force` is the explicit refresh after a write.
-  const loadServices = useCallback(
-    (force = false) => {
-      void dispatch(fetchServices(force) as any);
-    },
-    [dispatch],
-  );
-
   useEffect(() => {
     if (open) {
-      loadServices();
       resetForm();
     }
-  }, [open, loadServices]);
+  }, [open]);
 
   // ─── 2. Helpers ───────────────────────────────────────────────────
   const resetForm = () => {
@@ -124,7 +124,7 @@ export function ServiceMaster({
     try {
       if (editingId) {
         // Edit Mode
-        await masterApi.updateService(editingId, {
+        await masterService.updateService(editingId, {
           serviceCode: form.serviceCode.toUpperCase().trim(),
           serviceName: form.serviceName.trim(),
           category: form.category,
@@ -133,7 +133,7 @@ export function ServiceMaster({
         dispatch(toast.success("Service updated successfully"));
       } else {
         // Create Mode
-        await masterApi.createService({
+        await masterService.createService({
           serviceCode: form.serviceCode.toUpperCase().trim(),
           serviceName: form.serviceName.trim(),
           category: form.category,
@@ -143,7 +143,7 @@ export function ServiceMaster({
       }
 
       resetForm();
-      loadServices(true);
+      loadServices();
     } catch (error: any) {
       dispatch(toast.error("Could not save service", error?.message));
     } finally {
@@ -168,9 +168,9 @@ export function ServiceMaster({
       return;
 
     try {
-      await masterApi.removeService(row.id);
+      await masterService.deleteService(row.id);
       dispatch(toast.success("Service deleted"));
-      loadServices(true);
+      loadServices();
     } catch (error: any) {
       dispatch(toast.error("Delete failed", error?.message));
     }

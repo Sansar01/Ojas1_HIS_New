@@ -14,17 +14,9 @@ import { PERMISSIONS } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { fetchHospital, saveHospital } from "@/store/slices/hospitalSlice";
-import {
-  createHospitalRole,
-  deleteRole,
-  fetchRoleMasterCatalog,
-  fetchRolePermissions,
-  fetchRoles,
-  updateRole,
-  updateRolePermissions,
-} from "@/store/slices/roleSlice";
-import { fetchUsers } from "@/store/slices/userSlice";
+import { roleService } from "@/pages/admin/role.service";
+import { userService } from "@/pages/users/user.service";
+import { toast } from "@/store/slices/uiSlice";
 import type { RoleMasterCatalogItem, RolePermissionAssignment } from "@/types";
 import { cn } from "@/utils/cn";
 import type { HospitalInfo, Permission, Role } from "@/types";
@@ -43,15 +35,14 @@ import {
   PageIntro,
   SectionPanel,
 } from "@/components/common";
-import { Banner } from "@/components/ui/feedback";
+import { Banner, ListSkeleton, MatrixSkeleton } from "@/components/ui/feedback";
 import { Dialog, useConfirmDialog } from "@/components/ui/overlays";
 
 /* -------------------------------- Roles & RBAC ------------------------------- */
 
 export function RolesPage() {
   const dispatch = useAppDispatch();
-  const { items: roles, status } = useAppSelector((s) => s.roles);
-  const users = useAppSelector((s) => s.users.items);
+  // the current user's module catalogue is global authorization state (Redux)
   const entitlementModules = useAppSelector((s) => s.modules.availableModules);
   const { canCreate, canEdit, canDelete } = usePermission();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -62,11 +53,45 @@ export function RolesPage() {
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const { ask, confirmNode } = useConfirmDialog();
 
+  /** role list + user counts: page data, through the services, into local state */
+  const [roles, setRoles] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  /** drives the skeleton of the list + matrix (never the global loader) */
+  const [rolesLoading, setRolesLoading] = useState(true);
+
   useEffect(() => {
-    dispatch(fetchRoles() as any);
-    // the role cards show how many users hold each role
-    dispatch(fetchUsers() as any);
-  }, [status, dispatch]);
+    let active = true;
+    (async () => {
+      try {
+        const response = await roleService.fetchRoles();
+        if (active && response.status === 200)
+          setRoles(response.data?.data ?? []);
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load roles", e?.message));
+      } finally {
+        if (active) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await userService.fetchUsers();
+        if (active && response.status === 200)
+          setUsers(response.data?.data ?? []);
+      } catch (e: any) {
+        if (active) dispatch(toast.error("Could not load users", e?.message));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const selected = roles.find(
     (r: any) => r.id === (selectedId ?? roles[0]?.id),
@@ -77,13 +102,31 @@ export function RolesPage() {
       setAssignedPermissions([]);
       return;
     }
-    setPermissionsLoading(true);
-    dispatch(fetchRolePermissions(String(selected.id)) as any)
-      .unwrap()
-      .then((data: RolePermissionAssignment[]) => setAssignedPermissions(data))
-      .catch(() => setAssignedPermissions([]))
-      .finally(() => setPermissionsLoading(false));
-  }, [dispatch, selected?.id]);
+    let active = true;
+    (async () => {
+      try {
+        setPermissionsLoading(true);
+        const response = await roleService.fetchRolePermissions(
+          String(selected.id),
+        );
+        if (active && response.status === 200) {
+          setAssignedPermissions(
+            (response.data?.data ?? []) as RolePermissionAssignment[],
+          );
+        }
+      } catch (e: any) {
+        if (active) {
+          setAssignedPermissions([]);
+          dispatch(toast.error("Could not load permissions", e?.message));
+        }
+      } finally {
+        if (active) setPermissionsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [selected?.id]);
   const usersByRole = useMemo(() => {
     const map = new Map<string, number>();
     users.forEach((u: any) => map.set(u.roleId, (map.get(u.roleId) ?? 0) + 1));
@@ -125,51 +168,53 @@ export function RolesPage() {
             icon={<ShieldCheck />}
           />
           <ul className="divide-y divide-ink-100">
-            {roles.map((r: any) => (
-              <li key={r.id}>
-                <button
-                  onClick={() => setSelectedId(r.id)}
-                  className={cn(
-                    "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
-                    selected?.id === r.id ? "bg-brand-25" : "hover:bg-ink-25",
-                  )}
-                >
-                  <span
+            {rolesLoading && <ListSkeleton rows={5} />}
+            {!rolesLoading &&
+              roles.map((r: any) => (
+                <li key={r.id}>
+                  <button
+                    onClick={() => setSelectedId(r.id)}
                     className={cn(
-                      "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg [&>svg]:size-4",
-                      selected?.id === r.id
-                        ? "bg-brand-600 text-white"
-                        : "bg-ink-50 text-ink-500",
+                      "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                      selected?.id === r.id ? "bg-brand-25" : "hover:bg-ink-25",
                     )}
                   >
-                    <UserCog />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-[13.5px] font-semibold text-ink-900">
-                        {r.name}
-                      </span>
-                      {r.system && (
-                        <Badge tone="ink" size="xs">
-                          system
-                        </Badge>
+                    <span
+                      className={cn(
+                        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg [&>svg]:size-4",
+                        selected?.id === r.id
+                          ? "bg-brand-600 text-white"
+                          : "bg-ink-50 text-ink-500",
                       )}
+                    >
+                      <UserCog />
                     </span>
-                    <span className="mt-0.5 block line-clamp-2 text-[11.5px] leading-snug text-ink-400">
-                      {r.description}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-[13.5px] font-semibold text-ink-900">
+                          {r.name}
+                        </span>
+                        {r.system && (
+                          <Badge tone="ink" size="xs">
+                            system
+                          </Badge>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block line-clamp-2 text-[11.5px] leading-snug text-ink-400">
+                        {r.description}
+                      </span>
+                      <span className="mt-1.5 flex flex-wrap gap-1">
+                        <Badge tone="neutral" size="xs">
+                          {Object.keys(r.permissions ?? {}).length} modules
+                        </Badge>
+                        <Badge tone="lagoon" size="xs">
+                          {usersByRole.get(r.id) ?? 0} users
+                        </Badge>
+                      </span>
                     </span>
-                    <span className="mt-1.5 flex flex-wrap gap-1">
-                      <Badge tone="neutral" size="xs">
-                        {Object.keys(r.permissions ?? {}).length} modules
-                      </Badge>
-                      <Badge tone="lagoon" size="xs">
-                        {usersByRole.get(r.id) ?? 0} users
-                      </Badge>
-                    </span>
-                  </span>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              ))}
           </ul>
         </Panel>
 
@@ -201,11 +246,12 @@ export function RolesPage() {
                           description: `${usersByRole.get(selected.id) ?? 0} user(s) currently use this role. They will lose module access until reassigned.`,
                           confirmLabel: "Delete role",
                           action: async () => {
-                            await dispatch(
-                              deleteRole({
-                                id: selected.id,
-                                label: selected.name,
-                              } as any),
+                            await roleService.deleteRole(selected.id);
+                            dispatch(
+                              toast.success(
+                                "Record deleted",
+                                `${selected.name} was removed from the portal.`,
+                              ),
                             );
                           },
                         })
@@ -282,11 +328,26 @@ export function RolesPage() {
                   assignedPermissions={assignedPermissions}
                   loading={permissionsLoading}
                   onSaved={() => {
-                    dispatch(fetchRolePermissions(String(selected.id)) as any)
-                      .unwrap()
-                      .then((data: RolePermissionAssignment[]) =>
-                        setAssignedPermissions(data),
-                      );
+                    (async () => {
+                      try {
+                        const response = await roleService.fetchRolePermissions(
+                          String(selected.id),
+                        );
+                        if (response.status === 200) {
+                          setAssignedPermissions(
+                            (response.data?.data ??
+                              []) as RolePermissionAssignment[],
+                          );
+                        }
+                      } catch (e: any) {
+                        dispatch(
+                          toast.error(
+                            "Could not refresh permissions",
+                            e?.message,
+                          ),
+                        );
+                      }
+                    })();
                   }}
                 />
               )}
@@ -360,13 +421,13 @@ function RoleMatrixEditor({
       });
     });
 
-    await dispatch(
-      updateRolePermissions({
-        roleId: role.id,
-        moduleFeatures,
-        successMessage: `${role.name} permissions updated`,
-      }),
-    ).unwrap();
+    try {
+      await roleService.updateRolePermissions(role.id, moduleFeatures);
+      dispatch(toast.success(`${role.name} permissions updated`));
+    } catch (e: any) {
+      dispatch(toast.error("Update failed", e?.message));
+      return;
+    }
     onSaved();
   };
 
@@ -386,9 +447,7 @@ function RoleMatrixEditor({
         hint="Only checked modules appear in the sidebar for users of this role"
       />
       {loading ? (
-        <p className="rounded-lg border border-ink-100 bg-white px-3 py-6 text-center text-sm text-ink-500">
-          Loading assigned permissions...
-        </p>
+        <MatrixSkeleton rows={Math.max(4, modules.length)} cols={4} />
       ) : (
         <PermissionMatrix
           modules={modules}
@@ -461,10 +520,21 @@ function RoleForm({
 
   useEffect(() => {
     if (initial.id) return;
-    dispatch(fetchRoleMasterCatalog() as any)
-      .unwrap()
-      .then((items: RoleMasterCatalogItem[]) => setMasterRoles(items))
-      .finally(() => setCatalogLoading(false));
+    (async () => {
+      try {
+        const response = await roleService.fetchRoleMasterCatalog();
+        if (response.status === 200) {
+          setMasterRoles(
+            (response.data?.data ?? []) as RoleMasterCatalogItem[],
+          );
+        }
+      } catch (e: any) {
+        setMasterRoles([]);
+        dispatch(toast.error("Could not load role catalog", e?.message));
+      } finally {
+        setCatalogLoading(false);
+      }
+    })();
   }, [dispatch, initial.id]);
 
   const form = useForm({
@@ -521,31 +591,37 @@ function RoleForm({
       permissions,
       system: false,
     };
-    if (initial.id)
-      await dispatch(
-        updateRole({
-          id: initial.id,
-          data,
-          successMessage: "Role updated",
-        } as any),
-      );
-    else {
-      const created: any = await dispatch(
-        createHospitalRole({
-          ...(roleMode === "master"
-            ? { roleNameId: Number(values.roleNameId) }
-            : {
-                roleName: values.name.trim(),
-                roleCode:
-                  values.roleCode.trim() ||
-                  values.name
-                    .trim()
-                    .toUpperCase()
-                    .replace(/[^A-Z0-9]+/g, "_"),
-              }),
-          description: values.description.trim(),
-        }),
-      ).unwrap();
+    if (initial.id) {
+      try {
+        await roleService.updateRole(initial.id, data);
+        dispatch(toast.success("Role updated"));
+      } catch (e: any) {
+        dispatch(toast.error("Update failed", e?.message));
+        return;
+      }
+    } else {
+      let created: any;
+      try {
+        created = (
+          await roleService.createRole({
+            ...(roleMode === "master"
+              ? { roleNameId: Number(values.roleNameId) }
+              : {
+                  roleName: values.name.trim(),
+                  roleCode:
+                    values.roleCode.trim() ||
+                    values.name
+                      .trim()
+                      .toUpperCase()
+                      .replace(/[^A-Z0-9]+/g, "_"),
+                }),
+            description: values.description.trim(),
+          })
+        ).data;
+      } catch (e: any) {
+        dispatch(toast.error("Creation failed", e?.message));
+        return;
+      }
 
       const createdRoleId = String(created?.id ?? created?.data?.id ?? "");
       try {
@@ -581,18 +657,13 @@ function RoleForm({
               });
             },
           );
-          await dispatch(
-            updateRolePermissions({
-              roleId: createdRoleId,
-              moduleFeatures,
-              successMessage: "Role permissions saved",
-            }),
-          ).unwrap();
+          await roleService.updateRolePermissions(
+            createdRoleId,
+            moduleFeatures,
+          );
         }
-      } finally {
-        // createHospitalRole has no local list reducer, so reload the server
-        // list after creation, even if permission assignment subsequently fails.
-        await dispatch(fetchRoles(true) as any);
+      } catch (e: any) {
+        dispatch(toast.error("Permissions could not be saved", e?.message));
       }
     }
     onClose();
@@ -650,7 +721,8 @@ function RoleForm({
                 label="Master role"
                 required
                 value={form.values.roleNameId}
-                disabled={catalogLoading}
+                loading={catalogLoading}
+                loadingLabel="Loading master roles…"
                 onChange={(value) => {
                   const selected = masterRoles.find(
                     (item) => String(item.id) === value,
@@ -750,15 +822,19 @@ function RoleForm({
 
 export function SettingsPage() {
   const dispatch = useAppDispatch();
-  const hospital = useAppSelector((s) => s.hospital);
   const { can, canEdit } = usePermission();
   const navigate = useNavigate();
   const { ask, confirmNode } = useConfirmDialog();
   const editable = canEdit("settings");
 
-  useEffect(() => {
-    dispatch(fetchHospital() as any);
-  }, [hospital.data, dispatch]);
+  /**
+   * Facility profile.
+   *
+   * The settings endpoint is not part of the backend build, so this form no
+   * longer loads or saves: it shows the values the screen can display locally
+   * and the save action is disabled with an explanation.
+   */
+  const hospital: HospitalInfo | null = null;
 
   const form = useForm({
     initialValues: {
@@ -790,16 +866,16 @@ export function SettingsPage() {
   });
 
   useEffect(() => {
-    if (hospital.data) form.setValues(hospital.data);
+    if (hospital) form.setValues(hospital);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hospital.data]);
+  }, [hospital]);
 
-  const save = form.handleSubmit(async (values) => {
-    await dispatch(
-      saveHospital({
-        ...values,
-        invoicePrefix: values.invoicePrefix.toUpperCase(),
-      }) as any,
+  const save = form.handleSubmit(async () => {
+    dispatch(
+      toast.error(
+        "Settings API unavailable",
+        "This backend build exposes no facility-profile endpoint.",
+      ),
     );
   });
 
@@ -847,12 +923,7 @@ export function SettingsPage() {
             icon={<Compass />}
             action={
               editable && (
-                <Button
-                  size="sm"
-                  icon={<Save />}
-                  loading={hospital.status === "loading"}
-                  onClick={save}
-                >
+                <Button size="sm" icon={<Save />} onClick={save}>
                   Save settings
                 </Button>
               )

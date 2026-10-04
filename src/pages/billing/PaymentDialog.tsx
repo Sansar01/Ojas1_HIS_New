@@ -3,7 +3,9 @@ import { useForm } from "@/hooks/useForm";
 import { formatMoney } from "@/utils";
 import { Input, NumberInput, Select } from "@/components/ui/fields";
 
-import { billingApi } from "@/api/billingApi";
+import { billingService } from "@/pages/billing/billing.service";
+import { useAppDispatch } from "@/store/hooks";
+import { toast } from "@/store/slices/uiSlice";
 import { Dialog } from "@/components/ui/overlays";
 
 export function PaymentDialog({
@@ -15,6 +17,7 @@ export function PaymentDialog({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const dispatch = useAppDispatch();
   const form = useForm({
     initialValues: {
       amount: bill.dueAmount,
@@ -37,7 +40,7 @@ export function PaymentDialog({
 
   const save = form.handleSubmit(async (values) => {
     try {
-      await billingApi.collectPayment(bill.id, {
+      await billingService.collectPayment(bill.id, {
         amount: Number(values.amount),
         paymentMode: values.method,
         transactionId: values.reference || undefined,
@@ -45,7 +48,12 @@ export function PaymentDialog({
       });
       onSuccess();
     } catch (e: any) {
-      alert(e.message || "Failed to record payment");
+      dispatch(
+        toast.error(
+          "Could not record payment",
+          e?.message || "Please try again.",
+        ),
+      );
     }
   });
 

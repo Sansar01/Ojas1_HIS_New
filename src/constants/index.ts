@@ -7,7 +7,7 @@ import type {
 export const APP_NAME = "OJAS1";
 export const APP_SUBTITLE = "Hospital Management Portal";
 
-// MODULES removed per cleanup plan — runtime source is entitlement API (entitlementSlice.modules)
+// MODULES removed per cleanup plan — runtime source is the entitlement API (moduleSlice.modules)
 // MODULE_LABEL and ALL_MODULE_KEYS removed for same reason — single source of truth is backend
 
 export const PERMISSIONS: Permission[] = ["view", "create", "edit", "delete"];
