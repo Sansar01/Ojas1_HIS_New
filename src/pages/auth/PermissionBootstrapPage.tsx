@@ -31,6 +31,7 @@ import { AlertTriangle, RefreshCw, ShieldCheck } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchModules } from "@/store/slices/moduleSlice";
 import { loadUserPermissions } from "@/store/slices/permissionSlice";
+import { logoutUser } from "@/store/slices/authSlice";
 import {
   resetBootstrap,
   selectBootstrapError,
@@ -110,7 +111,10 @@ export function PermissionBootstrapPage() {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => navigate("/accounts/login", { replace: true })}
+              onClick={async () => {
+                await dispatch(logoutUser()).unwrap();
+                navigate("/accounts/login", { replace: true, state: null });
+              }}
             >
               Sign out
             </Button>

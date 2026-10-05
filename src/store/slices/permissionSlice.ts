@@ -15,7 +15,7 @@
  * `authSlice`.
  */
 
-import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
+import { createAsyncThunk, createSelector, createSlice } from "@reduxjs/toolkit";
 import type { Permission } from "@/types";
 import type { RootState } from "@/store/types";
 import { Entitlements } from "@/types/moduleTypes";
@@ -108,22 +108,26 @@ export const { clearPermissions } = permissionSlice.actions;
  * the runtime module catalogue when loaded, otherwise the entitlements
  * snapshot embedded in the session.
  */
-export const selectPermissionSource = (
-  state: RootState,
-): Entitlements | null => {
-  const session = state.auth.session;
-  const dynamicModules = state.modules.availableModules ?? [];
-  const sessionEntitlements = session?.entitlements ?? null;
+const selectSession = (state: RootState) => state.auth.session;
+const selectAvailableModules = (state: RootState) =>
+  state.modules.availableModules;
 
-  const userType =
-    session?.user?.userType ??
-    (session?.user as any)?.role?.slug ??
-    (session?.user as any)?.role?.name ??
-    null;
+export const selectPermissionSource = createSelector(
+  [selectSession, selectAvailableModules],
+  (session, availableModules): Entitlements | null => {
+    const dynamicModules = availableModules ?? [];
+    const sessionEntitlements = session?.entitlements ?? null;
 
-  return dynamicModules.length
-    ? { userType: userType ?? undefined, modules: dynamicModules }
-    : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
-};
+    const userType =
+      session?.user?.userType ??
+      (session?.user as any)?.role?.slug ??
+      (session?.user as any)?.role?.name ??
+      null;
+
+    return dynamicModules.length
+      ? { userType: userType ?? undefined, modules: dynamicModules }
+      : (sessionEntitlements ?? (userType ? { userType, modules: [] } : null));
+  },
+);
 
 export default permissionSlice.reducer;
