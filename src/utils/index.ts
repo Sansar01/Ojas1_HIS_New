@@ -1,4 +1,4 @@
-import type { Appointment, Doctor, Invoice, ScheduleDay } from "@/types";
+import type { Appointment, Doctor, ScheduleDay } from "@/types";
 
 /* --------------------------- formatting helpers --------------------------- */
 
@@ -121,27 +121,33 @@ export const idGen = (prefix: string) =>
 
 /* ------------------------- invoice & money maths ------------------------- */
 
+/**
+ * Money maths for one OPD bill, read from the fields `GET /api/opd/billing`
+ * actually returns — flat totals, no line-item array. `payments[]` is summed
+ * when present, otherwise `paidAmount` is used; `dueAmount` is the server's own
+ * outstanding figure. Every field is optional, so a missing bill never throws.
+ */
 export function invoiceTotals(
-  invoice: Pick<
-    Invoice,
-    "items" | "discountType" | "discountValue" | "taxRate" | "payments"
-  >,
+  invoice: {
+    subtotal?: number | string | null;
+    discountAmount?: number | string | null;
+    taxAmount?: number | string | null;
+    totalAmount?: number | string | null;
+    paidAmount?: number | string | null;
+    dueAmount?: number | string | null;
+    payments?: { amount?: number | string | null }[] | null;
+  } = {},
 ) {
-  const subtotal = invoice.items.reduce(
-    (s, i) => s + Number(i.quantity || 0) * Number(i.unitPrice || 0),
-    0,
-  );
-  const discount =
-    invoice.discountType === "Percent"
-      ? Math.round((subtotal * Number(invoice.discountValue || 0)) / 100)
-      : Number(invoice.discountValue || 0);
+  const num = (v: unknown) => Number(v || 0);
+  const payments = Array.isArray(invoice.payments) ? invoice.payments : [];
+  const subtotal = num(invoice.subtotal);
+  const discount = num(invoice.discountAmount);
   const taxable = Math.max(0, subtotal - discount);
-  const tax = Math.round((taxable * Number(invoice.taxRate || 0)) / 100);
-  const total = taxable + tax;
-  const paid = (invoice.payments ?? []).reduce(
-    (s, p) => s + Number(p.amount || 0),
-    0,
-  );
+  const tax = num(invoice.taxAmount);
+  const total = num(invoice.totalAmount);
+  const paid = payments.length
+    ? payments.reduce((s, p) => s + num(p?.amount), 0)
+    : num(invoice.paidAmount);
   return {
     subtotal,
     discount,
@@ -149,7 +155,7 @@ export function invoiceTotals(
     tax,
     total,
     paid,
-    remaining: Math.max(0, total - paid),
+    remaining: Math.max(0, num(invoice.dueAmount ?? total - paid)),
   };
 }
 
