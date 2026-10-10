@@ -16,15 +16,11 @@ import {
   SectionPanel,
 } from "@/components/common";
 import {
-  Input as FieldsInput,
-  Select as FieldsSelect,
-  DatePicker as FieldsDatePicker,
-  Textarea as FieldsTextarea,
-  Checkbox,
   Input,
   Select,
   DatePicker,
   Textarea,
+  Checkbox,
 } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
 import { FormSkeleton } from "@/components/ui/feedback";
@@ -87,6 +83,17 @@ const isPincode = (v: string) => /^[1-9]\d{5}$/.test(digits(v));
 const isAadhaar = (v: string) =>
   /^\d{12}$/.test(digits(v)) && !/^0+$/.test(digits(v));
 const isAbha = (v: string) => /^\d{14}$/.test(digits(v));
+
+/**
+ * Display format for long digit-only IDs — groups of 4 joined by dashes:
+ * "895754481588" → "8957-5448-1588".  Digits are capped at `max`;
+ * `digits()` strips the dashes again, so validators and the API payload
+ * keep seeing the bare number.
+ */
+const groupDashes = (v: string, max: number) =>
+  digits(v)
+    .slice(0, max)
+    .replace(/(\d{4})(?=\d)/g, "$1-");
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 const isPolicyNo = (v: string) => /^[A-Za-z0-9-]{6,}$/.test(v.trim());
 
@@ -353,8 +360,10 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     district: p?.district ?? "",
     state: p?.state ?? "",
     pincode: p?.pincode ?? "",
-    aadhaarNumber: p?.aadhaarNumber ?? "",
-    abhaId: p?.abhaId ?? "",
+    aadhaarNumber: p?.aadhaarNumber
+      ? groupDashes(String(p.aadhaarNumber), 12)
+      : "",
+    abhaId: p?.abhaId ? groupDashes(String(p.abhaId), 14) : "",
     guardianName: p?.guardianName ?? "",
     guardianRelation: p?.guardianRelation
       ? titleCase(String(p.guardianRelation))
@@ -620,8 +629,10 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       state: values.state || undefined,
       pincode: values.pincode || undefined,
       country: values.country || "India",
-      aadhaarNumber: values.aadhaarNumber || undefined,
-      abhaId: values.abhaId || undefined,
+      aadhaarNumber: values.aadhaarNumber
+        ? digits(values.aadhaarNumber)
+        : undefined,
+      abhaId: values.abhaId ? digits(values.abhaId) : undefined,
       guardianName: values.guardianName || undefined,
       guardianMobile: values.guardianMobile
         ? normPhone(values.guardianMobile)
@@ -739,7 +750,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     ) : undefined;
 
   return (
-    <div className="max-w-5xl mx-auto pb-10">
+    <div className="max-w-7xl mx-auto pb-10">
       <PageIntro
         title={isEdit ? "Edit Patient" : "Register New Patient"}
         description="Fields marked with * are required; the rest are optional."
@@ -1059,16 +1070,17 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 name="aadhaarNumber"
                 label="Aadhaar Number"
                 type="tel"
-                maxLength={12}
-                placeholder="12-digit Aadhaar"
+                maxLength={14}
+                placeholder="8957-5448-1588"
                 value={form.values.aadhaarNumber}
                 onChange={(e) =>
                   form.setValue(
                     "aadhaarNumber",
-                    digits(e.target.value).slice(0, 12),
+                    groupDashes(e.target.value, 12),
                   )
                 }
                 error={form.errorFor("aadhaarNumber")}
+                hint="12 digits — dashes appear automatically"
                 trailingIcon={validTick("aadhaarNumber")}
               />
               <Input
@@ -1076,13 +1088,14 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 name="abhaId"
                 label="ABHA ID"
                 type="tel"
-                maxLength={14}
-                placeholder="14-digit ABHA"
+                maxLength={17}
+                placeholder="1234-5678-9012-34"
                 value={form.values.abhaId}
                 onChange={(e) =>
-                  form.setValue("abhaId", digits(e.target.value).slice(0, 14))
+                  form.setValue("abhaId", groupDashes(e.target.value, 14))
                 }
                 error={form.errorFor("abhaId")}
+                hint="14 digits — dashes appear automatically"
                 trailingIcon={validTick("abhaId")}
               />
             </FormRow>
@@ -1364,7 +1377,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
               />
             </FormRow>
 
-            <FormRow className="lg:grid-cols-3">
+            <FormRow className="lg:grid-cols-4">
               <Input
                 name="identityMark1"
                 label="Identity Mark"
@@ -1379,9 +1392,6 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 value={form.values.identityMark2}
                 onChange={(e) => form.setValue("identityMark2", e.target.value)}
               />
-            </FormRow>
-
-            <FormRow className="lg:grid-cols-3">
               <Select
                 name="mlcType"
                 label="MLC Type"
