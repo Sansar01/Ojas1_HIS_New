@@ -302,6 +302,8 @@ export function Select({
   clearable,
   loading = false,
   loadingLabel,
+  searchable = false,
+  searchPlaceholder,
 }: {
   label?: React.ReactNode;
   value: string;
@@ -324,10 +326,25 @@ export function Select({
   loading?: boolean;
   /** e.g. "Loading departments…" / "Searching patients…" */
   loadingLabel?: string;
+  /**
+   * When true, a type-to-filter search box is rendered at the top of the open
+   * list and the options filter as the user types. Off by default — every
+   * existing dropdown keeps its current behaviour.
+   */
+  searchable?: boolean;
+  /** e.g. "Search country…" */
+  searchPlaceholder?: string;
 }) {
   // tracked for the guard above: Radix's hidden input can only echo a value
   // back while this list is closed
   const [listOpen, setListOpen] = useState(false);
+  // live filter text (searchable lists) — cleared every time the list closes
+  const [search, setSearch] = useState("");
+
+  const query = search.trim().toLowerCase();
+  const visibleOptions = query
+    ? options.filter((o) => o.label.toLowerCase().includes(query))
+    : options;
 
   return (
     <Field
@@ -339,7 +356,10 @@ export function Select({
     >
       <SelectPrimitive.Root
         value={value ?? ""}
-        onOpenChange={setListOpen}
+        onOpenChange={(open) => {
+          setListOpen(open);
+          if (!open) setSearch("");
+        }}
         onValueChange={(next) => {
           /**
            * Radix keeps a visually hidden native <select> ("bubble input") in
@@ -405,6 +425,31 @@ export function Select({
             sideOffset={6}
             className="z-[70] max-h-[19rem] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-ink-100 bg-white shadow-pop animate-fade-in"
           >
+            {searchable && !loading && (
+              <div className="flex items-center gap-2 border-b border-ink-100 px-3">
+                <Search className="size-4 shrink-0 text-ink-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    // typing must never reach Radix's own item typeahead
+                    e.stopPropagation();
+                  }}
+                  placeholder={searchPlaceholder ?? "Type to search…"}
+                  className="h-9 w-full bg-transparent text-[13px] text-ink-800 placeholder:text-ink-400 focus:outline-none"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearch("")}
+                    className="rounded p-0.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             <SelectPrimitive.Viewport className="p-1.5">
               {loading ? (
                 <div className="flex items-center gap-2 px-3 py-6 text-[13px] text-ink-500">
@@ -413,36 +458,38 @@ export function Select({
                 </div>
               ) : (
                 <>
-                  {options.length === 0 && (
+                  {visibleOptions.length === 0 && (
                     <div className="px-3 py-6 text-center text-[13px] text-ink-400">
-                      No options available
+                      {options.length === 0
+                        ? "No options available"
+                        : `No match for “${search.trim()}”`}
                     </div>
                   )}
-                  {options.map((opt) => (
-                <SelectPrimitive.Item
-                  key={opt.value}
-                  value={opt.value}
-                  disabled={opt.disabled}
-                  className={cn(
-                    "relative flex cursor-pointer select-none items-start gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-700 outline-none",
-                    "data-[highlighted]:bg-brand-25 data-[highlighted]:text-brand-800 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45",
-                  )}
-                >
-                  <SelectPrimitive.ItemIndicator className="mt-0.5 text-brand-600">
-                    <Check className="size-4" />
-                  </SelectPrimitive.ItemIndicator>
-                  <span className="min-w-0 flex-1">
-                    <SelectPrimitive.ItemText>
-                      <span className="block truncate font-medium">
-                        {opt.label}
+                  {visibleOptions.map((opt) => (
+                    <SelectPrimitive.Item
+                      key={opt.value}
+                      value={opt.value}
+                      disabled={opt.disabled}
+                      className={cn(
+                        "relative flex cursor-pointer select-none items-start gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-700 outline-none",
+                        "data-[highlighted]:bg-brand-25 data-[highlighted]:text-brand-800 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45",
+                      )}
+                    >
+                      <SelectPrimitive.ItemIndicator className="mt-0.5 text-brand-600">
+                        <Check className="size-4" />
+                      </SelectPrimitive.ItemIndicator>
+                      <span className="min-w-0 flex-1">
+                        <SelectPrimitive.ItemText>
+                          <span className="block truncate font-medium">
+                            {opt.label}
+                          </span>
+                        </SelectPrimitive.ItemText>
+                        {opt.description && (
+                          <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">
+                            {opt.description}
+                          </span>
+                        )}
                       </span>
-                    </SelectPrimitive.ItemText>
-                    {opt.description && (
-                      <span className="mt-0.5 block truncate text-[11.5px] text-ink-400">
-                        {opt.description}
-                      </span>
-                    )}
-                  </span>
                     </SelectPrimitive.Item>
                   ))}
                 </>

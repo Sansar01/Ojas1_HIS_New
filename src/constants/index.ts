@@ -65,6 +65,64 @@ export const guardianRelations: Record<string, string> = {
   Other: "OTHER",
 };
 
+/* ── Patient registration (Hospedia-style) option lists — additive ── */
+export const TITLES = [
+  "Mr.",
+  "Mrs.",
+  "Ms.",
+  "Miss",
+  "Master",
+  "Dr.",
+  "Baby",
+  "Prof.",
+];
+export const ID_PROOF_NAMES = [
+  "Aadhaar Card",
+  "PAN Card",
+  "Passport",
+  "Voter ID",
+  "Driving License",
+  "National ID",
+  "Other",
+];
+export const RELIGIONS = [
+  "Hinduism",
+  "Islam",
+  "Christianity",
+  "Sikhism",
+  "Buddhism",
+  "Jainism",
+  "Other",
+];
+/** Patient Type dropdown — options match the backend PatientType enum
+   (NEW | REVIEW | REFERRAL | EMERGENCY); sent to the API in uppercase. */
+export const PATIENT_TYPES = ["New", "Review", "Referral", "Emergency"];
+export const PATIENT_SOURCES = [
+  "Walk-in",
+  "Referral",
+  "Online",
+  "Camp",
+  "Advertisement",
+  "Other",
+];
+export const REFERENCE_TYPES = [
+  "Self",
+  "Doctor",
+  "Friend / Family",
+  "Website",
+  "Advertisement",
+  "Other",
+];
+export const MLC_TYPES = [
+  "None",
+  "Accident",
+  "Assault",
+  "Fall",
+  "Burns",
+  "Poisoning",
+  "Other",
+];
+
 export const AVATAR_COLORS = [
   "bg-brand-500",
   "bg-lagoon-500",

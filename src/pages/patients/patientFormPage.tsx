@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState, type ComponentProps } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
@@ -16,11 +16,15 @@ import {
   SectionPanel,
 } from "@/components/common";
 import {
+  Input as FieldsInput,
+  Select as FieldsSelect,
+  DatePicker as FieldsDatePicker,
+  Textarea as FieldsTextarea,
+  Checkbox,
   Input,
   Select,
   DatePicker,
   Textarea,
-  Checkbox,
 } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
 import { FormSkeleton } from "@/components/ui/feedback";
@@ -29,6 +33,13 @@ import {
   BLOOD_GROUPS,
   MARITAL_STATUS,
   guardianRelations,
+  TITLES,
+  ID_PROOF_NAMES,
+  RELIGIONS,
+  PATIENT_TYPES,
+  PATIENT_SOURCES,
+  REFERENCE_TYPES,
+  MLC_TYPES,
 } from "@/constants";
 import type { Patient } from "@/types";
 import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
@@ -37,13 +48,40 @@ import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
 
 const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
+/** Mobile optionally prefixed with a country code:
+ *   9845011223, 09845011223, 919845011223, "+91 9845 011 223", "+855 12 345 6789"
+ *   Spaces, dashes and parentheses are ignored. */
 const isMobile = (v: string) => {
-  const d = digits(v);
+  const s = String(v ?? "")
+    .trim()
+    .replace(/[\s()-]/g, "");
+  if (s.startsWith("+")) {
+    const d = s.slice(1);
+    if (!/^\d{7,15}$/.test(d)) return false;
+    if (d.startsWith("91") && d.length === 12) return /^91[6-9]\d{9}$/.test(d);
+    return true;
+  }
+  const d = digits(s);
   return (
     /^[6-9]\d{9}$/.test(d) ||
     /^0[6-9]\d{9}$/.test(d) ||
     /^91[6-9]\d{9}$/.test(d)
   );
+};
+
+/** Optional-field validators — they run ONLY when the user typed something. */
+const isAlnumId = (min: number, max: number) => (v: string) =>
+  new RegExp(`^[A-Za-z0-9-]{${min},${max}}$`).test(v.trim());
+const isPassport = (v: string) => /^[A-Za-z][0-9]{7}$/.test(v.trim());
+const isKraPin = (v: string) => /^[A-Za-z][0-9]{9}[A-Za-z]$/.test(v.trim());
+const isPersonName = (v: string) =>
+  /^[A-Za-z][A-Za-z.' ]{1,49}$/.test(v.trim());
+const isPositiveAmount = (v: string) => /^\d+(\.\d{1,2})?$/.test(v.trim());
+const isPregnancyDays = (v: string) =>
+  /^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= 310;
+const isIntlNo = (v: string) => {
+  const s = v.trim().replace(/[\s()-]/g, "");
+  return /^\+?\d{6,15}$/.test(s);
 };
 const isPincode = (v: string) => /^[1-9]\d{5}$/.test(digits(v));
 const isAadhaar = (v: string) =>
@@ -255,6 +293,47 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
   const p = patient as any;
 
+  /** Country / State options come from the hospital's global master
+      (admin-maintained) — no hard-coded lists are shipped with the form. */
+  const [geoOptions, setGeoOptions] = useState<{
+    country: { value: string; label: string }[];
+    state: { value: string; label: string }[];
+  }>({ country: [], state: [] });
+
+  useEffect(() => {
+    let active = true;
+    const toOpts = (res: any) => {
+      const body = res?.data ?? res;
+      const arr = Array.isArray(body)
+        ? body
+        : Array.isArray(body?.data)
+          ? body.data
+          : [];
+      return arr
+        .map((r: any) =>
+          String(r?.label ?? r?.name ?? r?.value ?? r?.code ?? "").trim(),
+        )
+        .filter(Boolean)
+        .map((label: string) => ({ value: label, label }));
+    };
+    (async () => {
+      try {
+        const [cRes, sRes] = await Promise.all([
+          masterService.fetchGlobalDropdown("COUNTRY"),
+          masterService.fetchGlobalDropdown("STATE"),
+        ]);
+        if (active)
+          setGeoOptions({ country: toOpts(cRes), state: toOpts(sRes) });
+      } catch {
+        /* global masters not configured yet → dropdowns stay empty
+           (never a hard-coded fallback list) */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const initialValues = {
     firstName: patient?.firstName ?? "",
     lastName: patient?.lastName ?? "",
@@ -292,6 +371,53 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     country: p?.country ?? "India",
     department: String(p?.department ?? p?.departmentId ?? ""),
     consentToShare: p?.consentToShare ?? true,
+    /* ── Extended registration fields (Hospedia-style, all optional) ── */
+    title: p?.title ?? "",
+    middleName: p?.middleName ?? "",
+    barcode: p?.barcode ?? "",
+    permanentAddress: p?.permanentAddress ?? "",
+    sameAsLocalAddress: Boolean(
+      p?.permanentAddress && p?.permanentAddress === p?.address,
+    ),
+    idProofName: p?.idProofName ?? "",
+    idProofNo: p?.idProofNo ?? "",
+    nationalId: p?.nationalId ?? "",
+    passportNo: p?.passportNo ?? "",
+    kraPin: p?.kraPin ?? "",
+    familyNumber: p?.familyNumber ?? "",
+    staffId: p?.staffId ?? "",
+    dependentId: p?.dependentId ?? "",
+    pregnancyDays: p?.pregnancyDays ?? "",
+    occupation: p?.occupation ?? "",
+    birthPlace: p?.birthPlace ?? "",
+    religion: p?.religion ?? "",
+    locality: p?.locality ?? "",
+    membershipNo: p?.membershipNo ?? "",
+    patientType: p?.patientType ? titleCase(String(p.patientType)) : "",
+    source: p?.source ?? "",
+    employeeReferenceId: p?.employeeReferenceId ?? "",
+    identityMark1: p?.identityMark1 ?? "",
+    identityMark2: p?.identityMark2 ?? "",
+    referenceType: p?.referenceType ?? "",
+    mlcType: p?.mlcType ?? "",
+    mlcNo: p?.mlcNo ?? "",
+    isInternational: p?.isInternational ?? false,
+    internationalNo: p?.internationalNo ?? "",
+    emergencyFirstName: p?.emergencyFirstName ?? "",
+    emergencyLastName: p?.emergencyLastName ?? "",
+    emergencyRelation: p?.emergencyRelation
+      ? titleCase(String(p.emergencyRelation))
+      : "",
+    emergencyMobile: p?.emergencyMobile ?? "",
+    emergencyResidentNo: p?.emergencyResidentNo ?? "",
+    emergencyAddress: p?.emergencyAddress ?? "",
+    insuranceGroup: p?.insuranceGroup ?? "",
+    insurance: p?.insurance ?? "",
+    policyCardNo: p?.policyCardNo ?? "",
+    nameOnCard: p?.nameOnCard ?? "",
+    cardHolder: p?.cardHolder ?? "",
+    approvalAmount: p?.approvalAmount ?? "",
+    approvalRemark: p?.approvalRemark ?? "",
   };
 
   const registered = (key: keyof typeof initialValues) =>
@@ -356,7 +482,67 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       ],
       abhaId: [optional("abhaId", isAbha, "ABHA ID must be 14 digits")],
       guardianMobile: [
-        optional("guardianMobile", isMobile, "Invalid 10-digit mobile"),
+        optional("guardianMobile", isMobile, "Invalid mobile number"),
+      ],
+      pregnancyDays: [
+        optional(
+          "pregnancyDays",
+          isPregnancyDays,
+          "Enter days between 1 and 310",
+        ),
+      ],
+      staffId: [optional("staffId", isAlnumId(2, 30), "Invalid staff ID")],
+      dependentId: [
+        optional("dependentId", isAlnumId(2, 30), "Invalid dependent ID"),
+      ],
+      familyNumber: [
+        optional("familyNumber", isAlnumId(3, 30), "Invalid family number"),
+      ],
+      idProofNo: [
+        optional("idProofNo", isAlnumId(5, 20), "Invalid ID proof number"),
+      ],
+      nationalId: [
+        optional("nationalId", isAlnumId(4, 25), "Invalid National ID"),
+      ],
+      passportNo: [
+        optional(
+          "passportNo",
+          isPassport,
+          "Format: 1 letter + 7 digits (e.g. P1234567)",
+        ),
+      ],
+      kraPin: [optional("kraPin", isKraPin, "KRA PIN format: A123456789B")],
+      membershipNo: [
+        optional("membershipNo", isAlnumId(4, 30), "Invalid membership number"),
+      ],
+      employeeReferenceId: [
+        optional(
+          "employeeReferenceId",
+          isAlnumId(3, 30),
+          "Invalid employee reference id",
+        ),
+      ],
+      mlcNo: [optional("mlcNo", isAlnumId(3, 30), "Invalid MLC number")],
+      internationalNo: [
+        optional("internationalNo", isIntlNo, "Invalid international number"),
+      ],
+      emergencyMobile: [
+        optional("emergencyMobile", isMobile, "Invalid mobile number"),
+      ],
+      emergencyResidentNo: [
+        optional("emergencyResidentNo", isIntlNo, "Invalid resident number"),
+      ],
+      policyCardNo: [
+        optional(
+          "policyCardNo",
+          isAlnumId(4, 20),
+          "Invalid policy card number",
+        ),
+      ],
+      nameOnCard: [optional("nameOnCard", isPersonName, "Letters only")],
+      cardHolder: [optional("cardHolder", isPersonName, "Letters only")],
+      approvalAmount: [
+        optional("approvalAmount", isPositiveAmount, "Enter a valid amount"),
       ],
       panelPolicyNo: [
         optional(
@@ -391,6 +577,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     },
   });
 
+  /** "+91 9845 011 223" → "+919845011223" (backend validators reject spaces) */
+  const normPhone = (v?: string) => (v ? v.replace(/[\s()-]/g, "") : undefined);
+
   const toISO = (date: string) => {
     const parsed = parseDobInput(date);
     return parsed
@@ -421,7 +610,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       maritalStatus: values.maritalStatus.toUpperCase(),
       ageAtRegistration: Number(values.age) || 0,
       ageUnit: values.ageUnit || "years",
-      alternateMobile: values.alternateMobile || undefined,
+      alternateMobile: values.alternateMobile
+        ? normPhone(values.alternateMobile)
+        : undefined,
       email: values.email || undefined,
       address: values.address || undefined,
       city: values.city || undefined,
@@ -432,24 +623,84 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       aadhaarNumber: values.aadhaarNumber || undefined,
       abhaId: values.abhaId || undefined,
       guardianName: values.guardianName || undefined,
-      guardianMobile: values.guardianMobile || undefined,
+      guardianMobile: values.guardianMobile
+        ? normPhone(values.guardianMobile)
+        : undefined,
       panelId: values.panelId || undefined,
       panelPolicyNo: values.panelPolicyNo || undefined,
       allergies: values.allergies || undefined,
       chronicDiseases: values.chronicDiseases || undefined,
       department: values.department || undefined,
       consentToShare: values.consentToShare,
+      /* ── Extended registration fields (optional) ── */
+      title: values.title || undefined,
+      middleName: values.middleName || undefined,
+      barcode: values.barcode || undefined,
+      permanentAddress: values.permanentAddress || undefined,
+      idProofName: values.idProofName || undefined,
+      idProofNo: values.idProofNo || undefined,
+      nationalId: values.nationalId || undefined,
+      passportNo: values.passportNo || undefined,
+      kraPin: values.kraPin || undefined,
+      familyNumber: values.familyNumber || undefined,
+      staffId: values.staffId || undefined,
+      dependentId: values.dependentId || undefined,
+      pregnancyDays: values.pregnancyDays
+        ? Number(values.pregnancyDays)
+        : undefined,
+      occupation: values.occupation || undefined,
+      birthPlace: values.birthPlace || undefined,
+      religion: values.religion || undefined,
+      locality: values.locality || undefined,
+      membershipNo: values.membershipNo || undefined,
+      patientType: values.patientType
+        ? values.patientType.toUpperCase()
+        : undefined,
+      source: values.source || undefined,
+      employeeReferenceId: values.employeeReferenceId || undefined,
+      identityMark1: values.identityMark1 || undefined,
+      identityMark2: values.identityMark2 || undefined,
+      referenceType: values.referenceType || undefined,
+      mlcType: values.mlcType || undefined,
+      mlcNo: values.mlcNo || undefined,
+      isInternational: values.isInternational,
+      internationalNo: values.internationalNo
+        ? normPhone(values.internationalNo)
+        : undefined,
+      emergencyFirstName: values.emergencyFirstName || undefined,
+      emergencyLastName: values.emergencyLastName || undefined,
+      emergencyMobile: values.emergencyMobile
+        ? normPhone(values.emergencyMobile)
+        : undefined,
+      emergencyResidentNo: values.emergencyResidentNo || undefined,
+      emergencyAddress: values.emergencyAddress || undefined,
+      insuranceGroup: values.insuranceGroup || undefined,
+      insurance: values.insurance || undefined,
+      policyCardNo: values.policyCardNo || undefined,
+      nameOnCard: values.nameOnCard || undefined,
+      cardHolder: values.cardHolder || undefined,
+      approvalAmount: values.approvalAmount
+        ? Number(values.approvalAmount)
+        : undefined,
+      approvalRemark: values.approvalRemark || undefined,
       dateOfBirth: toISO(values.dateOfBirth),
       panelValidTill: toISO(values.panelValidTill),
     };
 
-    if (!isEdit) payload.mobile = values.mobile;
+    if (!isEdit) payload.mobile = normPhone(values.mobile);
 
     if (values.guardianRelation) {
       payload.guardianRelation =
         guardianRelations[
           values.guardianRelation as keyof typeof guardianRelations
         ] ?? values.guardianRelation.toUpperCase();
+    }
+
+    if (values.emergencyRelation) {
+      payload.emergencyRelation =
+        guardianRelations[
+          values.emergencyRelation as keyof typeof guardianRelations
+        ] ?? values.emergencyRelation.toUpperCase();
     }
 
     Object.keys(payload).forEach((k) => {
@@ -498,29 +749,50 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       <div className="rounded-2xl border border-ink-100 bg-white p-6 shadow-card">
         <form onSubmit={submit} className="space-y-8" noValidate>
           {/* Personal */}
-          <FormSection title="Personal Information">
+          <FormSection title="Personal Details">
             <FormRow className="lg:grid-cols-4">
+              <Select
+                name="title"
+                label="Title"
+                placeholder="Select title"
+                value={form.values.title}
+                onChange={(v) => form.setValue("title", v)}
+                options={TITLES.map((t) => ({ value: t, label: t }))}
+              />
               <Input
                 ref={form.registerRef("firstName")}
                 name="firstName"
-                label="First Name *"
+                label="First Name"
+                required
                 placeholder="Enter first name"
                 value={form.values.firstName}
                 onChange={(e) => form.setValue("firstName", e.target.value)}
                 error={form.errorFor("firstName")}
               />
               <Input
+                name="middleName"
+                label="Middle Name"
+                placeholder="Enter middle name"
+                value={form.values.middleName}
+                onChange={(e) => form.setValue("middleName", e.target.value)}
+              />
+              <Input
                 ref={form.registerRef("lastName")}
                 name="lastName"
-                label="Last Name *"
+                label="Last Name"
+                required
                 placeholder="Enter last name"
                 value={form.values.lastName}
                 onChange={(e) => form.setValue("lastName", e.target.value)}
                 error={form.errorFor("lastName")}
               />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-4">
               <Select
                 name="gender"
-                label="Gender *"
+                label="Gender"
+                required
                 placeholder="Select gender"
                 value={form.values.gender}
                 onChange={(v) => form.setValue("gender", v)}
@@ -539,9 +811,6 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 max={todayISO}
                 error={form.errorFor("dateOfBirth")}
               />
-            </FormRow>
-
-            <FormRow className="lg:grid-cols-4">
               <Input
                 name="age"
                 label="Age"
@@ -567,6 +836,9 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                   label: u,
                 }))}
               />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-4">
               <Select
                 name="bloodGroup"
                 label="Blood Group"
@@ -583,6 +855,66 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 onChange={(v) => form.setValue("maritalStatus", v)}
                 options={MARITAL_STATUS.map((m) => ({ value: m, label: m }))}
               />
+              <Input
+                name="birthPlace"
+                label="Birth Place"
+                placeholder="Place of birth"
+                value={form.values.birthPlace}
+                onChange={(e) => form.setValue("birthPlace", e.target.value)}
+              />
+              <Input
+                name="barcode"
+                label="Barcode"
+                placeholder="Scan / enter barcode"
+                value={form.values.barcode}
+                onChange={(e) => form.setValue("barcode", e.target.value)}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-4">
+              <Input
+                ref={form.registerRef("pregnancyDays")}
+                name="pregnancyDays"
+                label="Pregnancy Days"
+                type="number"
+                inputMode="numeric"
+                placeholder="If applicable"
+                value={String(form.values.pregnancyDays ?? "")}
+                onChange={(e) => form.setValue("pregnancyDays", e.target.value)}
+                error={form.errorFor("pregnancyDays")}
+                hint="1–310 days"
+                trailingIcon={validTick("pregnancyDays")}
+              />
+              <Input
+                ref={form.registerRef("staffId")}
+                name="staffId"
+                label="Staff ID"
+                placeholder="If hospital staff"
+                value={form.values.staffId}
+                onChange={(e) => form.setValue("staffId", e.target.value)}
+                error={form.errorFor("staffId")}
+                trailingIcon={validTick("staffId")}
+              />
+              <Input
+                ref={form.registerRef("dependentId")}
+                name="dependentId"
+                label="Dependent ID"
+                placeholder="If staff dependent"
+                value={form.values.dependentId}
+                onChange={(e) => form.setValue("dependentId", e.target.value)}
+                error={form.errorFor("dependentId")}
+                trailingIcon={validTick("dependentId")}
+              />
+              <Input
+                ref={form.registerRef("familyNumber")}
+                name="familyNumber"
+                label="Family Number"
+                placeholder="Family record number"
+                value={form.values.familyNumber}
+                onChange={(e) => form.setValue("familyNumber", e.target.value)}
+                error={form.errorFor("familyNumber")}
+                trailingIcon={validTick("familyNumber")}
+              />
             </FormRow>
           </FormSection>
 
@@ -592,13 +924,18 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
               <Input
                 ref={form.registerRef("mobile")}
                 name="mobile"
-                label={isEdit ? "Mobile Number" : "Mobile Number *"}
+                label="Mobile Number"
+                required={!isEdit}
                 type="tel"
-                placeholder="e.g. 9845011223"
+                placeholder="9845011223"
                 value={form.values.mobile}
                 onChange={(e) => form.setValue("mobile", e.target.value)}
                 error={form.errorFor("mobile")}
-                hint={isEdit ? "Not editable here" : undefined}
+                hint={
+                  isEdit
+                    ? "Not editable here"
+                    : "10-digit, or start with + country code (e.g. +91 9845011223)"
+                }
                 disabled={isEdit}
               />
               <Input
@@ -606,12 +943,13 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 name="alternateMobile"
                 label="Alternate Mobile"
                 type="tel"
-                placeholder="Optional"
+                placeholder="+91 9845011223"
                 value={form.values.alternateMobile}
                 onChange={(e) =>
                   form.setValue("alternateMobile", e.target.value)
                 }
                 error={form.errorFor("alternateMobile")}
+                hint="Country code allowed (e.g. +91 …)"
                 trailingIcon={validTick("alternateMobile")}
               />
               <Input
@@ -627,10 +965,10 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
               />
             </FormRow>
 
-            <FormRow className="lg:grid-cols-2">
+            <FormRow className="lg:grid-cols-3">
               <Input
                 name="address"
-                label="Address"
+                label="Local Address"
                 placeholder="House / street / locality"
                 value={form.values.address}
                 onChange={(e) => form.setValue("address", e.target.value)}
@@ -642,20 +980,56 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 value={form.values.city}
                 onChange={(e) => form.setValue("city", e.target.value)}
               />
+              <Input
+                name="permanentAddress"
+                label="Permanent Address"
+                placeholder="Enter permanent address"
+                value={form.values.permanentAddress}
+                onChange={(e) =>
+                  form.setValue("permanentAddress", e.target.value)
+                }
+              />
             </FormRow>
 
-            <FormRow className="lg:grid-cols-3">
+            <div className="pt-1">
+              <Checkbox
+                checked={form.values.sameAsLocalAddress}
+                onCheckedChange={(v) => {
+                  const same = Boolean(v);
+                  form.setValue("sameAsLocalAddress", same);
+                  if (same)
+                    form.setValue("permanentAddress", form.values.address);
+                }}
+                label="Permanent address is same as local address"
+              />
+            </div>
+
+            <FormRow className="lg:grid-cols-4">
               <Input
                 name="district"
                 label="District"
                 value={form.values.district}
                 onChange={(e) => form.setValue("district", e.target.value)}
               />
-              <Input
+              <Select
+                searchable
+                searchPlaceholder="Search state…"
                 name="state"
                 label="State"
+                placeholder="Select state"
+                options={geoOptions.state}
                 value={form.values.state}
-                onChange={(e) => form.setValue("state", e.target.value)}
+                onChange={(v) => form.setValue("state", v)}
+              />
+              <Select
+                searchable
+                searchPlaceholder="Search country…"
+                name="country"
+                label="Country"
+                placeholder="Select country"
+                options={geoOptions.country}
+                value={form.values.country}
+                onChange={(v) => form.setValue("country", v)}
               />
               <Input
                 ref={form.registerRef("pincode")}
@@ -712,6 +1086,63 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 trailingIcon={validTick("abhaId")}
               />
             </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Select
+                name="idProofName"
+                label="ID Proof Name"
+                placeholder="Select ID proof"
+                value={form.values.idProofName}
+                onChange={(v) => form.setValue("idProofName", v)}
+                options={ID_PROOF_NAMES.map((i) => ({ value: i, label: i }))}
+              />
+              <Input
+                ref={form.registerRef("idProofNo")}
+                name="idProofNo"
+                label="ID Proof No"
+                placeholder="ID proof number"
+                value={form.values.idProofNo}
+                onChange={(e) => form.setValue("idProofNo", e.target.value)}
+                error={form.errorFor("idProofNo")}
+                hint="As printed on the selected proof"
+                trailingIcon={validTick("idProofNo")}
+              />
+              <Input
+                ref={form.registerRef("nationalId")}
+                name="nationalId"
+                label="National ID"
+                placeholder="National identity number"
+                value={form.values.nationalId}
+                onChange={(e) => form.setValue("nationalId", e.target.value)}
+                error={form.errorFor("nationalId")}
+                trailingIcon={validTick("nationalId")}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                ref={form.registerRef("passportNo")}
+                name="passportNo"
+                label="Passport Number"
+                placeholder="If applicable"
+                value={form.values.passportNo}
+                onChange={(e) => form.setValue("passportNo", e.target.value)}
+                error={form.errorFor("passportNo")}
+                hint="e.g. P1234567"
+                trailingIcon={validTick("passportNo")}
+              />
+              <Input
+                ref={form.registerRef("kraPin")}
+                name="kraPin"
+                label="KRA Pin"
+                placeholder="KRA pin"
+                value={form.values.kraPin}
+                onChange={(e) => form.setValue("kraPin", e.target.value)}
+                error={form.errorFor("kraPin")}
+                hint="Format: A123456789B"
+                trailingIcon={validTick("kraPin")}
+              />
+            </FormRow>
           </FormSection>
 
           {/* Guardian */}
@@ -740,20 +1171,241 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 name="guardianMobile"
                 label="Guardian Mobile"
                 type="tel"
-                placeholder="10-digit number"
+                placeholder="+91 9845011223"
                 value={form.values.guardianMobile}
                 onChange={(e) =>
                   form.setValue("guardianMobile", e.target.value)
                 }
                 error={form.errorFor("guardianMobile")}
+                hint="Country code allowed (e.g. +91 …)"
                 trailingIcon={validTick("guardianMobile")}
+              />
+            </FormRow>
+          </FormSection>
+
+          {/* Other Details */}
+          <FormSection
+            title="Other Details"
+            description="Optional — emergency contact, demographic & referral info"
+          >
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                name="occupation"
+                label="Occupation"
+                placeholder="Enter occupation"
+                value={form.values.occupation}
+                onChange={(e) => form.setValue("occupation", e.target.value)}
+              />
+              <Select
+                name="religion"
+                label="Religion"
+                placeholder="Select religion"
+                value={form.values.religion}
+                onChange={(v) => form.setValue("religion", v)}
+                options={RELIGIONS.map((r) => ({ value: r, label: r }))}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                name="emergencyFirstName"
+                label="Emg First Name"
+                placeholder="Emergency contact first name"
+                value={form.values.emergencyFirstName}
+                onChange={(e) =>
+                  form.setValue("emergencyFirstName", e.target.value)
+                }
+              />
+              <Input
+                name="emergencyLastName"
+                label="Emg Last Name"
+                placeholder="Emergency contact last name"
+                value={form.values.emergencyLastName}
+                onChange={(e) =>
+                  form.setValue("emergencyLastName", e.target.value)
+                }
+              />
+              <Select
+                name="emergencyRelation"
+                label="Emg Relation"
+                placeholder="Select relation"
+                value={form.values.emergencyRelation}
+                onChange={(v) => form.setValue("emergencyRelation", v)}
+                options={Object.keys(guardianRelations).map((r) => ({
+                  value: r,
+                  label: r,
+                }))}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-2">
+              <Input
+                ref={form.registerRef("emergencyMobile")}
+                name="emergencyMobile"
+                label="Emg Mobile No"
+                type="tel"
+                placeholder="+91 9845011223"
+                value={form.values.emergencyMobile}
+                onChange={(e) =>
+                  form.setValue("emergencyMobile", e.target.value)
+                }
+                error={form.errorFor("emergencyMobile")}
+                hint="Country code allowed (e.g. +91 …)"
+                trailingIcon={validTick("emergencyMobile")}
+              />
+              <Input
+                ref={form.registerRef("emergencyResidentNo")}
+                name="emergencyResidentNo"
+                label="Emg Resident No"
+                type="tel"
+                placeholder="Resident / landline number"
+                value={form.values.emergencyResidentNo}
+                onChange={(e) =>
+                  form.setValue("emergencyResidentNo", e.target.value)
+                }
+                error={form.errorFor("emergencyResidentNo")}
+                trailingIcon={validTick("emergencyResidentNo")}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-2">
+              <Input
+                name="emergencyAddress"
+                label="Emg Address"
+                placeholder="Emergency contact address"
+                value={form.values.emergencyAddress}
+                onChange={(e) =>
+                  form.setValue("emergencyAddress", e.target.value)
+                }
+              />
+              <Input
+                ref={form.registerRef("internationalNo")}
+                name="internationalNo"
+                label="International No"
+                type="tel"
+                placeholder="International contact number"
+                value={form.values.internationalNo}
+                onChange={(e) =>
+                  form.setValue("internationalNo", e.target.value)
+                }
+                error={form.errorFor("internationalNo")}
+                hint="Include + and country code"
+                trailingIcon={validTick("internationalNo")}
+              />
+            </FormRow>
+
+            <div className="pt-1">
+              <Checkbox
+                checked={form.values.isInternational}
+                onCheckedChange={(v) =>
+                  form.setValue("isInternational", Boolean(v))
+                }
+                label="Is International (patient resides outside the country)"
+              />
+            </div>
+
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                name="locality"
+                label="Locality"
+                placeholder="Area / locality"
+                value={form.values.locality}
+                onChange={(e) => form.setValue("locality", e.target.value)}
+              />
+              <Input
+                ref={form.registerRef("membershipNo")}
+                name="membershipNo"
+                label="Membership No"
+                placeholder="Hospital membership number"
+                value={form.values.membershipNo}
+                onChange={(e) => form.setValue("membershipNo", e.target.value)}
+                error={form.errorFor("membershipNo")}
+                trailingIcon={validTick("membershipNo")}
+              />
+              <Select
+                name="patientType"
+                label="Patient Type"
+                placeholder="Select patient type"
+                value={form.values.patientType}
+                onChange={(v) => form.setValue("patientType", v)}
+                options={PATIENT_TYPES.map((t) => ({ value: t, label: t }))}
+                hint="Existing status options: New / Review / Referral / Emergency"
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Select
+                name="source"
+                label="Source"
+                placeholder="Select source"
+                value={form.values.source}
+                onChange={(v) => form.setValue("source", v)}
+                options={PATIENT_SOURCES.map((s) => ({ value: s, label: s }))}
+              />
+              <Input
+                ref={form.registerRef("employeeReferenceId")}
+                name="employeeReferenceId"
+                label="Emp Reference Id"
+                placeholder="Employee reference id"
+                value={form.values.employeeReferenceId}
+                onChange={(e) =>
+                  form.setValue("employeeReferenceId", e.target.value)
+                }
+                error={form.errorFor("employeeReferenceId")}
+                trailingIcon={validTick("employeeReferenceId")}
+              />
+              <Select
+                name="referenceType"
+                label="Reference Type"
+                placeholder="Select reference type"
+                value={form.values.referenceType}
+                onChange={(v) => form.setValue("referenceType", v)}
+                options={REFERENCE_TYPES.map((r) => ({ value: r, label: r }))}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                name="identityMark1"
+                label="Identity Mark"
+                placeholder="Visible identification mark"
+                value={form.values.identityMark1}
+                onChange={(e) => form.setValue("identityMark1", e.target.value)}
+              />
+              <Input
+                name="identityMark2"
+                label="Identity Mark 2"
+                placeholder="Visible identification mark"
+                value={form.values.identityMark2}
+                onChange={(e) => form.setValue("identityMark2", e.target.value)}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Select
+                name="mlcType"
+                label="MLC Type"
+                placeholder="Select MLC type"
+                value={form.values.mlcType}
+                onChange={(v) => form.setValue("mlcType", v)}
+                options={MLC_TYPES.map((m) => ({ value: m, label: m }))}
+              />
+              <Input
+                ref={form.registerRef("mlcNo")}
+                name="mlcNo"
+                label="MLC No"
+                placeholder="Medico-legal case number"
+                value={form.values.mlcNo}
+                onChange={(e) => form.setValue("mlcNo", e.target.value)}
+                error={form.errorFor("mlcNo")}
+                trailingIcon={validTick("mlcNo")}
               />
             </FormRow>
           </FormSection>
 
           {/* Panel */}
           <FormSection
-            title="Panel / Corporate / Insurance"
+            title="Scheme Details (Panel / Corporate / Insurance)"
             description="Select panel for cashless rates & co-pay. Leave empty for cash/self-pay."
           >
             <FormRow className="lg:grid-cols-3">
@@ -782,6 +1434,83 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 value={form.values.panelValidTill}
                 onChange={(v) => form.setValue("panelValidTill", v)}
                 disabled={!form.values.panelId}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-4">
+              <Input
+                name="insuranceGroup"
+                label="Insurance Group"
+                placeholder="Insurance group"
+                value={form.values.insuranceGroup}
+                onChange={(e) =>
+                  form.setValue("insuranceGroup", e.target.value)
+                }
+              />
+              <Input
+                name="insurance"
+                label="Insurance"
+                placeholder="Insurance company"
+                value={form.values.insurance}
+                onChange={(e) => form.setValue("insurance", e.target.value)}
+              />
+              <Input
+                ref={form.registerRef("policyCardNo")}
+                name="policyCardNo"
+                label="Policy Card No"
+                placeholder="Card number"
+                value={form.values.policyCardNo}
+                onChange={(e) => form.setValue("policyCardNo", e.target.value)}
+                error={form.errorFor("policyCardNo")}
+                hint="As printed on the policy card"
+                trailingIcon={validTick("policyCardNo")}
+              />
+              <Input
+                ref={form.registerRef("nameOnCard")}
+                name="nameOnCard"
+                label="Name On Card"
+                placeholder="Name as printed on card"
+                value={form.values.nameOnCard}
+                onChange={(e) => form.setValue("nameOnCard", e.target.value)}
+                error={form.errorFor("nameOnCard")}
+                trailingIcon={validTick("nameOnCard")}
+              />
+            </FormRow>
+
+            <FormRow className="lg:grid-cols-3">
+              <Input
+                ref={form.registerRef("cardHolder")}
+                name="cardHolder"
+                label="Card Holder"
+                placeholder="Card holder name"
+                value={form.values.cardHolder}
+                onChange={(e) => form.setValue("cardHolder", e.target.value)}
+                error={form.errorFor("cardHolder")}
+                trailingIcon={validTick("cardHolder")}
+              />
+              <Input
+                ref={form.registerRef("approvalAmount")}
+                name="approvalAmount"
+                label="Approval Amount"
+                type="number"
+                inputMode="decimal"
+                placeholder="Approved amount"
+                value={String(form.values.approvalAmount ?? "")}
+                onChange={(e) =>
+                  form.setValue("approvalAmount", e.target.value)
+                }
+                error={form.errorFor("approvalAmount")}
+                hint="e.g. 5000 or 5000.50"
+                trailingIcon={validTick("approvalAmount")}
+              />
+              <Input
+                name="approvalRemark"
+                label="Approval Remark"
+                placeholder="Approval remark"
+                value={form.values.approvalRemark}
+                onChange={(e) =>
+                  form.setValue("approvalRemark", e.target.value)
+                }
               />
             </FormRow>
           </FormSection>
@@ -820,13 +1549,6 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                   value: String(d.id),
                   label: d.name,
                 }))}
-              />
-              <Input
-                name="country"
-                label="Country"
-                placeholder="India"
-                value={form.values.country}
-                onChange={(e) => form.setValue("country", e.target.value)}
               />
             </FormRow>
 
