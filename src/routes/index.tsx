@@ -107,6 +107,42 @@ const MasterConfigurationPage = lazy(() =>
   })),
 );
 
+/* IPD module — ward board, admission census, admission form, patient chart and
+   the discharge wizard. Pure additions: the pages live under
+   `src/pages/ipd/` and touch no existing screen. */
+const IpdWardBoardPage = lazy(() =>
+  import("@/pages/ipd/IpdWardBoardPage").then((m) => ({
+    default: m.IpdWardBoardPage,
+  })),
+);
+const IpdAdmissionsPage = lazy(() =>
+  import("@/pages/ipd/IpdAdmissionsPage").then((m) => ({
+    default: m.IpdAdmissionsPage,
+  })),
+);
+const IpdAdmissionFormPage = lazy(() =>
+  import("@/pages/ipd/IpdAdmissionFormPage").then((m) => ({
+    default: m.IpdAdmissionFormPage,
+  })),
+);
+const IpdPatientChartPage = lazy(() =>
+  import("@/pages/ipd/IpdPatientChartPage").then((m) => ({
+    default: m.IpdPatientChartPage,
+  })),
+);
+const IpdDischargePage = lazy(() =>
+  import("@/pages/ipd/IpdDischargePage").then((m) => ({
+    default: m.IpdDischargePage,
+  })),
+);
+
+/**
+ * Entitlement keys of the IPD module. The backend seeds the module as
+ * `IPD_MANAGEMENT` on route `/ipd`; `ModuleRoute` normalises every key
+ * ("ipd" → IPD, "ipd-management" → IPD_MANAGEMENT), so all spellings resolve
+ * to the same module. Without the entitlement the 404 page is shown — the
+ * routes stay invisible, exactly like every other module.
+ */
 /**
  * Public routes → auth screens.
  * Protected routes → RequireAuth (session) + ModuleRoute (entitlement check).
@@ -357,6 +393,53 @@ export function AppRoutes() {
                   aliases={["master-configuration"]}
                 >
                   <MasterConfigurationPage />
+                </ModuleRoute>
+              }
+            />
+
+            {/* ── IPD ───────────────────────────────────────────────────────
+                Additive block: ward board (/ipd) → census → admission form →
+                patient chart → discharge wizard. `aliases` only widen the
+                accepted spellings of the SAME entitlement module; a user
+                without it still gets the 404 page. Route order matters for
+                readability only — the static "new" path outranks ":id". */}
+            <Route
+              path="/ipd"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdWardBoardPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/ipd/admissions"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdAdmissionsPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/ipd/admissions/new"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdAdmissionFormPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/ipd/admissions/:id"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdPatientChartPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/ipd/admissions/:id/discharge"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdDischargePage />
                 </ModuleRoute>
               }
             />
