@@ -272,6 +272,8 @@ export function useForm<T extends Record<string, any>>({
   const setValue = useCallback(
     (name: keyof T, value: any, validateNow = true) => {
       setValues((prev) => {
+        // unchanged value → no new object, no error recalculation, no rerender
+        if (Object.is(prev[name], value)) return prev;
         const nextValues = { ...prev, [name]: value } as T;
 
         // Always keep the error state accurate for fields the user can already
@@ -284,6 +286,8 @@ export function useForm<T extends Record<string, any>>({
         if (shouldValidate) {
           const message = validateField(name, value, nextValues);
           setErrors((e) => {
+            // message already accurate → keep the same errors object (no rerender)
+            if (message ? e[name] === message : !(name in e)) return e;
             const newErrors = { ...e };
             if (message) {
               newErrors[name] = message;
@@ -303,7 +307,11 @@ export function useForm<T extends Record<string, any>>({
   );
 
   const setMany = useCallback((patch: Partial<T>) => {
-    setValues((prev) => ({ ...prev, ...patch }) as T);
+    setValues((prev) =>
+      Object.keys(patch).every((k) => Object.is(prev[k as keyof T], (patch as any)[k]))
+        ? prev // nothing actually changed → skip the update entirely
+        : ({ ...prev, ...patch }) as T,
+    );
     setDirty(true);
   }, []);
 
@@ -321,26 +329,28 @@ export function useForm<T extends Record<string, any>>({
     [initialValues],
   );
 
-  const handleSubmit =
+  const handleSubmit = useCallback(
     (onValid: (values: T) => void | Promise<void>) =>
-    async (e?: React.FormEvent | React.MouseEvent) => {
-      e?.preventDefault?.();
-      if (submitting) return;
-      const next = validate();
-      if (Object.keys(next).length) {
-        attemptedRef.current = true;
-        setSubmitAttempted(true);
-        dispatch(FORM_INVALID());
-        focusField(Object.keys(next)[0]);
-        return;
-      }
-      setSubmitting(true);
-      try {
-        await onValid(values);
-      } finally {
-        setSubmitting(false);
-      }
-    };
+      async (e?: React.FormEvent | React.MouseEvent) => {
+        e?.preventDefault?.();
+        if (submitting) return;
+        const next = validate();
+        if (Object.keys(next).length) {
+          attemptedRef.current = true;
+          setSubmitAttempted(true);
+          dispatch(FORM_INVALID());
+          focusField(Object.keys(next)[0]);
+          return;
+        }
+        setSubmitting(true);
+        try {
+          await onValid(values);
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    [submitting, validate, values, dispatch, focusField],
+  );
 
   // ==================== GLOBAL NUMERIC INPUT HANDLER ====================
   const handleNumericChange = useCallback(

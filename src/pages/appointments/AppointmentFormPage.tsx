@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DatePicker, Input, Textarea, Select } from "@/components/ui/fields";
 import { Button, Badge } from "@/components/ui/primitives";
 import { appointmentService } from "@/pages/appointments/appointment.service";
@@ -123,6 +123,31 @@ export function AppointmentFormModal({
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+
+  /** patient Select options (ACTIVE only) recomputed only when the list changes */
+  const patientOptions = useMemo(
+    () =>
+      patients
+        .filter((p: any) => p.status === "ACTIVE")
+        .map((p: any) => ({
+          value: p.id,
+          label: fullName(p),
+          description: p.mrn,
+        })),
+    [patients],
+  );
+
+  /** doctor Select options recomputed only when the list itself changes */
+  const doctorOptions = useMemo(
+    () =>
+      doctors.map((d: any) => ({
+        value: d.id,
+        label: `Dr. ${fullName(d)}`,
+        description: d.specialization ?? undefined,
+        disabled: d.isActive !== true,
+      })),
+    [doctors],
+  );
   // slot-conflict source for the picker below — loaded lazily, only once the
   // doctor/date pair makes the slot picker relevant (see the effect below)
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
@@ -517,13 +542,7 @@ export function AppointmentFormModal({
               placeholder="Search registered patients..."
               loading={patientsLoading}
               loadingLabel="Searching patients…"
-              options={patients
-                .filter((p: any) => p.status === "ACTIVE")
-                .map((p: any) => ({
-                  value: p.id,
-                  label: fullName(p),
-                  description: p.mrn,
-                }))}
+              options={patientOptions}
             />
 
             <div>
@@ -536,12 +555,7 @@ export function AppointmentFormModal({
                 error={form.errors.doctorId}
                 loading={doctorsLoading}
                 loadingLabel="Loading doctors…"
-                options={doctors.map((d: any) => ({
-                  value: d.id,
-                  label: `Dr. ${fullName(d)}`,
-                  description: d.specialization ?? undefined,
-                  disabled: d.isActive !== true,
-                }))}
+                options={doctorOptions}
               />
               {doctor && (
                 <p className="mt-1 text-[12px] text-ink-500">

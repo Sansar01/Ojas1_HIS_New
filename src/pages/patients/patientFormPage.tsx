@@ -1,4 +1,10 @@
-import { forwardRef, useEffect, useState, type ComponentProps } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
@@ -16,11 +22,15 @@ import {
   SectionPanel,
 } from "@/components/common";
 import {
-  Input,
+  Input as FieldsInput,
+  Select as FieldsSelect,
+  DatePicker as FieldsDatePicker,
+  Textarea as FieldsTextarea,
+  Checkbox,
   Select,
+  Input,
   DatePicker,
   Textarea,
-  Checkbox,
 } from "@/components/ui/fields";
 import { Button } from "@/components/ui/primitives";
 import { FormSkeleton } from "@/components/ui/feedback";
@@ -39,6 +49,36 @@ import {
 } from "@/constants";
 import type { Patient } from "@/types";
 import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
+
+/* ── STABLE STATIC CONFIG (built once at module load, never reallocated
+      on keystrokes — this is a 60+-field form re-rendering per key) ─────── */
+
+const toOptions = (list: readonly string[]) =>
+  list.map((v) => ({ value: v, label: v }));
+
+const TITLE_OPTIONS = toOptions(TITLES);
+const GENDER_OPTIONS = toOptions(GENDERS);
+const AGE_UNIT_OPTIONS = toOptions(["years", "months", "days"]);
+const BLOOD_GROUP_OPTIONS = toOptions(BLOOD_GROUPS);
+const MARITAL_OPTIONS = toOptions(MARITAL_STATUS);
+const ID_PROOF_OPTIONS = toOptions(ID_PROOF_NAMES);
+const GUARDIAN_RELATION_OPTIONS = toOptions(Object.keys(guardianRelations));
+const RELIGION_OPTIONS = toOptions(RELIGIONS);
+const PATIENT_TYPE_OPTIONS = toOptions(PATIENT_TYPES);
+const PATIENT_SOURCE_OPTIONS = toOptions(PATIENT_SOURCES);
+const REFERENCE_TYPE_OPTIONS = toOptions(REFERENCE_TYPES);
+const MLC_TYPE_OPTIONS = toOptions(MLC_TYPES);
+
+/** Human labels for validation toasts — static for this form. */
+const PATIENT_LABELS = {
+  firstName: "First name",
+  lastName: "Last name",
+  gender: "Gender",
+  mobile: "Mobile number",
+  dateOfBirth: "Date of birth",
+  age: "Age",
+  panelPolicyNo: "Policy / Emp No",
+} as const;
 
 /* ── HELPERS ────────────────────────────────────────────────── */
 
@@ -244,6 +284,12 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   /** Department + panel dropdowns — each loaded by this form, when it needs them. */
   const [departments, setDepartments] = useState<Department[]>([]);
 
+  /** department Select options recomputed only when the list itself loads */
+  const departmentOptions = useMemo(
+    () => departments.map((d) => ({ value: String(d.id), label: d.name })),
+    [departments],
+  );
+
   /**
    * The registration form cannot be filled without its department list, so this
    * load is the page's blocking initialization → global loader while it runs
@@ -341,93 +387,97 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
     };
   }, []);
 
-  const initialValues = {
-    firstName: patient?.firstName ?? "",
-    lastName: patient?.lastName ?? "",
-    gender: patient?.gender ? titleCase(patient.gender) : "Male",
-    dateOfBirth: patient?.dateOfBirth?.slice(0, 10) ?? "",
-    age: Number(p?.ageAtRegistration ?? p?.age ?? 0),
-    ageUnit: p?.ageUnit ?? "years",
-    bloodGroup: toDisplayBloodGroup(patient?.bloodGroup ?? "O+"),
-    maritalStatus: patient?.maritalStatus
-      ? titleCase(patient.maritalStatus)
-      : "Single",
-    mobile: patient?.mobile ?? "",
-    alternateMobile: p?.alternateMobile ?? p?.altMobile ?? "",
-    email: patient?.email ?? "",
-    address: patient?.address ?? "",
-    city: patient?.city ?? "",
-    district: p?.district ?? "",
-    state: p?.state ?? "",
-    pincode: p?.pincode ?? "",
-    aadhaarNumber: p?.aadhaarNumber
-      ? groupDashes(String(p.aadhaarNumber), 12)
-      : "",
-    abhaId: p?.abhaId ? groupDashes(String(p.abhaId), 14) : "",
-    guardianName: p?.guardianName ?? "",
-    guardianRelation: p?.guardianRelation
-      ? titleCase(String(p.guardianRelation))
-      : "",
-    guardianMobile: p?.guardianMobile ?? "",
-    panelId: p?.panelId ?? "",
-    panelPolicyNo: p?.panelPolicyNo ?? p?.insurancePolicyNo ?? "",
-    panelValidTill:
-      p?.panelValidTill?.slice?.(0, 10) ??
-      p?.insuranceValidTill?.slice?.(0, 10) ??
-      "",
-    allergies: patient?.allergies ?? "",
-    chronicDiseases: p?.chronicDiseases ?? "",
-    country: p?.country ?? "India",
-    department: String(p?.department ?? p?.departmentId ?? ""),
-    consentToShare: p?.consentToShare ?? true,
-    /* ── Extended registration fields (Hospedia-style, all optional) ── */
-    title: p?.title ?? "",
-    middleName: p?.middleName ?? "",
-    barcode: p?.barcode ?? "",
-    permanentAddress: p?.permanentAddress ?? "",
-    sameAsLocalAddress: Boolean(
-      p?.permanentAddress && p?.permanentAddress === p?.address,
-    ),
-    idProofName: p?.idProofName ?? "",
-    idProofNo: p?.idProofNo ?? "",
-    nationalId: p?.nationalId ?? "",
-    passportNo: p?.passportNo ?? "",
-    kraPin: p?.kraPin ?? "",
-    familyNumber: p?.familyNumber ?? "",
-    staffId: p?.staffId ?? "",
-    dependentId: p?.dependentId ?? "",
-    pregnancyDays: p?.pregnancyDays ?? "",
-    occupation: p?.occupation ?? "",
-    birthPlace: p?.birthPlace ?? "",
-    religion: p?.religion ?? "",
-    locality: p?.locality ?? "",
-    membershipNo: p?.membershipNo ?? "",
-    patientType: p?.patientType ? titleCase(String(p.patientType)) : "",
-    source: p?.source ?? "",
-    employeeReferenceId: p?.employeeReferenceId ?? "",
-    identityMark1: p?.identityMark1 ?? "",
-    identityMark2: p?.identityMark2 ?? "",
-    referenceType: p?.referenceType ?? "",
-    mlcType: p?.mlcType ?? "",
-    mlcNo: p?.mlcNo ?? "",
-    isInternational: p?.isInternational ?? false,
-    internationalNo: p?.internationalNo ?? "",
-    emergencyFirstName: p?.emergencyFirstName ?? "",
-    emergencyLastName: p?.emergencyLastName ?? "",
-    emergencyRelation: p?.emergencyRelation
-      ? titleCase(String(p.emergencyRelation))
-      : "",
-    emergencyMobile: p?.emergencyMobile ?? "",
-    emergencyResidentNo: p?.emergencyResidentNo ?? "",
-    emergencyAddress: p?.emergencyAddress ?? "",
-    insuranceGroup: p?.insuranceGroup ?? "",
-    insurance: p?.insurance ?? "",
-    policyCardNo: p?.policyCardNo ?? "",
-    nameOnCard: p?.nameOnCard ?? "",
-    cardHolder: p?.cardHolder ?? "",
-    approvalAmount: p?.approvalAmount ?? "",
-    approvalRemark: p?.approvalRemark ?? "",
-  };
+  // built once per loaded record — not on every render (perf: 60+ fields)
+  const initialValues = useMemo(
+    () => ({
+      firstName: patient?.firstName ?? "",
+      lastName: patient?.lastName ?? "",
+      gender: patient?.gender ? titleCase(patient.gender) : "Male",
+      dateOfBirth: patient?.dateOfBirth?.slice(0, 10) ?? "",
+      age: Number(p?.ageAtRegistration ?? p?.age ?? 0),
+      ageUnit: p?.ageUnit ?? "years",
+      bloodGroup: toDisplayBloodGroup(patient?.bloodGroup ?? "O+"),
+      maritalStatus: patient?.maritalStatus
+        ? titleCase(patient.maritalStatus)
+        : "Single",
+      mobile: patient?.mobile ?? "",
+      alternateMobile: p?.alternateMobile ?? p?.altMobile ?? "",
+      email: patient?.email ?? "",
+      address: patient?.address ?? "",
+      city: patient?.city ?? "",
+      district: p?.district ?? "",
+      state: p?.state ?? "",
+      pincode: p?.pincode ?? "",
+      aadhaarNumber: p?.aadhaarNumber
+        ? groupDashes(String(p.aadhaarNumber), 12)
+        : "",
+      abhaId: p?.abhaId ? groupDashes(String(p.abhaId), 14) : "",
+      guardianName: p?.guardianName ?? "",
+      guardianRelation: p?.guardianRelation
+        ? titleCase(String(p.guardianRelation))
+        : "",
+      guardianMobile: p?.guardianMobile ?? "",
+      panelId: p?.panelId ?? "",
+      panelPolicyNo: p?.panelPolicyNo ?? p?.insurancePolicyNo ?? "",
+      panelValidTill:
+        p?.panelValidTill?.slice?.(0, 10) ??
+        p?.insuranceValidTill?.slice?.(0, 10) ??
+        "",
+      allergies: patient?.allergies ?? "",
+      chronicDiseases: p?.chronicDiseases ?? "",
+      country: p?.country ?? "India",
+      department: String(p?.department ?? p?.departmentId ?? ""),
+      consentToShare: p?.consentToShare ?? true,
+      /* ── Extended registration fields (Hospedia-style, all optional) ── */
+      title: p?.title ?? "",
+      middleName: p?.middleName ?? "",
+      barcode: p?.barcode ?? "",
+      permanentAddress: p?.permanentAddress ?? "",
+      sameAsLocalAddress: Boolean(
+        p?.permanentAddress && p?.permanentAddress === p?.address,
+      ),
+      idProofName: p?.idProofName ?? "",
+      idProofNo: p?.idProofNo ?? "",
+      nationalId: p?.nationalId ?? "",
+      passportNo: p?.passportNo ?? "",
+      kraPin: p?.kraPin ?? "",
+      familyNumber: p?.familyNumber ?? "",
+      staffId: p?.staffId ?? "",
+      dependentId: p?.dependentId ?? "",
+      pregnancyDays: p?.pregnancyDays ?? "",
+      occupation: p?.occupation ?? "",
+      birthPlace: p?.birthPlace ?? "",
+      religion: p?.religion ?? "",
+      locality: p?.locality ?? "",
+      membershipNo: p?.membershipNo ?? "",
+      patientType: p?.patientType ? titleCase(String(p.patientType)) : "",
+      source: p?.source ?? "",
+      employeeReferenceId: p?.employeeReferenceId ?? "",
+      identityMark1: p?.identityMark1 ?? "",
+      identityMark2: p?.identityMark2 ?? "",
+      referenceType: p?.referenceType ?? "",
+      mlcType: p?.mlcType ?? "",
+      mlcNo: p?.mlcNo ?? "",
+      isInternational: p?.isInternational ?? false,
+      internationalNo: p?.internationalNo ?? "",
+      emergencyFirstName: p?.emergencyFirstName ?? "",
+      emergencyLastName: p?.emergencyLastName ?? "",
+      emergencyRelation: p?.emergencyRelation
+        ? titleCase(String(p.emergencyRelation))
+        : "",
+      emergencyMobile: p?.emergencyMobile ?? "",
+      emergencyResidentNo: p?.emergencyResidentNo ?? "",
+      emergencyAddress: p?.emergencyAddress ?? "",
+      insuranceGroup: p?.insuranceGroup ?? "",
+      insurance: p?.insurance ?? "",
+      policyCardNo: p?.policyCardNo ?? "",
+      nameOnCard: p?.nameOnCard ?? "",
+      cardHolder: p?.cardHolder ?? "",
+      approvalAmount: p?.approvalAmount ?? "",
+      approvalRemark: p?.approvalRemark ?? "",
+    }),
+    [p],
+  );
 
   const registered = (key: keyof typeof initialValues) =>
     String(initialValues[key] ?? "");
@@ -454,20 +504,10 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
 
   const todayISO = localISO();
 
-  const form = useForm({
-    initialValues,
-    labels: {
-      firstName: "First name",
-      lastName: "Last name",
-      gender: "Gender",
-      mobile: "Mobile number",
-      dateOfBirth: "Date of birth",
-      age: "Age",
-      panelPolicyNo: "Policy / Emp No",
-    },
-    validateOnChange: false,
-    validateOnBlur: true,
-    schema: {
+  // schema built once per record — every rule closes over only isEdit /
+  // todayISO / initialValues, all stable after the record loads
+  const schema = useMemo(
+    () => ({
       firstName: [
         { required: "First name is required" },
         { min: 2, message: "Use at least 2 characters" },
@@ -583,7 +623,16 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
           },
         },
       ],
-    },
+    }),
+    [isEdit, todayISO, initialValues], // optional() rules read initialValues
+  );
+
+  const form = useForm({
+    initialValues,
+    labels: PATIENT_LABELS,
+    validateOnChange: false,
+    validateOnBlur: true,
+    schema,
   });
 
   /** "+91 9845 011 223" → "+919845011223" (backend validators reject spaces) */
@@ -768,7 +817,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select title"
                 value={form.values.title}
                 onChange={(v) => form.setValue("title", v)}
-                options={TITLES.map((t) => ({ value: t, label: t }))}
+                options={TITLE_OPTIONS}
               />
               <Input
                 ref={form.registerRef("firstName")}
@@ -807,7 +856,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select gender"
                 value={form.values.gender}
                 onChange={(v) => form.setValue("gender", v)}
-                options={GENDERS.map((g) => ({ value: g, label: g }))}
+                options={GENDER_OPTIONS}
                 error={form.errorFor("gender")}
               />
 
@@ -842,10 +891,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 label="Age Unit"
                 value={form.values.ageUnit}
                 onChange={(v) => form.setValue("ageUnit", v)}
-                options={["years", "months", "days"].map((u) => ({
-                  value: u,
-                  label: u,
-                }))}
+                options={AGE_UNIT_OPTIONS}
               />
             </FormRow>
 
@@ -856,7 +902,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select blood group"
                 value={form.values.bloodGroup}
                 onChange={(v) => form.setValue("bloodGroup", v)}
-                options={BLOOD_GROUPS.map((b) => ({ value: b, label: b }))}
+                options={BLOOD_GROUP_OPTIONS}
               />
               <Select
                 name="maritalStatus"
@@ -864,7 +910,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select marital status"
                 value={form.values.maritalStatus}
                 onChange={(v) => form.setValue("maritalStatus", v)}
-                options={MARITAL_STATUS.map((m) => ({ value: m, label: m }))}
+                options={MARITAL_OPTIONS}
               />
               <Input
                 name="birthPlace"
@@ -1107,7 +1153,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select ID proof"
                 value={form.values.idProofName}
                 onChange={(v) => form.setValue("idProofName", v)}
-                options={ID_PROOF_NAMES.map((i) => ({ value: i, label: i }))}
+                options={ID_PROOF_OPTIONS}
               />
               <Input
                 ref={form.registerRef("idProofNo")}
@@ -1174,10 +1220,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select relation"
                 value={form.values.guardianRelation}
                 onChange={(v) => form.setValue("guardianRelation", v)}
-                options={Object.keys(guardianRelations).map((r) => ({
-                  value: r,
-                  label: r,
-                }))}
+                options={GUARDIAN_RELATION_OPTIONS}
               />
               <Input
                 ref={form.registerRef("guardianMobile")}
@@ -1215,7 +1258,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select religion"
                 value={form.values.religion}
                 onChange={(v) => form.setValue("religion", v)}
-                options={RELIGIONS.map((r) => ({ value: r, label: r }))}
+                options={RELIGION_OPTIONS}
               />
             </FormRow>
 
@@ -1244,10 +1287,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select relation"
                 value={form.values.emergencyRelation}
                 onChange={(v) => form.setValue("emergencyRelation", v)}
-                options={Object.keys(guardianRelations).map((r) => ({
-                  value: r,
-                  label: r,
-                }))}
+                options={GUARDIAN_RELATION_OPTIONS}
               />
             </FormRow>
 
@@ -1341,7 +1381,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select patient type"
                 value={form.values.patientType}
                 onChange={(v) => form.setValue("patientType", v)}
-                options={PATIENT_TYPES.map((t) => ({ value: t, label: t }))}
+                options={PATIENT_TYPE_OPTIONS}
                 hint="Existing status options: New / Review / Referral / Emergency"
               />
             </FormRow>
@@ -1353,7 +1393,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select source"
                 value={form.values.source}
                 onChange={(v) => form.setValue("source", v)}
-                options={PATIENT_SOURCES.map((s) => ({ value: s, label: s }))}
+                options={PATIENT_SOURCE_OPTIONS}
               />
               <Input
                 ref={form.registerRef("employeeReferenceId")}
@@ -1373,7 +1413,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select reference type"
                 value={form.values.referenceType}
                 onChange={(v) => form.setValue("referenceType", v)}
-                options={REFERENCE_TYPES.map((r) => ({ value: r, label: r }))}
+                options={REFERENCE_TYPE_OPTIONS}
               />
             </FormRow>
 
@@ -1398,7 +1438,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select MLC type"
                 value={form.values.mlcType}
                 onChange={(v) => form.setValue("mlcType", v)}
-                options={MLC_TYPES.map((m) => ({ value: m, label: m }))}
+                options={MLC_TYPE_OPTIONS}
               />
               <Input
                 ref={form.registerRef("mlcNo")}
@@ -1555,10 +1595,7 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 placeholder="Select department"
                 value={form.values.department}
                 onChange={(v) => form.setValue("department", v)}
-                options={departments.map((d) => ({
-                  value: String(d.id),
-                  label: d.name,
-                }))}
+                options={departmentOptions}
               />
             </FormRow>
 
