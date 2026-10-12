@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
-import { toast } from "@/store/slices/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Avatar, Badge, Button, Panel } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/fields";
 import {
@@ -42,14 +42,21 @@ import { Skeleton } from "@/components/ui/feedback";
 import { PageIntro } from "@/components/common";
 import { formatDate } from "@/utils";
 import { ipdService } from "./ipd.service";
-import type { IpdAdmission } from "./ipdTypes";
-import { bedLabel, doctorName, num, patientName, stayDays } from "./ipdTypes";
 import {
+  type IpdAdmission,
+  bedLabel,
+  doctorName,
+  num,
+  patientName,
+  stayDays,
+} from "@/types/ipdTypes";
+import {
+  AdmissionStatusBadge,
   AssignBedDialog,
   CancelAdmissionDialog,
+  Chip,
   TransferBedDialog,
-} from "@/components/ui/IpdActionDialogs";
-import { AdmissionStatusBadge, Chip } from "@/components/ui/IpdBits";
+} from "./components";
 
 type DialogKind = "assign" | "transfer" | "cancel" | null;
 
@@ -65,6 +72,8 @@ export function IpdAdmissionsPage() {
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** false until the census has answered once — marks the blocking first paint */
+  const [initialised, setInitialised] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -90,21 +99,33 @@ export function IpdAdmissionsPage() {
       });
       if (res.status === 200) {
         setRows(res.data?.data ?? []);
-        setMeta(
-          res.data?.meta ?? { total: 0, page: 1, totalPages: 1 },
-        );
+        setMeta(res.data?.meta ?? { total: 0, page: 1, totalPages: 1 });
       }
     } catch (e: any) {
       setError(e?.message ?? "Could not load admissions");
       dispatch(toast.error("Could not load admissions", e?.message));
     } finally {
       setLoading(false);
+      setInitialised(true);
     }
   }, [dispatch, statusFilter, dateFilter, page, pageSize]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Blocking first paint: the census has nothing to show until the list
+   * answers, so it runs under the app-wide loader (the table keeps its own
+   * skeleton underneath as the fallback). Paging and filtering afterwards are
+   * silent — they repaint the table without a full-screen loader.
+   */
+  const initialLoading = loading && !initialised;
+  useEffect(() => {
+    if (!initialLoading) return;
+
+    return () => {};
+  }, [initialLoading, dispatch]);
 
   /* ------------------------------ client table ----------------------------- */
 
@@ -141,6 +162,8 @@ export function IpdAdmissionsPage() {
 
   const completeDischarge = useCallback(
     async (admission: IpdAdmission) => {
+      // leaving the census moves the bed too → blocking write, global loader
+      dispatch(showLoader("Completing discharge"));
       try {
         await ipdService.completeDischarge(admission.id);
         dispatch(
@@ -152,6 +175,8 @@ export function IpdAdmissionsPage() {
         void load();
       } catch (e: any) {
         dispatch(toast.error("Could not complete discharge", e?.message));
+      } finally {
+        dispatch(hideLoader());
       }
     },
     [dispatch, load],
@@ -198,18 +223,16 @@ export function IpdAdmissionsPage() {
               <Skeleton className="h-6 w-40 rounded-full" />
             </>
           ) : (
-          <>
-            <Badge tone="neutral">{meta.total} total</Badge>
-            <Badge tone="mint" dot>
-              {rows.filter((a) => a.status === "ADMITTED").length} admitted
-            </Badge>
-            <Badge tone="amber">
-              {
-                rows.filter((a) => a.status === "DISCHARGE_ORDERED").length
-              }{" "}
-              awaiting discharge
-            </Badge>
-          </>
+            <>
+              <Badge tone="neutral">{meta.total} total</Badge>
+              <Badge tone="mint" dot>
+                {rows.filter((a) => a.status === "ADMITTED").length} admitted
+              </Badge>
+              <Badge tone="amber">
+                {rows.filter((a) => a.status === "DISCHARGE_ORDERED").length}{" "}
+                awaiting discharge
+              </Badge>
+            </>
           )
         }
       />
@@ -420,14 +443,16 @@ export function IpdAdmissionsPage() {
                   {
                     label: "Transfer bed",
                     icon: <ArrowLeftRight />,
-                    hidden: !(admitted || ordered) || !a.bedId || !canEdit("ipd"),
+                    hidden:
+                      !(admitted || ordered) || !a.bedId || !canEdit("ipd"),
                     onClick: () => openDialog("transfer", a),
                   },
                   {
                     label: "Order discharge",
                     icon: <LogOut />,
                     hidden: !admitted || !canEdit("ipd"),
-                    onClick: () => navigate(`/ipd/admissions/${a.id}/discharge`),
+                    onClick: () =>
+                      navigate(`/ipd/admissions/${a.id}/discharge`),
                   },
                   {
                     label: "Complete discharge",

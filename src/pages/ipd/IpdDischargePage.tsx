@@ -29,19 +29,17 @@ import {
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
-import { toast } from "@/store/slices/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Button, Badge } from "@/components/ui/primitives";
 import { Select, Textarea } from "@/components/ui/fields";
 import { Stepper } from "@/components/ui/Stepper";
-import { ErrorState } from "@/components/ui/feedback";
-import { IpdDischargeSkeleton } from "@/components/ui/IpdSkeletons";
+import { ErrorState, PageSkeleton } from "@/components/ui/feedback";
 import { PageIntro, SectionPanel } from "@/components/common";
 import { formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "./ipd.service";
-import type { IpdAdmission, IpdDischargeType } from "./ipdTypes";
-import { bedLabel, num, patientName } from "./ipdTypes";
-import { DISCHARGE_TYPE_OPTIONS } from "./ipd.constants";
-import { AdmissionStatusBadge, InfoRow, PendingBackendNote } from "@/components/ui/IpdBits";
+import { type IpdAdmission, type IpdDischargeType, bedLabel, num, patientName } from "@/types/ipdTypes";
+import { DISCHARGE_TYPE_OPTIONS } from "@/constants/ipd.constants";
+import { AdmissionStatusBadge, InfoRow, PendingBackendNote } from "./components";
 
 const STEPS = [
   {
@@ -104,6 +102,20 @@ export function IpdDischargePage() {
     void load();
   }, [load]);
 
+  /**
+   * The wizard is derived from the admission, so nothing can be shown before
+   * it loads: the first paint is a blocking initialization and runs under the
+   * app-wide loader with the shared page skeleton underneath.
+   */
+  const initialLoading = loading && !admission;
+  useEffect(() => {
+    if (!initialLoading) return;
+    dispatch(showLoader("Loading discharge workflow"));
+    return () => {
+      dispatch(hideLoader());
+    };
+  }, [initialLoading, dispatch]);
+
   const status = admission?.status ?? "ADMITTED";
   const ordered = status === "DISCHARGE_ORDERED";
   const discharged = status === "DISCHARGED";
@@ -154,6 +166,7 @@ export function IpdDischargePage() {
 
   const submitOrder = form.handleSubmit(async (values) => {
     if (!admission) return;
+    dispatch(showLoader("Ordering discharge"));
     try {
       await ipdService.initiateDischarge(admission.id, {
         dischargeType: values.dischargeType as IpdDischargeType,
@@ -171,6 +184,8 @@ export function IpdDischargePage() {
       setStep(2);
     } catch (e: any) {
       dispatch(toast.error("Could not order discharge", e?.message));
+    } finally {
+      dispatch(hideLoader());
     }
   });
 
@@ -179,6 +194,7 @@ export function IpdDischargePage() {
   const completeDischarge = useCallback(async () => {
     if (!admission) return;
     setCompleting(true);
+    dispatch(showLoader("Completing discharge"));
     try {
       await ipdService.completeDischarge(admission.id);
       dispatch(
@@ -192,11 +208,12 @@ export function IpdDischargePage() {
       dispatch(toast.error("Could not complete discharge", e?.message));
     } finally {
       setCompleting(false);
+      dispatch(hideLoader());
     }
   }, [admission, dispatch, load]);
 
-  if (loading && !admission) {
-    return <IpdDischargeSkeleton />;
+  if (initialLoading) {
+    return <PageSkeleton label="Loading discharge workflow" />;
   }
 
   if (error && !admission) {

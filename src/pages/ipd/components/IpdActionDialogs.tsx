@@ -6,38 +6,24 @@
  *   POST /api/ipd/admissions/:id/transfer-bed { newBedId, reason? }
  *   POST /api/ipd/admissions/:id/cancel       { reason? }
  *
- * ── EXPORTS (search "export function") ──────────────────────────────────────
- *   AssignBedDialog        → "Assign bed" (available/reserved, gender-safe)
- *   TransferBedDialog      → bed-to-bed move + reason
- *   CancelAdmissionDialog  → only for ADMITTED + no bed
- *   IpdBedDialogKind       → "assign" | "transfer" | "cancel"
- *
- *   import { AssignBedDialog } from "@/components/ui/IpdActionDialogs";
- *
  * Each dialog closes and calls `onDone()` after a successful write so the
- * owning page can refresh its list. Note: `AssignBedDialog` is a named export
- * of THIS file — there is no separate AssignBedDialog.tsx.
+ * owning page can refresh its list. The write is a blocking operation, so it
+ * raises the app-wide loader (`showLoader` / `hideLoader`) exactly the way the
+ * record forms do — the dialog's own button keeps its spinner too.
  *
- * ── NAMING ─────────────────────────────────────────────────────────────────
- * File ka canonical naam: IpdActionDialogs.tsx
- * Isi naam wali alias file bhi hai: IpdActionDialog.tsx (sirf re-export) —
- * jo import dono me se kisi bhi path se chalta hai.
- *
- * Location note: ye file shared UI kit (`src/components/ui/`) me rehti hai, par
- * IPD-specific hai — isliye ise `@/pages/ipd/*` ke service/types chahiye.
- * Non-IPD screen me reuse karne se pehle IPD dependency hata lena.
+ * Lives in the IPD feature folder (`src/pages/ipd/components/`).
  */
 
 import { useEffect, useState } from "react";
 import { BedDouble, ArrowLeftRight, Ban } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
-import { toast } from "@/store/slices/uiSlice";
-import { Button, Badge } from "./primitives";
-import { Textarea } from "./fields";
-import { Dialog } from "./overlays";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { Button, Badge } from "@/components/ui/primitives";
+import { Textarea } from "@/components/ui/fields";
+import { Dialog } from "@/components/ui/overlays";
 import { ipdService } from "@/pages/ipd/ipd.service";
+import { bedLabel, type IpdAdmission, patientName } from "@/types/ipdTypes";
 import { BedPicker } from "./BedPicker";
-import { bedLabel, IpdAdmission, patientName } from "@/types/ipdTypes";
 
 /* -------------------------------- assign ---------------------------------- */
 
@@ -57,7 +43,7 @@ export function AssignBedDialog({
   const [bedId, setBedId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // har open par saaf state — purana selection flash na ho
+  // a fresh dialog never flashes the previous selection
   useEffect(() => {
     if (open) setBedId("");
   }, [open]);
@@ -65,6 +51,7 @@ export function AssignBedDialog({
   const submit = async () => {
     if (!admission || !bedId || saving) return;
     setSaving(true);
+    dispatch(showLoader("Assigning bed"));
     try {
       await ipdService.assignBed(admission.id, bedId);
       dispatch(
@@ -79,6 +66,7 @@ export function AssignBedDialog({
       dispatch(toast.error("Could not assign bed", e?.message));
     } finally {
       setSaving(false);
+      dispatch(hideLoader());
     }
   };
 
@@ -151,13 +139,11 @@ export function TransferBedDialog({
   const submit = async () => {
     if (!admission || !bedId || saving) return;
     setSaving(true);
+    dispatch(showLoader("Transferring patient"));
     try {
       await ipdService.transferBed(admission.id, bedId, reason);
       dispatch(
-        toast.success(
-          "Patient transferred",
-          `${bedLabel(admission)} → new bed`,
-        ),
+        toast.success("Patient transferred", `${bedLabel(admission)} → new bed`),
       );
       onDone?.();
       onOpenChange(false);
@@ -165,6 +151,7 @@ export function TransferBedDialog({
       dispatch(toast.error("Could not transfer bed", e?.message));
     } finally {
       setSaving(false);
+      dispatch(hideLoader());
     }
   };
 
@@ -251,6 +238,7 @@ export function CancelAdmissionDialog({
   const submit = async () => {
     if (!admission || saving) return;
     setSaving(true);
+    dispatch(showLoader("Cancelling admission"));
     try {
       await ipdService.cancelAdmission(admission.id, reason);
       dispatch(
@@ -265,6 +253,7 @@ export function CancelAdmissionDialog({
       dispatch(toast.error("Could not cancel admission", e?.message));
     } finally {
       setSaving(false);
+      dispatch(hideLoader());
     }
   };
 

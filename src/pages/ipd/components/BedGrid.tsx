@@ -8,15 +8,22 @@
  * machine). Nothing is inferred: if a bed has no status row the server treats
  * it as AVAILABLE and so does this grid.
  *
- * Location note: ye file shared UI kit (`src/components/ui/`) me rehti hai, par
- * IPD-specific hai — isliye ise `@/pages/ipd/*` ke types/constants chahiye.
- * Non-IPD screen me reuse karne se pehle IPD dependency hata lena.
+ * Lives in the IPD feature folder (`src/pages/ipd/components/`) because every
+ * export is IPD-specific: bed statuses, ward gender rules and the admission
+ * slice. It is shared by the ward board (`/ipd`) and by `BedPicker`, and it
+ * reuses the app-wide UI kit (`@/components/ui/*`) rather than its own.
  */
 
 import { useMemo } from "react";
 import { cn } from "@/utils/cn";
-import { Badge } from "./primitives";
-import { bedStatusOf, wardGenderLabel } from "@/constants/ipd.constants";
+import { Badge } from "@/components/ui/primitives";
+import { Skeleton } from "@/components/ui/feedback";
+import {
+  BED_LEGEND_ORDER,
+  bedStatusOf,
+  wardGenderConflict,
+  wardGenderLabel,
+} from "@/constants/ipd.constants";
 import type { BedRow, IpdAdmission } from "@/types/ipdTypes";
 import { patientName } from "@/types/ipdTypes";
 
@@ -142,6 +149,7 @@ export interface WardBedGridProps {
   /** patient gender — used to explain gender-ward blocks in a picker */
   patientGender?: string | null;
   onSelectBed?: (bed: BedRow) => void;
+  /** first paint of the board — renders the shared skeleton tiles */
   loading?: boolean;
   emptyLabel?: string;
 }
@@ -160,12 +168,19 @@ export function WardBedGrid({
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-[84px] animate-pulse rounded-xl border border-ink-100 bg-ink-25"
-          />
+      <div className="space-y-5" aria-busy="true" aria-label="Loading beds">
+        {Array.from({ length: 2 }).map((_, room) => (
+          <div key={room}>
+            <div className="mb-2 flex items-center gap-2">
+              <Skeleton className="h-3.5 w-16" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+              {Array.from({ length: 6 }).map((__, bed) => (
+                <Skeleton key={bed} className="h-[84px] rounded-xl" />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -182,15 +197,8 @@ export function WardBedGrid({
   return (
     <div className="space-y-5">
       {rooms.map((room) => {
-        const genderMismatch = patientGender
-          ? room.gender === "MALE_ONLY" &&
-            patientGender.toUpperCase() !== "MALE"
-            ? "Male-only ward"
-            : room.gender === "FEMALE_ONLY" &&
-                patientGender.toUpperCase() !== "FEMALE"
-              ? "Female-only ward"
-              : null
-          : null;
+        // one gender rule, shared with the picker and mirrored by the server
+        const genderMismatch = wardGenderConflict(room.gender, patientGender);
 
         return (
           <div key={room.roomId}>
@@ -249,33 +257,22 @@ export function WardBedGrid({
   );
 }
 
-/** The colour legend shown under the board (matches the story board). */
+/** The colour legend shown under the board — driven by the status metadata. */
 export function BedLegend() {
-  const items: { status: string; label: string; dot: string }[] = [
-    { status: "OCCUPIED", label: "Occupied", dot: "bg-coral-500" },
-    { status: "AVAILABLE", label: "Available", dot: "bg-mint-500" },
-    { status: "HOUSEKEEPING", label: "Housekeeping", dot: "bg-amberly-500" },
-    { status: "RESERVED", label: "Reserved", dot: "bg-lagoon-500" },
-    {
-      status: "DISCHARGE_PENDING",
-      label: "Discharge pending",
-      dot: "bg-amberly-500",
-    },
-    { status: "MAINTENANCE", label: "Maintenance", dot: "bg-ink-400" },
-    { status: "OUT_OF_SERVICE", label: "Out of service", dot: "bg-ink-300" },
-  ];
-
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      {items.map((item) => (
-        <span
-          key={item.status}
-          className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-500"
-        >
-          <span className={cn("size-2 rounded-full", item.dot)} />
-          {item.label}
-        </span>
-      ))}
+      {BED_LEGEND_ORDER.map((status) => {
+        const meta = bedStatusOf(status);
+        return (
+          <span
+            key={status}
+            className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-500"
+          >
+            <span className={cn("size-2 rounded-full", meta.dot)} />
+            {meta.label}
+          </span>
+        );
+      })}
     </div>
   );
 }

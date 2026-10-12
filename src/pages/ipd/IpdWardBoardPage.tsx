@@ -26,28 +26,34 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
-import { toast } from "@/store/slices/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Button, Badge, Kpi, Panel, Progress } from "@/components/ui/primitives";
 import { Select, SearchInput } from "@/components/ui/fields";
 import {
+  CardSkeleton,
   EmptyState,
   ErrorState,
   ListSkeleton,
+  Skeleton,
 } from "@/components/ui/feedback";
-import { Skeleton } from "@/components/ui/feedback";
-import {
-  IpdBarListSkeleton,
-  IpdBedBoardSkeleton,
-  IpdKpiSkeleton,
-} from "@/components/ui/IpdSkeletons";
 import { PageIntro, SectionPanel } from "@/components/common";
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { ipdService } from "./ipd.service";
-import { BedLegend, WardBedGrid } from "@/components/ui/BedGrid";
-import { AssignBedDialog } from "@/components/ui/IpdActionDialogs";
-import { PendingBackendNote } from "@/components/ui/IpdBits";
+import {
+  AssignBedDialog,
+  BedLegend,
+  PendingBackendNote,
+  WardBedGrid,
+} from "./components";
 import { bedStatusOf } from "@/constants/ipd.constants";
-import { BedRow, IpdAdmission, BorDashboard, HousekeepingQueue, RoomTypeRow, patientName } from "@/types/ipdTypes";
+import {
+  type BedRow,
+  type BorDashboard,
+  type HousekeepingQueue,
+  type IpdAdmission,
+  type RoomTypeRow,
+  patientName,
+} from "@/types/ipdTypes";
 
 export function IpdWardBoardPage() {
   const dispatch = useAppDispatch();
@@ -65,6 +71,8 @@ export function IpdWardBoardPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** false until the board has answered once — marks the blocking first paint */
+  const [initialised, setInitialised] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState("all");
   const [genderFilter, setGenderFilter] = useState("all");
@@ -93,12 +101,27 @@ export function IpdWardBoardPage() {
       dispatch(toast.error("Could not load the ward board", e?.message));
     } finally {
       setLoading(false);
+      setInitialised(true);
     }
   }, [dispatch]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  /**
+   * The board is the whole screen: with no bed data there is nothing to read.
+   * The first paint is therefore the page's blocking initialization and runs
+   * under the app-wide loader (same rule as the record forms); refreshes after
+   * an action keep the loader down and just repaint the board.
+   */
+  const initialLoading = loading && !initialised;
+  useEffect(() => {
+    if (!initialLoading) return;
+    return () => {
+      
+    };
+  }, [initialLoading, dispatch]);
 
   useEffect(() => {
     let active = true;
@@ -159,6 +182,8 @@ export function IpdWardBoardPage() {
 
   const markBedAvailable = useCallback(
     async (bed: { id: string; bedIdentifier: string }, reason: string) => {
+      // bed status is a write to the ward state machine → global loader
+      dispatch(showLoader("Releasing bed"));
       try {
         await ipdService.changeBedStatus(bed.id, {
           status: "AVAILABLE",
@@ -173,6 +198,8 @@ export function IpdWardBoardPage() {
         void loadAll();
       } catch (e: any) {
         dispatch(toast.error("Could not update bed", e?.message));
+      } finally {
+        dispatch(hideLoader());
       }
     },
     [dispatch, loadAll],
@@ -291,7 +318,7 @@ export function IpdWardBoardPage() {
 
       {/* ------------------------------- KPIs ------------------------------- */}
       {loading && !bor ? (
-        <IpdKpiSkeleton />
+        <CardSkeleton count={4} />
       ) : (
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
@@ -378,13 +405,12 @@ export function IpdWardBoardPage() {
 
           {error ? (
             <ErrorState message={error} onRetry={() => void loadAll()} compact />
-          ) : loading && !beds.length ? (
-            <IpdBedBoardSkeleton rooms={4} beds={4} />
           ) : (
             <>
               <WardBedGrid
                 beds={visibleBeds}
                 admissionsByBed={admissionsByBed}
+                loading={loading && !beds.length}
                 onSelectBed={handleBedClick}
               />
               <div className="mt-4 border-t border-ink-100 pt-3">
@@ -521,7 +547,17 @@ export function IpdWardBoardPage() {
             icon={<TrendingUp className="size-4.5" />}
           >
             {loading && !bor ? (
-              <IpdBarListSkeleton rows={3} />
+              <ul className="space-y-3" aria-hidden="true">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <li key={i} className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <Skeleton className="h-2 w-full rounded-full" />
+                  </li>
+                ))}
+              </ul>
             ) : !bor?.byRoomType?.length ? (
               <p className="py-3 text-center text-[12.5px] text-ink-400">
                 No countable beds configured yet.

@@ -26,11 +26,10 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
-import { toast } from "@/store/slices/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Avatar, Badge, Button, Panel } from "@/components/ui/primitives";
 import { Tabs, useConfirmDialog } from "@/components/ui/overlays";
-import { EmptyState, ErrorState } from "@/components/ui/feedback";
-import { IpdChartSkeleton } from "@/components/ui/IpdSkeletons";
+import { EmptyState, ErrorState, PageSkeleton } from "@/components/ui/feedback";
 import {
   DetailGrid,
   PageIntro,
@@ -39,31 +38,29 @@ import {
 } from "@/components/common";
 import { calcAge, formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "./ipd.service";
-import type { IpdAdmission } from "./ipdTypes";
 import {
+  type IpdAdmission,
   bedLabel,
   doctorName,
   num,
   patientName,
   stayDays,
-} from "./ipdTypes";
+} from "@/types/ipdTypes";
 import {
   ADMISSION_TYPE_LABEL,
   DISCHARGE_TYPE_LABEL,
   admissionStatusMeta,
-} from "./ipd.constants";
-import {
-  AssignBedDialog,
-  CancelAdmissionDialog,
-  TransferBedDialog,
-} from "@/components/ui/IpdActionDialogs";
+} from "@/constants/ipd.constants";
 import {
   AdmissionStatusBadge,
+  AssignBedDialog,
+  BedSummaryCard,
+  CancelAdmissionDialog,
   Chip,
   InfoRow,
   PendingBackendNote,
-} from "@/components/ui/IpdBits";
-import { BedSummaryCard } from "@/components/ui/BedPicker";
+  TransferBedDialog,
+} from "./components";
 
 type DialogKind = "assign" | "transfer" | "cancel" | null;
 type TabValue = "overview" | "vitals" | "medicines" | "notes" | "billing";
@@ -103,6 +100,19 @@ export function IpdPatientChartPage() {
     void load();
   }, [load]);
 
+  /**
+   * No admission ⇒ no chart, so the very first load is the page's blocking
+   * initialization and runs under the app-wide loader with the shared page
+   * skeleton underneath. Once a chart is on screen every later refresh stays
+   * silent and just repaints.
+   */
+  const initialLoading = loading && !admission;
+  useEffect(() => {
+    if (!initialLoading) return;
+
+    return () => {};
+  }, [initialLoading, dispatch]);
+
   const roomType = admission?.bed?.room?.roomType;
   const dailyEstimate = useMemo(
     () => num(roomType?.defaultRate) + num(roomType?.nursingCharge),
@@ -111,6 +121,7 @@ export function IpdPatientChartPage() {
 
   const completeDischarge = useCallback(async () => {
     if (!admission) return;
+    dispatch(showLoader("Completing discharge"));
     try {
       await ipdService.completeDischarge(admission.id);
       dispatch(
@@ -122,20 +133,17 @@ export function IpdPatientChartPage() {
       void load();
     } catch (e: any) {
       dispatch(toast.error("Could not complete discharge", e?.message));
+    } finally {
+      dispatch(hideLoader());
     }
   }, [admission, dispatch, load]);
 
-  if (loading && !admission) {
-    return <IpdChartSkeleton />;
+  if (initialLoading) {
+    return <PageSkeleton label="Loading admission chart" />;
   }
 
   if (error && !admission) {
-    return (
-      <ErrorState
-        message={error}
-        onRetry={() => void load()}
-      />
-    );
+    return <ErrorState message={error} onRetry={() => void load()} />;
   }
 
   if (!admission) {
@@ -362,9 +370,7 @@ export function IpdPatientChartPage() {
                 items={[
                   {
                     label: "Admission no",
-                    value: (
-                      <span className="num">{admission.admissionNo}</span>
-                    ),
+                    value: <span className="num">{admission.admissionNo}</span>,
                   },
                   {
                     label: "Admission type",
@@ -431,9 +437,7 @@ export function IpdPatientChartPage() {
                             : "—"}
                       </Chip>
                       {admission.patient?.mobile && (
-                        <Chip tone="lagoon">
-                          {admission.patient.mobile}
-                        </Chip>
+                        <Chip tone="lagoon">{admission.patient.mobile}</Chip>
                       )}
                     </div>
                   </div>
@@ -444,7 +448,10 @@ export function IpdPatientChartPage() {
                 title="Care team & billing"
                 icon={<ReceiptIndianRupee className="size-4.5" />}
               >
-                <InfoRow label="Admitting doctor" value={doctorName(admission)} />
+                <InfoRow
+                  label="Admitting doctor"
+                  value={doctorName(admission)}
+                />
                 <InfoRow
                   label="Department"
                   value={
@@ -512,8 +519,8 @@ export function IpdPatientChartPage() {
             >
               Nurse BP / pulse / SpO2 / temperature / urine output will be
               recorded here and trended against the admission. The OPD vitals
-              table is consultation-bound, so IPD vitals need their own
-              endpoint (it is item #1 of the backend Sprint 1 plan).
+              table is consultation-bound, so IPD vitals need their own endpoint
+              (it is item #1 of the backend Sprint 1 plan).
             </PendingBackendNote>
           </SectionPanel>
         )}
@@ -549,9 +556,9 @@ export function IpdPatientChartPage() {
                 "POST /api/ipd/nursing-notes",
               ]}
             >
-              Each doctor round (subjective / objective / assessment / plan)
-              and nursing hand-over note will be appended here — and the
-              round will post its own doctor-visit charge automatically.
+              Each doctor round (subjective / objective / assessment / plan) and
+              nursing hand-over note will be appended here — and the round will
+              post its own doctor-visit charge automatically.
             </PendingBackendNote>
           </SectionPanel>
         )}
@@ -570,9 +577,9 @@ export function IpdPatientChartPage() {
                   "GET /api/ipd/billing/provisional/:admissionId",
                 ]}
               >
-                Until the ledger ships, no daily charge is being recorded by
-                the system. What is live today is shown below: the advance
-                collected at admission and the configured room-type rates.
+                Until the ledger ships, no daily charge is being recorded by the
+                system. What is live today is shown below: the advance collected
+                at admission and the configured room-type rates.
               </PendingBackendNote>
 
               <div className="mt-4">

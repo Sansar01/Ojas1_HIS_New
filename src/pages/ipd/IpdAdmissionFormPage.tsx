@@ -17,11 +17,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IpdFormSkeleton } from "@/components/ui/IpdSkeletons";
 import { BedDouble, CheckCircle2 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
-import { toast } from "@/store/slices/uiSlice";
+import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Button, Badge, Panel } from "@/components/ui/primitives";
 import {
   Checkbox,
@@ -30,14 +29,14 @@ import {
   NumberInput,
   Select,
 } from "@/components/ui/fields";
+import { FormSkeleton } from "@/components/ui/feedback";
 import { PageIntro, FormRow, FormSection } from "@/components/common";
 import { patientService } from "@/pages/patients/patient.service";
 import { doctorService } from "@/pages/doctors/doctor.service";
 import { masterService } from "@/pages/masterConfiguration/master.service";
 import { ipdService } from "./ipd.service";
-import { ADMISSION_TYPE_OPTIONS } from "./ipd.constants";
-import { BedPicker } from "@/components/ui/BedPicker";
-import { PendingBackendNote } from "@/components/ui/IpdBits";
+import { BedPicker, PendingBackendNote } from "./components";
+import { ADMISSION_TYPE_OPTIONS } from "@/constants/ipd.constants";
 import { fullName } from "@/utils";
 
 export function IpdAdmissionFormPage() {
@@ -104,6 +103,23 @@ export function IpdAdmissionFormPage() {
       active = false;
     };
   }, [dispatch]);
+
+  /**
+   * The form cannot be filled before its reference lists arrive (no patient or
+   * doctor ⇒ no admission), so the first paint is a blocking initialization and
+   * runs under the app-wide loader — the same rule the patient registration and
+   * add-user screens follow. Each dropdown keeps its own inline
+   * "Loading …" label for the case where a later list is still in flight.
+   */
+  const referenceLoading =
+    patientsLoading || doctorsLoading || panelsLoading || referDoctorsLoading;
+  useEffect(() => {
+    if (!referenceLoading) return;
+    dispatch(showLoader("Loading admission form"));
+    return () => {
+      dispatch(hideLoader());
+    };
+  }, [referenceLoading, dispatch]);
 
   /* --------------------------------- form --------------------------------- */
 
@@ -213,6 +229,8 @@ export function IpdAdmissionFormPage() {
       ...(assignBedNow && bedId ? { bedId } : {}),
     };
 
+    // creating the admission is the page's blocking write → app-wide loader
+    dispatch(showLoader("Admitting patient"));
     try {
       const res = await ipdService.createAdmission(payload as any);
       const body: any = res.data ?? {};
@@ -236,6 +254,8 @@ export function IpdAdmissionFormPage() {
       }
     } catch (e: any) {
       dispatch(toast.error("Admission failed", e?.message));
+    } finally {
+      dispatch(hideLoader());
     }
   });
 
@@ -246,26 +266,25 @@ export function IpdAdmissionFormPage() {
   /* -------------------------------- render -------------------------------- */
 
   /**
-   * First paint: jab tak patient/doctor/panel/refer lists aayi nahi, form
-   * skeleton dikhao — khaali dropdowns wala half-broken form nahi.
-   * Ek bhi list aa gayi to form turant usable ho jata hai (per-field
-   * "Loading …" labels ke saath), isliye && condition hai, || nahi.
+   * First paint: until the reference lists are in, the form would be nothing
+   * but empty dropdowns — so the shared form skeleton paints instead. One list
+   * is enough to start filling the form (every dropdown carries its own
+   * "Loading …" label while its own source is still in flight), hence `&&`
+   * rather than `||` on `referenceReady`.
    */
   const referenceReady =
     patients.length + doctors.length + panels.length + referDoctors.length > 0;
-  const referenceLoading =
-    patientsLoading || doctorsLoading || panelsLoading || referDoctorsLoading;
 
   if (referenceLoading && !referenceReady) {
     return (
       <>
         <PageIntro
           title="New IPD admission"
-          description="Patient, admitting doctor, panel and bed options load karte hi form yahin aa jata hai."
+          description="Loading the patient, doctor, panel and bed options…"
           module="ipd"
           back
         />
-        <IpdFormSkeleton />
+        <FormSkeleton fields={8} columns={3} />
       </>
     );
   }

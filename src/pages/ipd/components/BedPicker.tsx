@@ -10,23 +10,21 @@
  *   GET /api/hospital/masters/beds?roomTypeId=&gender=&isActive=true
  *
  * The grid mirrors the server rules client-side (gender ward + legal status)
- * so a wrong choice cannot be made — the server re-checks on submit.
- *
- * Location note: ye file shared UI kit (`src/components/ui/`) me rehti hai, par
- * IPD-specific hai — isliye ise `@/pages/ipd/*` ke service/types/constants chahiye.
- * Non-IPD screen me reuse karne se pehle IPD dependency hata lena.
+ * so a wrong choice cannot be made — the server re-checks on submit. Lives in
+ * the IPD feature folder (`src/pages/ipd/components/`) and reuses the app-wide
+ * UI kit (`@/components/ui/*`) plus `./BedGrid` for the tiles.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BedDouble, RefreshCw } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { Button, Badge } from "./primitives";
-import { Select, SearchInput } from "./fields";
-import { InlineLoader } from "./feedback";
+import { Button, Badge } from "@/components/ui/primitives";
+import { Select, SearchInput } from "@/components/ui/fields";
+import { InlineLoader } from "@/components/ui/feedback";
 import { ipdService } from "@/pages/ipd/ipd.service";
 import type { BedRow, RoomTypeRow } from "@/types/ipdTypes";
-import { bedStatusOf } from "@/constants/ipd.constants";
+import { bedStatusOf, wardGenderConflict } from "@/constants/ipd.constants";
 import { BedLegend, WardBedGrid } from "./BedGrid";
 
 export interface BedPickerProps {
@@ -136,12 +134,8 @@ export function BedPicker({
       visibleBeds.filter((bed) => {
         const status = bed.statusHistory?.[0]?.status ?? "AVAILABLE";
         if (!selectableStatuses.includes(status)) return false;
-        const room = bed.room.gender;
-        const patient = (patientGender ?? "").toUpperCase();
-        if (!patient) return true;
-        if (room === "MALE_ONLY" && patient !== "MALE") return false;
-        if (room === "FEMALE_ONLY" && patient !== "FEMALE") return false;
-        return true;
+        // the same gender rule the grid and the server apply
+        return !wardGenderConflict(bed.room.gender, patientGender);
       }).length,
     [visibleBeds, selectableStatuses, patientGender],
   );

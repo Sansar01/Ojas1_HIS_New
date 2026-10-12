@@ -1,30 +1,16 @@
 /**
  * Small IPD presentation bits — status badge, chip, info row, pending-backend
  * note. Purely presentational, no API calls. Used by the ward board, census,
- * admission form, chart and discharge screens.
+ * admission form, patient chart and discharge screens.
  *
- * ── EXPORTS (search "export function") ──────────────────────────────────────
- *   AdmissionStatusBadge   → ADMITTED / DISCHARGE_ORDERED / DISCHARGED / CANCELLED
- *   BedStatusBadge         → AVAILABLE / OCCUPIED / HOUSEKEEPING … (7 states)
- *   Chip                   → small tinted badge for ward / panel / type
- *   PendingBackendNote     → honest "endpoint not shipped yet" block
- *   InfoRow                → label ↔ value row used in the chart
- *
- *   import { PendingBackendNote } from "@/components/ui/IpdBits";
- *
- * ── NAMING ─────────────────────────────────────────────────────────────────
- * File ka canonical naam: IpdBits.tsx
- * Isi naam wali alias file bhi hai: IpdActionBits.tsx (sirf re-export) —
- * jo import dono me se kisi bhi path se chalta hai.
- *
- * Location note: ye file shared UI kit (`src/components/ui/`) me rehti hai, par
- * IPD-specific hai — isliye ise `@/pages/ipd/ipd.constants` chahiye.
- * Non-IPD screen me reuse karne se pehle IPD dependency hata lena.
+ * Lives in the IPD feature folder (`src/pages/ipd/components/`) because the
+ * statuses it renders are IPD statuses; it still builds on the app-wide UI kit
+ * (`@/components/ui/primitives`) instead of its own primitives.
  */
 
 import type { ReactNode } from "react";
 import { Construction } from "lucide-react";
-import { Badge, type Tone } from "./primitives";
+import { Badge, type Tone } from "@/components/ui/primitives";
 import { admissionStatusMeta, bedStatusOf } from "@/constants/ipd.constants";
 
 /* --------------------------------- badges ---------------------------------- */
