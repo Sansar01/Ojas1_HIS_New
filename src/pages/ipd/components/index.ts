@@ -4,6 +4,8 @@
  *   bed board        BedGrid        WardBedGrid · BedTile · BedLegend · groupBedsByRoom
  *   bed selection    BedPicker      BedPicker · BedSummaryCard
  *   bed lifecycle    IpdActionDialogs  AssignBedDialog · TransferBedDialog · CancelAdmissionDialog
+ *   ward setup       WardSetupDialogs  RoomTypeDialog · RoomDialog · BedDialog ·
+ *                                      BulkBedsDialog · RoomAmenitiesDialog · AmenityDialog
  *   IPD presentation IpdBits        AdmissionStatusBadge · BedStatusBadge · Chip ·
  *                                   InfoRow · PendingBackendNote
  *
@@ -20,3 +22,4 @@ export * from "./BedGrid";
 export * from "./BedPicker";
 export * from "./IpdActionDialogs";
 export * from "./IpdBits";
+export * from "./WardSetupDialogs";

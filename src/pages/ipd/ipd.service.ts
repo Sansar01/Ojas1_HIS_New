@@ -22,6 +22,22 @@
  *     GET    /api/hospital/masters/ward-room/bor-dashboard      fetchBorDashboard()
  *     GET    /api/hospital/masters/ward-room/housekeeping-queue fetchHousekeepingQueue()
  *
+ *   WARD SETUP (the write half of the same module — `IpdWardSetupPage`)
+ *     POST   /api/hospital/masters/room-types                   createRoomType(payload)
+ *     PATCH  /api/hospital/masters/room-types/:id               updateRoomType(id, patch)
+ *     DELETE /api/hospital/masters/room-types/:id               deleteRoomType(id)
+ *     POST   /api/hospital/masters/rooms                        createRoom(payload)
+ *     PATCH  /api/hospital/masters/rooms/:id                    updateRoom(id, patch)
+ *     DELETE /api/hospital/masters/rooms/:id                    deleteRoom(id)
+ *     PUT    /api/hospital/masters/rooms/:roomId/amenities       setRoomAmenities(roomId, amenityIds)
+ *     POST   /api/hospital/masters/beds                         createBed(payload)
+ *     POST   /api/hospital/masters/beds/bulk                    bulkCreateBeds(payload)
+ *     DELETE /api/hospital/masters/beds/:id                     deleteBed(id)
+ *     GET    /api/hospital/masters/bed-amenities                fetchAmenities(params?)
+ *     POST   /api/hospital/masters/bed-amenities                createAmenity(payload)
+ *     PATCH  /api/hospital/masters/bed-amenities/:id            updateAmenity(id, patch)
+ *     DELETE /api/hospital/masters/bed-amenities/:id            deleteAmenity(id)
+ *
  *   DROPDOWN REFERENCE (existing masters)
  *     GET    /api/hospital/masters/panels/dropdown              fetchPanelDropdown()
  *     GET    /api/hospital/masters/refer-doctors                fetchReferDoctors(params?)
@@ -34,15 +50,32 @@
  *   POST/GET /api/ipd/vitals · /rounds · /medications · /diet-orders
  *   POST /api/ipd/billing/charges · daily-accrual · /billing/provisional/:id
  *   POST /api/ipd/admissions/:id/payments
+ *
+ *   Verified 2026-10-13 on the connected backend: every /api/ipd/* and
+ *   /api/hospital/masters/{room-types,rooms,beds,ward-room} path answers 404,
+ *   while a known master (e.g. /masters/departments) answers 401 — i.e. the
+ *   route does not exist yet, it is not a permission problem. The backend code
+ *   is ready on the backend repo's `hims-v2` branch (the PR #48 merge of
+ *   `new_features/sansar`): `src/hospital/ipd/admission` for the nine
+ *   admission routes and `src/hospital/masters/ward-room` for room types,
+ *   rooms, beds (one + bulk), bed status, amenities, BOR and housekeeping —
+ *   nothing else IPD (no vitals/rounds/medications/billing there either).
  */
 
 import { axios } from "@/api/axios";
 import type {
+  AmenityRow,
   BedRow,
   BedStatusChangeResult,
   BedStatusType,
   BorDashboard,
+  BulkBedsPayload,
+  BulkBedsResult,
   CreateAdmissionPayload,
+  CreateAmenityPayload,
+  CreateBedPayload,
+  CreateRoomPayload,
+  CreateRoomTypePayload,
   HousekeepingQueue,
   InitiateDischargePayload,
   IpdAdmission,
@@ -52,6 +85,9 @@ import type {
   RoomOccupancy,
   RoomRow,
   RoomTypeRow,
+  UpdateAmenityPayload,
+  UpdateRoomPayload,
+  UpdateRoomTypePayload,
 } from "../../types/ipdTypes";
 
 /* ------------------------------ endpoints -------------------------------- */
@@ -155,6 +191,59 @@ export const ipdService = {
 
   fetchRoomOccupancy: (roomId: string) =>
     axios.get<RoomOccupancy>(`${ROOMS}/${roomId}/occupancy`),
+
+  /* --------------------------- ward setup (write) -------------------------- */
+
+  /** Room detail — includes the room's amenity join rows. */
+  fetchRoom: (id: string) => axios.get<RoomRow>(`${ROOMS}/${id}`),
+
+  createRoomType: (payload: CreateRoomTypePayload) =>
+    axios.post<RoomTypeRow>(`${MASTERS}/room-types`, payload),
+
+  updateRoomType: (id: string, patch: UpdateRoomTypePayload) =>
+    axios.patch<RoomTypeRow>(`${MASTERS}/room-types/${id}`, patch),
+
+  /** 400 while rooms are still linked to the type. */
+  deleteRoomType: (id: string) =>
+    axios.delete<{ deleted: boolean }>(`${MASTERS}/room-types/${id}`),
+
+  createRoom: (payload: CreateRoomPayload) =>
+    axios.post<RoomRow>(ROOMS, payload),
+
+  updateRoom: (id: string, patch: UpdateRoomPayload) =>
+    axios.patch<RoomRow>(`${ROOMS}/${id}`, patch),
+
+  /** 400 while beds are still linked to the room. */
+  deleteRoom: (id: string) => axios.delete<{ deleted: boolean }>(`${ROOMS}/${id}`),
+
+  /** Atomic replace of the room's amenity mapping. */
+  setRoomAmenities: (roomId: string, amenityIds: string[]) =>
+    axios.put<RoomRow>(`${ROOMS}/${roomId}/amenities`, { amenityIds }),
+
+  createBed: (payload: CreateBedPayload) =>
+    axios.post<BedRow>(BEDS, payload),
+
+  /** Generates `startNumber..endNumber` (≤ 500) and skips existing numbers. */
+  bulkCreateBeds: (payload: BulkBedsPayload) =>
+    axios.post<BulkBedsResult>(`${BEDS}/bulk`, payload),
+
+  /** 409 BED_DELETE_BLOCKED while OCCUPIED / RESERVED. */
+  deleteBed: (id: string) => axios.delete<{ deleted: boolean }>(`${BEDS}/${id}`),
+
+  fetchAmenities: (params?: { active?: boolean }) =>
+    axios.get<AmenityRow[]>(`${MASTERS}/bed-amenities`, {
+      params: typeof params?.active === "boolean" ? { active: params.active } : undefined,
+    }),
+
+  createAmenity: (payload: CreateAmenityPayload) =>
+    axios.post<AmenityRow>(`${MASTERS}/bed-amenities`, payload),
+
+  updateAmenity: (id: string, patch: UpdateAmenityPayload) =>
+    axios.patch<AmenityRow>(`${MASTERS}/bed-amenities/${id}`, patch),
+
+  /** 400 while the amenity is still mapped to rooms — prefer isActive:false. */
+  deleteAmenity: (id: string) =>
+    axios.delete<{ deleted: boolean }>(`${MASTERS}/bed-amenities/${id}`),
 
   fetchBeds: (params?: BedQueryParams) =>
     axios.get<BedRow[]>(BEDS, { params: compactQuery(params) }),

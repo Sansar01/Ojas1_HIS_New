@@ -112,14 +112,16 @@ export function IpdWardBoardPage() {
   /**
    * The board is the whole screen: with no bed data there is nothing to read.
    * The first paint is therefore the page's blocking initialization and runs
-   * under the app-wide loader (same rule as the record forms); refreshes after
-   * an action keep the loader down and just repaint the board.
+   * under the app-wide loader (same rule as the record forms). Later loads —
+   * Refresh included — keep the app-wide loader down but swap every section
+   * for its skeleton, so the reload is always visible.
    */
   const initialLoading = loading && !initialised;
   useEffect(() => {
     if (!initialLoading) return;
+    dispatch(showLoader("Loading ward board"));
     return () => {
-      
+      dispatch(hideLoader());
     };
   }, [initialLoading, dispatch]);
 
@@ -280,16 +282,25 @@ export function IpdWardBoardPage() {
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
+              loading={loading}
               onClick={() => void loadAll()}
             >
               Refresh
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<BedDouble />}
+              onClick={() => navigate("/ipd/setup")}
+            >
+              Ward setup
             </Button>
           </>
         }
         onCreate={() => navigate("/ipd/admissions/new")}
         createLabel="New admission"
         meta={
-          loading && !beds.length ? (
+          loading ? (
             <>
               <Skeleton className="h-6 w-24 rounded-full" />
               <Skeleton className="h-6 w-24 rounded-full" />
@@ -317,7 +328,7 @@ export function IpdWardBoardPage() {
       />
 
       {/* ------------------------------- KPIs ------------------------------- */}
-      {loading && !bor ? (
+      {loading ? (
         <CardSkeleton count={4} />
       ) : (
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -407,10 +418,27 @@ export function IpdWardBoardPage() {
             <ErrorState message={error} onRetry={() => void loadAll()} compact />
           ) : (
             <>
+              {beds.length === 0 && !loading && (
+                <div className="mb-3">
+                  <PendingBackendNote
+                    title="No rooms or beds exist for this hospital yet"
+                    endpoints={[
+                      "POST /api/hospital/masters/room-types",
+                      "POST /api/hospital/masters/rooms",
+                      "POST /api/hospital/masters/beds + /beds/bulk",
+                    ]}
+                  >
+                    Create them under "Ward setup" above — the screen is ready
+                    and starts writing the moment the backend branch hims-v2 is
+                    deployed (these routes answer 404 until then). Until then
+                    the board shows the beds the backend seed created.
+                  </PendingBackendNote>
+                </div>
+              )}
               <WardBedGrid
                 beds={visibleBeds}
                 admissionsByBed={admissionsByBed}
-                loading={loading && !beds.length}
+                loading={loading}
                 onSelectBed={handleBedClick}
               />
               <div className="mt-4 border-t border-ink-100 pt-3">
@@ -427,7 +455,7 @@ export function IpdWardBoardPage() {
             subtitle="Beds waiting to be cleaned (auto-worklist)"
             icon={<SprayCan className="size-4.5" />}
           >
-            {!housekeeping ? (
+            {loading || !housekeeping ? (
               <ListSkeleton rows={2} className="-mx-4 -my-4" />
             ) : housekeeping.items.length === 0 ? (
               <EmptyState
@@ -493,7 +521,7 @@ export function IpdWardBoardPage() {
             subtitle="Doctor advised admission, bed not given yet"
             icon={<Users className="size-4.5" />}
           >
-            {loading && !admissions.length ? (
+            {loading ? (
               <ListSkeleton rows={1} className="-mx-4 -my-4" />
             ) : pendingAdmissions.length === 0 ? (
               <EmptyState
@@ -546,7 +574,7 @@ export function IpdWardBoardPage() {
             subtitle="Countable beds only (BOR basis)"
             icon={<TrendingUp className="size-4.5" />}
           >
-            {loading && !bor ? (
+            {loading ? (
               <ul className="space-y-3" aria-hidden="true">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <li key={i} className="space-y-2">

@@ -115,6 +115,11 @@ const IpdWardBoardPage = lazy(() =>
     default: m.IpdWardBoardPage,
   })),
 );
+const IpdWardSetupPage = lazy(() =>
+  import("@/pages/ipd/IpdWardSetupPage").then((m) => ({
+    default: m.IpdWardSetupPage,
+  })),
+);
 const IpdAdmissionsPage = lazy(() =>
   import("@/pages/ipd/IpdAdmissionsPage").then((m) => ({
     default: m.IpdAdmissionsPage,
@@ -408,6 +413,14 @@ export function AppRoutes() {
               element={
                 <ModuleRoute module="ipd" label="IPD Management">
                   <IpdWardBoardPage />
+                </ModuleRoute>
+              }
+            />
+            <Route
+              path="/ipd/setup"
+              element={
+                <ModuleRoute module="ipd" label="IPD Management">
+                  <IpdWardSetupPage />
                 </ModuleRoute>
               }
             />
