@@ -41,12 +41,6 @@ import { PageIntro, SectionPanel } from "@/components/common";
 import { BED_STATUSES } from "@/types/ipdTypes";
 import { WARD_GENDER_LABEL, wardGenderLabel } from "@/constants/ipd.constants";
 import { ipdService } from "./ipd.service";
-import type {
-  AmenityRow,
-  BedRow,
-  RoomRow,
-  RoomTypeRow,
-} from "@/types/ipdTypes";
 import {
   AmenityDialog,
   BedDialog,
@@ -56,6 +50,12 @@ import {
   RoomDialog,
   RoomTypeDialog,
 } from "./components";
+import type {
+  AmenityRow,
+  BedRow,
+  RoomRow,
+  RoomTypeRow,
+} from "@/types/ipdTypes";
 
 type TabValue = "types" | "rooms" | "beds" | "amenities";
 

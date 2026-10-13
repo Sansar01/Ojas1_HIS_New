@@ -6,6 +6,11 @@
  *   bed lifecycle    IpdActionDialogs  AssignBedDialog · TransferBedDialog · CancelAdmissionDialog
  *   ward setup       WardSetupDialogs  RoomTypeDialog · RoomDialog · BedDialog ·
  *                                      BulkBedsDialog · RoomAmenitiesDialog · AmenityDialog
+ *   clinical chart   IpdClinicalDialogs  RecordVitalsDialog · AddRoundDialog ·
+ *                                        AddMedicationDialog · ChangeDietDialog ·
+ *                                        AddChargeDialog · RecordPaymentDialog
+ *   clinical panels  IpdClinicalPanels   VitalsPanel · MedicationsPanel · RoundsPanel ·
+ *                                        BillingPanel · DietCard
  *   IPD presentation IpdBits        AdmissionStatusBadge · BedStatusBadge · Chip ·
  *                                   InfoRow · PendingBackendNote
  *
@@ -23,3 +28,5 @@ export * from "./BedPicker";
 export * from "./IpdActionDialogs";
 export * from "./IpdBits";
 export * from "./WardSetupDialogs";
+export * from "./IpdClinicalDialogs";
+export * from "./IpdClinicalPanels";

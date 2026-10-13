@@ -40,9 +40,6 @@ import {
 
 /* -------------------------------- helpers --------------------------------- */
 
-/** 200 or 201 — writes answer CREATED, status moves answer OK. */
-const isOk = (status: number) => status >= 200 && status < 300;
-
 const GENDER_OPTIONS = (
   Object.keys(WARD_GENDER_LABEL) as WardGender[]
 ).map((value) => ({ value, label: WARD_GENDER_LABEL[value] }));
@@ -139,7 +136,7 @@ export function RoomTypeDialog({
       const res = editing
         ? await ipdService.updateRoomType(editing.id, payload)
         : await ipdService.createRoomType(payload);
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         dispatch(
           toast.success(
             editing ? "Room type updated" : "Room type created",
@@ -350,7 +347,7 @@ export function RoomDialog({
       const res = editing
         ? await ipdService.updateRoom(editing.id, payload)
         : await ipdService.createRoom(payload);
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         dispatch(
           toast.success(
             editing ? "Room updated" : "Room created",
@@ -530,7 +527,7 @@ export function BedDialog({
         roomId,
         bedNumber: bedNumber.trim(),
       });
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         dispatch(
           toast.success(
             "Bed created",
@@ -649,7 +646,7 @@ export function BulkBedsDialog({
         endNumber,
         ...(prefix.trim() ? { prefix: prefix.trim() } : {}),
       });
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         const body = res.data as BulkBedsResult;
         setResult(body);
         onDone?.();
@@ -820,7 +817,7 @@ export function RoomAmenitiesDialog({
     dispatch(showLoader("Saving amenities"));
     try {
       const res = await ipdService.setRoomAmenities(room.id, selected);
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         dispatch(
           toast.success(
             "Amenities updated",
@@ -936,7 +933,7 @@ export function AmenityDialog({
       const res = editing
         ? await ipdService.updateAmenity(editing.id, payload)
         : await ipdService.createAmenity(payload);
-      if (isOk(res.status)) {
+      if (res.status >= 200 && res.status < 300) {
         dispatch(
           toast.success(
             editing ? "Amenity updated" : "Amenity created",

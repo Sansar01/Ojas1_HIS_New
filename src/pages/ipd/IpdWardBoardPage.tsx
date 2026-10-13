@@ -614,20 +614,19 @@ export function IpdWardBoardPage() {
         </div>
       </div>
 
-      {/* what the daily clinical columns will be — visible, not fake */}
-      <PendingBackendNote
-        title="Daily clinical columns (vitals · medicines · rounds) start here once the backend ships"
-        endpoints={[
-          "POST / GET /api/ipd/vitals",
-          "POST / GET /api/ipd/rounds",
-          "POST / GET /api/ipd/medications",
-        ]}
-      >
-        The ward board, admission, bed movement and discharge flows on this page
-        are fully live. Vitals, doctor rounds and medicine administration need
-        their IPD endpoints (Sprint 1 of the backend plan) — the patient chart
-        already has the tabs reserved for them.
-      </PendingBackendNote>
+      {/* the endpoints behind this now exist — clinical work lives on the chart */}
+      <p className="mt-4 text-center text-[11.5px] leading-relaxed text-ink-400">
+        Clinical recording — vitals, medicines, rounds and the running bill —
+        lives on each patient's chart: open the stay from{" "}
+        <button
+          type="button"
+          onClick={() => navigate("/ipd/admissions")}
+          className="font-medium text-brand-600 underline decoration-brand-200 underline-offset-2 hover:text-brand-700"
+        >
+          the census
+        </button>
+        .
+      </p>
 
       <AssignBedDialog
         open={!!assignTarget}

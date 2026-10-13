@@ -45,11 +45,28 @@
  * Screens import `patientService`, `doctorService` and `appointmentService`
  * from their own features — this file never re-declares those endpoints.
  *
+ *   CLINICAL CHART (Phase 3.3 — `src/hospital/ipd/clinical`)
+ *     POST/GET /api/ipd/vitals                    recordIpdVitals() · fetchIpdVitals(id)
+ *     POST/GET /api/ipd/rounds                    recordIpdRound() · fetchIpdRounds(id)
+ *     POST/GET /api/ipd/medications               orderIpdMedication() · fetchIpdMedications(id)
+ *     POST     /api/ipd/medications/:id/stop      stopIpdMedication(id, reason?)
+ *     POST/GET /api/ipd/diet-orders               orderIpdDiet() · fetchIpdDietOrders(id)
+ *     GET      /api/ipd/diet-orders/active        fetchActiveIpdDiet(id)
+ *     POST     /api/ipd/diet-orders/:id/stop      stopIpdDiet(id)
+ *
+ *   RUNNING BILL (Phase 3.3 — `src/hospital/ipd/billing`)
+ *     POST   /api/ipd/billing/charges             postIpdCharge(payload)
+ *     GET    /api/ipd/billing/charges             fetchIpdCharges(id)
+ *     POST   /api/ipd/billing/daily-accrual       runIpdDailyAccrual(payload)
+ *     GET    /api/ipd/billing/provisional/:id     fetchProvisionalBill(id)
+ *     POST   /api/ipd/admissions/:id/payments     recordIpdPayment(id, payload)
+ *     GET    /api/ipd/admissions/:id/payments     fetchIpdPayments(id)
+ *
  * ENDPOINTS NOT YET SHIPPED (no call site here on purpose — the screens that
  * will consume them render a "backend pending" note instead of guessing):
- *   POST/GET /api/ipd/vitals · /rounds · /medications · /diet-orders
- *   POST /api/ipd/billing/charges · daily-accrual · /billing/provisional/:id
- *   POST /api/ipd/admissions/:id/payments
+ *   (none at present — the remaining gaps below are product features, not
+ *    endpoints: MAR administration ticks, a scheduler for daily-accrual, and
+ *    pricing charges from the tariff master instead of free-text amounts)
  *
  *   Verified 2026-10-13 on the connected backend: every /api/ipd/* and
  *   /api/hospital/masters/{room-types,rooms,beds,ward-room} path answers 404,
@@ -66,6 +83,12 @@ import { axios } from "@/api/axios";
 import type {
   AmenityRow,
   BedRow,
+  CreateChargePayload,
+  CreateDietOrderPayload,
+  CreateMedicationPayload,
+  CreatePaymentPayload,
+  CreateRoundPayload,
+  CreateVitalsPayload,
   BedStatusChangeResult,
   BedStatusType,
   BorDashboard,
@@ -78,6 +101,15 @@ import type {
   CreateRoomTypePayload,
   HousekeepingQueue,
   InitiateDischargePayload,
+  IpdChargePostResult,
+  IpdChargeRow,
+  IpdDailyAccrualResult,
+  IpdDietOrderRow,
+  IpdMedicationRow,
+  IpdPaymentRow,
+  IpdProvisionalBill,
+  IpdRoundRow,
+  IpdVitalRow,
   IpdAdmission,
   IpdAdmissionListResponse,
   PanelDropdownRow,
@@ -266,6 +298,81 @@ export const ipdService = {
 
   fetchHousekeepingQueue: () =>
     axios.get<HousekeepingQueue>(`${WARD}/housekeeping-queue`),
+
+  /* ----------------------------- clinical chart --------------------------- */
+
+  fetchIpdVitals: (admissionId: string, limit?: number) =>
+    axios.get<IpdVitalRow[]>("/api/ipd/vitals", {
+      params: compactQuery({ admissionId, limit }),
+    }),
+
+  recordIpdVitals: (payload: CreateVitalsPayload) =>
+    axios.post<IpdVitalRow>("/api/ipd/vitals", payload),
+
+  fetchIpdRounds: (admissionId: string, limit?: number) =>
+    axios.get<IpdRoundRow[]>("/api/ipd/rounds", {
+      params: compactQuery({ admissionId, limit }),
+    }),
+
+  recordIpdRound: (payload: CreateRoundPayload) =>
+    axios.post<IpdRoundRow>("/api/ipd/rounds", payload),
+
+  fetchIpdMedications: (admissionId: string, status?: "ACTIVE" | "STOPPED") =>
+    axios.get<IpdMedicationRow[]>("/api/ipd/medications", {
+      params: compactQuery({ admissionId, status }),
+    }),
+
+  orderIpdMedication: (payload: CreateMedicationPayload) =>
+    axios.post<IpdMedicationRow>("/api/ipd/medications", payload),
+
+  stopIpdMedication: (id: string, reason?: string) =>
+    axios.post<IpdMedicationRow>(`/api/ipd/medications/${id}/stop`, {
+      ...(reason?.trim() ? { reason: reason.trim() } : {}),
+    }),
+
+  fetchIpdDietOrders: (admissionId: string) =>
+    axios.get<IpdDietOrderRow[]>("/api/ipd/diet-orders", {
+      params: { admissionId },
+    }),
+
+  /** The diet the kitchen is working from — null when none is set. */
+  fetchActiveIpdDiet: (admissionId: string) =>
+    axios.get<IpdDietOrderRow | null>("/api/ipd/diet-orders/active", {
+      params: { admissionId },
+    }),
+
+  orderIpdDiet: (payload: CreateDietOrderPayload) =>
+    axios.post<IpdDietOrderRow>("/api/ipd/diet-orders", payload),
+
+  stopIpdDiet: (id: string) =>
+    axios.post<IpdDietOrderRow>(`/api/ipd/diet-orders/${id}/stop`, {}),
+
+  /* ------------------------------ running bill ---------------------------- */
+
+  fetchIpdCharges: (admissionId: string, limit?: number) =>
+    axios.get<IpdChargeRow[]>("/api/ipd/billing/charges", {
+      params: compactQuery({ admissionId, limit }),
+    }),
+
+  /** 400 THRESHOLD_BLOCKED when the panel cap is a HARD breach. */
+  postIpdCharge: (payload: CreateChargePayload) =>
+    axios.post<IpdChargePostResult>("/api/ipd/billing/charges", payload),
+
+  /** Idempotent per admission + day + component — safe to press twice. */
+  runIpdDailyAccrual: (payload: { date?: string; admissionId?: string } = {}) =>
+    axios.post<IpdDailyAccrualResult>("/api/ipd/billing/daily-accrual", payload),
+
+  fetchProvisionalBill: (admissionId: string) =>
+    axios.get<IpdProvisionalBill>(`/api/ipd/billing/provisional/${admissionId}`),
+
+  fetchIpdPayments: (admissionId: string) =>
+    axios.get<IpdPaymentRow[]>(`/api/ipd/admissions/${admissionId}/payments`),
+
+  recordIpdPayment: (admissionId: string, payload: CreatePaymentPayload) =>
+    axios.post<{ payment: IpdPaymentRow; advancePaid: number }>(
+      `/api/ipd/admissions/${admissionId}/payments`,
+      payload,
+    ),
 
   /* ------------------------------- reference ------------------------------ */
 

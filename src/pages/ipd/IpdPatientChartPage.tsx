@@ -38,14 +38,7 @@ import {
 } from "@/components/common";
 import { calcAge, formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "./ipd.service";
-import {
-  type IpdAdmission,
-  bedLabel,
-  doctorName,
-  num,
-  patientName,
-  stayDays,
-} from "@/types/ipdTypes";
+import { type IpdAdmission, bedLabel, doctorName, num, patientName, stayDays } from "@/types/ipdTypes";
 import {
   ADMISSION_TYPE_LABEL,
   DISCHARGE_TYPE_LABEL,
@@ -55,11 +48,15 @@ import {
   AdmissionStatusBadge,
   AssignBedDialog,
   BedSummaryCard,
+  BillingPanel,
   CancelAdmissionDialog,
   Chip,
+  DietCard,
   InfoRow,
-  PendingBackendNote,
+  MedicationsPanel,
+  RoundsPanel,
   TransferBedDialog,
+  VitalsPanel,
 } from "./components";
 
 type DialogKind = "assign" | "transfer" | "cancel" | null;
@@ -102,15 +99,17 @@ export function IpdPatientChartPage() {
 
   /**
    * No admission ⇒ no chart, so the very first load is the page's blocking
-   * initialization and runs under the app-wide loader with the shared page
-   * skeleton underneath. Once a chart is on screen every later refresh stays
-   * silent and just repaints.
+   * initialization and runs under the app-wide loader. Every load paints the
+   * shared page skeleton — refresh included: a silent refetch reads as "the
+   * API never fired", so the skeleton is the feedback.
    */
   const initialLoading = loading && !admission;
   useEffect(() => {
     if (!initialLoading) return;
-
-    return () => {};
+    dispatch(showLoader("Loading patient chart"));
+    return () => {
+      dispatch(hideLoader());
+    };
   }, [initialLoading, dispatch]);
 
   const roomType = admission?.bed?.room?.roomType;
@@ -138,12 +137,17 @@ export function IpdPatientChartPage() {
     }
   }, [admission, dispatch, load]);
 
-  if (initialLoading) {
+  if (loading) {
     return <PageSkeleton label="Loading admission chart" />;
   }
 
   if (error && !admission) {
-    return <ErrorState message={error} onRetry={() => void load()} />;
+    return (
+      <ErrorState
+        message={error}
+        onRetry={() => void load()}
+      />
+    );
   }
 
   if (!admission) {
@@ -165,6 +169,8 @@ export function IpdPatientChartPage() {
   const closed =
     admission.status === "DISCHARGED" || admission.status === "CANCELLED";
   const statusMeta = admissionStatusMeta(admission.status);
+  /** Writes stop at discharge — the backend refuses them (`ADMISSION_CLOSED`). */
+  const canWrite = !closed && canEdit("ipd");
 
   return (
     <>
@@ -187,6 +193,7 @@ export function IpdPatientChartPage() {
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
+              loading={loading}
               onClick={() => void load()}
             >
               Refresh
@@ -370,7 +377,9 @@ export function IpdPatientChartPage() {
                 items={[
                   {
                     label: "Admission no",
-                    value: <span className="num">{admission.admissionNo}</span>,
+                    value: (
+                      <span className="num">{admission.admissionNo}</span>
+                    ),
                   },
                   {
                     label: "Admission type",
@@ -437,21 +446,26 @@ export function IpdPatientChartPage() {
                             : "—"}
                       </Chip>
                       {admission.patient?.mobile && (
-                        <Chip tone="lagoon">{admission.patient.mobile}</Chip>
+                        <Chip tone="lagoon">
+                          {admission.patient.mobile}
+                        </Chip>
                       )}
                     </div>
                   </div>
                 </div>
               </SectionPanel>
 
+              <DietCard
+                admissionId={admission.id}
+                canWrite={canWrite}
+                onChanged={() => void load()}
+              />
+
               <SectionPanel
                 title="Care team & billing"
                 icon={<ReceiptIndianRupee className="size-4.5" />}
               >
-                <InfoRow
-                  label="Admitting doctor"
-                  value={doctorName(admission)}
-                />
+                <InfoRow label="Admitting doctor" value={doctorName(admission)} />
                 <InfoRow
                   label="Department"
                   value={
@@ -506,128 +520,35 @@ export function IpdPatientChartPage() {
         )}
 
         {tab === "vitals" && (
-          <SectionPanel
-            title="Vitals chart"
-            subtitle="4-hourly nursing vitals for this admission"
-          >
-            <PendingBackendNote
-              title="IPD vitals endpoint not shipped yet"
-              endpoints={[
-                "POST /api/ipd/vitals",
-                "GET /api/ipd/vitals?admissionId=&date=",
-              ]}
-            >
-              Nurse BP / pulse / SpO2 / temperature / urine output will be
-              recorded here and trended against the admission. The OPD vitals
-              table is consultation-bound, so IPD vitals need their own endpoint
-              (it is item #1 of the backend Sprint 1 plan).
-            </PendingBackendNote>
-          </SectionPanel>
+          <VitalsPanel
+            admissionId={admission.id}
+            canWrite={canWrite}
+            onChanged={() => void load()}
+          />
         )}
 
         {tab === "medicines" && (
-          <SectionPanel
-            title="Medication administration record"
-            subtitle="Doctor's orders · nurse administration ticks"
-          >
-            <PendingBackendNote
-              title="MAR endpoint not shipped yet"
-              endpoints={[
-                "POST /api/ipd/medications",
-                "GET /api/ipd/medications?admissionId=",
-              ]}
-            >
-              Prescription lines, dose times and the nurse's administered /
-              withheld ticks will live here, with due-dose reminders on the
-              nursing station.
-            </PendingBackendNote>
-          </SectionPanel>
+          <MedicationsPanel
+            admissionId={admission.id}
+            canWrite={canWrite}
+            onChanged={() => void load()}
+          />
         )}
 
         {tab === "notes" && (
-          <SectionPanel
-            title="Doctor rounds & nursing notes"
-            subtitle="Daily clinical notes for this stay"
-          >
-            <PendingBackendNote
-              title="Rounds / nursing-notes endpoints not shipped yet"
-              endpoints={[
-                "POST /api/ipd/rounds",
-                "POST /api/ipd/nursing-notes",
-              ]}
-            >
-              Each doctor round (subjective / objective / assessment / plan) and
-              nursing hand-over note will be appended here — and the round will
-              post its own doctor-visit charge automatically.
-            </PendingBackendNote>
-          </SectionPanel>
+          <RoundsPanel
+            admissionId={admission.id}
+            canWrite={canWrite}
+            onChanged={() => void load()}
+          />
         )}
 
         {tab === "billing" && (
-          <div className="space-y-4">
-            <SectionPanel
-              title="Running bill"
-              subtitle="Day-wise charges accumulated during the stay"
-            >
-              <PendingBackendNote
-                title="IPD charge ledger not shipped yet"
-                endpoints={[
-                  "POST /api/ipd/billing/charges",
-                  "POST /api/ipd/billing/daily-accrual",
-                  "GET /api/ipd/billing/provisional/:admissionId",
-                ]}
-              >
-                Until the ledger ships, no daily charge is being recorded by the
-                system. What is live today is shown below: the advance collected
-                at admission and the configured room-type rates.
-              </PendingBackendNote>
-
-              <div className="mt-4">
-                <InfoRow
-                  label="Advance paid"
-                  value={`₹${num(admission.advancePaid).toLocaleString("en-IN")}`}
-                />
-                <InfoRow
-                  label="Configured bed rate"
-                  value={
-                    roomType
-                      ? `₹${num(roomType.defaultRate).toLocaleString("en-IN")}/day`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Configured nursing charge"
-                  value={
-                    roomType
-                      ? `₹${num(roomType.nursingCharge).toLocaleString("en-IN")}/day`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Recorded charges to date"
-                  value={
-                    <span className="text-ink-400">
-                      Not tracked yet (ledger pending)
-                    </span>
-                  }
-                />
-              </div>
-            </SectionPanel>
-
-            <SectionPanel
-              title="Payments"
-              subtitle="Advance & final settlement receipts"
-            >
-              <PendingBackendNote
-                title="IPD payments endpoint not shipped yet"
-                endpoints={["POST /api/ipd/admissions/:id/payments"]}
-              >
-                Multiple advances and the final settlement receipt (with the
-                panel co-pay split) will be recorded here. Today only the
-                advance entered on the admission form exists.
-              </PendingBackendNote>
-            </SectionPanel>
-          </div>
+          <BillingPanel
+            admissionId={admission.id}
+            canWrite={canWrite}
+            onChanged={() => void load()}
+          />
         )}
       </div>
 

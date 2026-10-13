@@ -4,7 +4,7 @@
  * Local to the IPD feature so the shared `@/constants` file stays untouched.
  */
 
-import type { Tone } from "@/components/ui/primitives";
+
 import type { BedStatusType, IpdAdmissionStatus } from "../types/ipdTypes";
 import { IPD_ADMISSION_TYPES, IPD_DISCHARGE_TYPES } from "../types/ipdTypes";
 
@@ -13,7 +13,7 @@ import { IPD_ADMISSION_TYPES, IPD_DISCHARGE_TYPES } from "../types/ipdTypes";
 export interface BedStatusMeta {
   label: string;
   short: string;
-  tone: Tone;
+  tone: string;
   /** bed tile surface — the ward board legend uses exactly these classes */
   tile: string;
   dot: string;
@@ -103,7 +103,7 @@ export const BED_LEGEND_ORDER: BedStatusType[] = [
 
 export const ADMISSION_STATUS_META: Record<
   string,
-  { label: string; tone: Tone }
+  { label: string; tone: string }
 > = {
   ADMITTED: { label: "Admitted", tone: "mint" },
   DISCHARGE_ORDERED: { label: "Discharge ordered", tone: "amber" },
@@ -114,7 +114,7 @@ export const ADMISSION_STATUS_META: Record<
 export const admissionStatusMeta = (status?: string | null) =>
   ADMISSION_STATUS_META[(status ?? "").toUpperCase()] ?? {
     label: status ?? "—",
-    tone: "neutral" as Tone,
+    tone: "neutral" as string,
   };
 
 export const ADMISSION_TYPE_LABEL: Record<string, string> = {
@@ -178,4 +178,99 @@ export const wardGenderConflict = (
   if (room === "FEMALE_ONLY" && patient !== "FEMALE")
     return "Ward is female-only";
   return null;
+};
+
+/* ------------------------- Phase 3.3 clinical + billing -------------------- */
+
+export const MEDICATION_ROUTE_OPTIONS = [
+  "ORAL",
+  "IV",
+  "IM",
+  "SC",
+  "TOPICAL",
+  "INHALATION",
+  "OTHER",
+].map((value) => ({ value, label: value }));
+
+export const MEDICATION_FREQUENCY_OPTIONS = [
+  "OD",
+  "BD",
+  "TDS",
+  "QID",
+  "HS",
+  "SOS",
+  "STAT",
+  "WEEKLY",
+].map((value) => ({
+  value,
+  label:
+    {
+      OD: "OD · once daily",
+      BD: "BD · twice daily",
+      TDS: "TDS · thrice daily",
+      QID: "QID · four times",
+      HS: "HS · at bedtime",
+      SOS: "SOS · if needed",
+      STAT: "STAT · immediately",
+      WEEKLY: "Weekly",
+    }[value] ?? value,
+}));
+
+export const DIET_TYPE_OPTIONS = [
+  "NORMAL",
+  "SOFT",
+  "LIQUID",
+  "SEMI_SOLID",
+  "DIABETIC",
+  "RENAL",
+  "CARDIAC",
+  "NPO",
+  "TUBE_FEED",
+  "OTHER",
+].map((value) => ({
+  value,
+  label:
+    {
+      NORMAL: "Normal",
+      SOFT: "Soft",
+      LIQUID: "Liquid",
+      SEMI_SOLID: "Semi-solid",
+      DIABETIC: "Diabetic",
+      RENAL: "Renal",
+      CARDIAC: "Cardiac",
+      NPO: "NPO · nil by mouth",
+      TUBE_FEED: "Tube feed",
+      OTHER: "Other",
+    }[value] ?? value,
+}));
+
+export const CHARGE_CATEGORY_OPTIONS = [
+  "ROOM",
+  "NURSING",
+  "SERVICE",
+  "PROCEDURE",
+  "PHARMACY",
+  "LAB",
+  "OTHER",
+].map((value) => ({ value, label: value }));
+
+export const PAYMENT_MODE_OPTIONS = [
+  "CASH",
+  "CARD",
+  "UPI",
+  "NEFT",
+  "CHEQUE",
+  "INSURANCE",
+  "OTHER",
+].map((value) => ({ value, label: value }));
+
+/** Threshold verdict of the Phase 1.4 panel cap (banner + badges). */
+export const THRESHOLD_STATUS_META: Record<
+  string,
+  { label: string; tone: "mint" | "amber" | "coral" | "neutral" }
+> = {
+  OK: { label: "Within panel cap", tone: "mint" },
+  ALERT: { label: "Approaching panel cap", tone: "amber" },
+  WARNING: { label: "Cap crossed — soft breach", tone: "coral" },
+  BLOCKED: { label: "Cap crossed — charges blocked", tone: "coral" },
 };

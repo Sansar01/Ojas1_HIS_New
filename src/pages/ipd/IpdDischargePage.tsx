@@ -5,14 +5,20 @@
  * can do today:
  *
  *   1. Discharge order   → POST /api/ipd/admissions/:id/initiate-discharge ✅
- *   2. Final bill review → needs the IPD ledger / finalize endpoints        ⏳
- *   3. Settlement        → needs the IPD payments endpoint                  ⏳
+ *   2. Bill review       → GET  /api/ipd/billing/provisional/:id            ✅
+ *                          POST /api/ipd/billing/daily-accrual (per stay)   ✅
+ *                          (final bill freeze + panel split: `finalize` ⏳)
+ *   3. Settlement        → POST/GET /api/ipd/admissions/:id/payments        ✅
+ *                          (receipt-number series + co-pay split ⏳)
  *   4. Bed release       → POST /api/ipd/admissions/:id/complete-discharge  ✅
  *
- * Steps 2 and 3 are shown, not faked: they name the endpoints they will call
- * and display the live facts that exist (advance paid, configured rates, bed
- * status). The wizard state is derived from `admission.status`, so it survives a
- * refresh and matches what every other IPD screen shows.
+ * Steps 2 and 3 run on the live ledger: the provisional bill, its threshold
+ * verdict and the receipts come from the Phase 3.3 billing endpoints, and the
+ * settlement step records real payments. What is still pending on the backend is
+ * only the final-bill *freeze* (`/billing/finalize`) with its receipt series and
+ * panel co-pay split — named in a pending note, never faked. The wizard state is
+ * derived from `admission.status`, so it survives a refresh and matches what
+ * every other IPD screen shows.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +28,7 @@ import {
   CheckCircle2,
   HandCoins,
   LogOut,
+  Plus,
   ReceiptIndianRupee,
   SprayCan,
   Stethoscope,
@@ -39,7 +46,15 @@ import { formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "./ipd.service";
 import { type IpdAdmission, type IpdDischargeType, bedLabel, num, patientName } from "@/types/ipdTypes";
 import { DISCHARGE_TYPE_OPTIONS } from "@/constants/ipd.constants";
-import { AdmissionStatusBadge, InfoRow, PendingBackendNote } from "./components";
+import {
+  AdmissionStatusBadge,
+  BillChargesTable,
+  BillTotalsBlock,
+  InfoRow,
+  PendingBackendNote,
+  RecordPaymentDialog,
+  useProvisionalBill,
+} from "./components";
 
 const STEPS = [
   {
@@ -75,6 +90,8 @@ export function IpdDischargePage() {
   const { canEdit } = usePermission();
 
   const [admission, setAdmission] = useState<IpdAdmission | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [accruing, setAccruing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
@@ -224,6 +241,49 @@ export function IpdDischargePage() {
 
   const roomType = admission.bed?.room?.roomType;
   const isDaycare = roomType?.isDaycare;
+
+  /* Live ledger of the stay — same loader + blocks the chart's billing tab uses. */
+  const {
+    data: bill,
+    loading: billLoading,
+    error: billError,
+    reload: reloadBill,
+  } = useProvisionalBill(admission.id);
+
+  const postDayCharges = async () => {
+    if (accruing) return;
+    setAccruing(true);
+    dispatch(showLoader("Posting day charges"));
+    try {
+      const res = await ipdService.runIpdDailyAccrual({ admissionId: admission.id });
+      if (res.status === 200) {
+        const { posted, skipped, blocked } = res.data;
+        if (posted > 0) {
+          dispatch(
+            toast.success(
+              "Day charges posted",
+              `${posted} line(s) posted · ${skipped} skipped · ${blocked} blocked`,
+            ),
+          );
+          void reloadBill();
+          void load();
+        } else {
+          dispatch(
+            toast.info(
+              "Nothing to post for today",
+              res.data.admissions[0]?.reason ??
+                "Today's room & nursing charges are already on the bill.",
+            ),
+          );
+        }
+      }
+    } catch (e: any) {
+      dispatch(toast.error("Could not post the day charges", e?.message));
+    } finally {
+      setAccruing(false);
+      dispatch(hideLoader());
+    }
+  };
   const bedStatusNow = discharged ? "HOUSEKEEPING" : ordered ? "DISCHARGE_PENDING" : "OCCUPIED";
 
   return (
@@ -339,50 +399,65 @@ export function IpdDischargePage() {
         {step === 2 && (
           <SectionPanel
             title="Step 2 · Final bill review"
-            subtitle="Day-wise charges, package adjustments and the panel split"
+            subtitle="Day-wise charges of the stay, live from the ledger"
             icon={<ReceiptIndianRupee className="size-4.5" />}
+            action={
+              <Button
+                size="sm"
+                variant="outline"
+                loading={accruing}
+                disabled={!canEdit("ipd") || cancelled}
+                onClick={() => void postDayCharges()}
+              >
+                Post day charges
+              </Button>
+            }
           >
-            <PendingBackendNote
-              title="Final bill needs the IPD billing endpoints"
-              endpoints={[
-                "GET /api/ipd/billing/provisional/:admissionId",
-                "POST /api/ipd/billing/finalize",
-              ]}
-            >
-              With the ledger live, this step shows every bed-rent / nursing /
-              round / lab / medicine / OT line of the stay, package-covered lines
-              at ₹0, excluded implants at full price, and the panel co-pay split.
-            </PendingBackendNote>
+            {billError ? (
+              <ErrorState
+                message={billError}
+                onRetry={() => void reloadBill()}
+                compact
+              />
+            ) : (
+              <BillTotalsBlock bill={bill} loading={billLoading} />
+            )}
 
             <div className="mt-4">
               <InfoRow
                 label="Stay so far"
-                value={`Admitted ${formatDate(admission.admissionDate)}${isDaycare ? " · confirmed daycare" : ""}`}
+                value={`Day ${bill?.totals?.dayCount ?? "—"} · admitted ${formatDate(admission.admissionDate)}${isDaycare ? " · confirmed daycare" : ""}`}
               />
               <InfoRow
-                label="Configured bed rate"
+                label="Rate on the bed"
                 value={
                   roomType
-                    ? `₹${num(roomType.defaultRate).toLocaleString("en-IN")}/day`
+                    ? `₹${num(roomType.defaultRate).toLocaleString("en-IN")}/day room + ₹${num(roomType.nursingCharge).toLocaleString("en-IN")}/day nursing`
                     : "—"
                 }
               />
-              <InfoRow
-                label="Configured nursing charge"
-                value={
-                  roomType
-                    ? `₹${num(roomType.nursingCharge).toLocaleString("en-IN")}/day`
-                    : "—"
-                }
-              />
-              <InfoRow
-                label="Charges recorded by the system"
-                value={
-                  <span className="text-ink-400">
-                    None yet — ledger endpoint pending
-                  </span>
-                }
-              />
+              {bill && (
+                <InfoRow
+                  label="Expected at current rate"
+                  value={`₹${num(bill.totals.expectedAtCurrentRate).toLocaleString("en-IN")}`}
+                />
+              )}
+            </div>
+
+            <div className="mt-4">
+              <BillChargesTable charges={bill?.charges} loading={billLoading} />
+            </div>
+
+            <div className="mt-4">
+              <PendingBackendNote
+                title="Final bill freeze still needs a backend endpoint"
+                endpoints={["POST /api/ipd/billing/finalize"]}
+              >
+                Today this step reviews the live ledger; the last step that
+                freezes the bill, assigns the receipt number series and applies
+                the package / panel co-pay split is not built yet. Nothing here
+                is faked — the totals above are the same numbers the chart shows.
+              </PendingBackendNote>
             </div>
 
             <div className="mt-4 flex justify-end">
@@ -397,21 +472,20 @@ export function IpdDischargePage() {
         {step === 3 && (
           <SectionPanel
             title="Step 3 · Payment settlement"
-            subtitle="Advance adjustment, panel share and the patient receipt"
+            subtitle="Balance against the ledger, then the receipt"
             icon={<HandCoins className="size-4.5" />}
+            action={
+              <Button
+                size="sm"
+                icon={<Plus />}
+                disabled={!canEdit("ipd") || cancelled}
+                onClick={() => setPaymentOpen(true)}
+              >
+                Record payment
+              </Button>
+            }
           >
-            <PendingBackendNote
-              title="Settlement endpoints not shipped yet"
-              endpoints={[
-                "POST /api/ipd/billing/finalize",
-                "POST /api/ipd/billing/settle",
-                "POST /api/ipd/admissions/:id/payments",
-              ]}
-            >
-              The receipt number series, co-pay split and cash/card/UPI capture
-              arrive with the settlement sprint. The advance already recorded is
-              shown below and will be adjusted automatically.
-            </PendingBackendNote>
+            <BillTotalsBlock bill={bill} loading={billLoading} />
 
             <div className="mt-4">
               <InfoRow
@@ -424,8 +498,40 @@ export function IpdDischargePage() {
               />
               <InfoRow
                 label="Amount due"
-                value={<span className="text-ink-400">Pending final bill</span>}
+                value={
+                  bill ? (
+                    <span
+                      className={
+                        num(bill.totals.balance) > 0
+                          ? "text-coral-600"
+                          : "text-mint-600"
+                      }
+                    >
+                      ₹{num(bill.totals.balance).toLocaleString("en-IN")}
+                    </span>
+                  ) : (
+                    <span className="text-ink-400">Loading…</span>
+                  )
+                }
               />
+            </div>
+
+            <div className="mt-4">
+              <PendingBackendNote
+                title="Receipt series & panel co-pay split still need a backend endpoint"
+                endpoints={[
+                  "POST /api/ipd/billing/finalize",
+                  "POST /api/ipd/billing/settle",
+                ]}
+              >
+                Payments themselves are live — every receipt recorded here is a
+                real `POST /api/ipd/admissions/:id/payments` row and moves the
+                admission's advance-paid figure with it. What is still pending is
+                the settlement layer that assigns the receipt number series and
+                splits the bill between the patient and the panel/TPS.
+                Post-discharge receipts are allowed by the backend, so settling
+                after step 4 is fine too.
+              </PendingBackendNote>
             </div>
 
             <div className="mt-4 flex justify-end">
@@ -547,6 +653,17 @@ export function IpdDischargePage() {
           </SectionPanel>
         )}
       </div>
+      <RecordPaymentDialog
+        open={paymentOpen}
+        onOpenChange={setPaymentOpen}
+        admissionId={admission.id}
+        balance={bill?.totals?.balance}
+        onDone={() => {
+          void reloadBill();
+          void load();
+        }}
+      />
+
     </>
   );
 }
