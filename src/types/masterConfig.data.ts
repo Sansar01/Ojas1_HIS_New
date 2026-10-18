@@ -11,7 +11,9 @@ export type ModalType =
   | "investigation"
   | "global"
   | "rate-managment"
-  | "service-master";
+  | "service-master"
+  | "lab-masters"
+  | "doctor-masters";
 
 export const INVESTIGATIONS: string[] = [
   "24hrs Urine Protein",

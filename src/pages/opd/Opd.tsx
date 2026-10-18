@@ -316,7 +316,8 @@ export function OpdExaminationRoom() {
       };
 
       const vitalsOut = await consultationService.saveVitals(vitalsPayload);
-      if (vitalsOut.status !== 200)
+      // Successful creates return 201, so accept the whole 2xx range.
+      if (vitalsOut.status < 200 || vitalsOut.status >= 300)
         throw new Error(
           vitalsOut.data?.message || "Failed to save patient vitals.",
         );

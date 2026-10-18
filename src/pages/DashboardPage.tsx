@@ -73,6 +73,17 @@ ChartJS.register(
 const GRID = { color: "rgba(45,78,86,.08)", drawBorder: false } as const;
 const FONT = { family: "'IBM Plex Sans', sans-serif", size: 11 } as const;
 
+/** Fixed status order for the mix chart — index must match the colour list. */
+const STATUS_BUCKETS: string[] = [
+  "Scheduled",
+  "Confirmed",
+  "Checked In",
+  "In Progress",
+  "Completed",
+  "Cancelled",
+  "No Show",
+];
+
 /**
  * The Dashboard's data layer: the seven collections this page renders, each
  * fetched through its feature service and kept in local state.
@@ -360,6 +371,7 @@ export function DashboardPage() {
   const loading = dashboard.loading;
 
   const today = addDays(new Date(), 0);
+
   const patientMap = useMemo(
     () => new Map(patients.map((p: any) => [p.id, p])),
     [patients],
@@ -369,11 +381,110 @@ export function DashboardPage() {
     [doctors],
   );
 
-  const todaysAppointments = appointments.filter((a: any) => a.date === today);
-  const completed = consultations.filter((c: any) => c.status === "Completed");
-  const pendingConsultations = consultations.filter(
-    (c: any) => c.status !== "Completed",
-  );
+  /**
+   * Every scheduled-visit number this page shows is derived from
+   * `appointments` in ONE pass. Previously the tiles ran their own filters
+   * over the same array during every render (and each chart swept it again),
+   * so a single re-render re-scanned the rows a dozen-plus times. `today`
+   * and the cutoff are ISO date strings — stable within the day — so this
+   * memo only recomputes when new appointment data actually lands.
+   */
+  const appointmentsStory = useMemo(() => {
+    const dayBuckets = new Map<string, { booked: number; completed: number }>();
+    const statusCounts = new Map<string, number>();
+    const deptCounts = new Map<string, number>();
+    const cutoff = addDays(new Date(), -30);
+
+    const todays: any[] = [];
+    const upcomingRaw: any[] = [];
+    let todayConfirmed = 0;
+    let todayCheckedIn = 0;
+    let inMotionToday = 0;
+    let validVisits = 0;
+
+    for (const a of appointments) {
+      const day = dayBuckets.get(a.date) ?? { booked: 0, completed: 0 };
+      if (a.status === "Completed") day.completed++;
+      if (a.status !== "Cancelled" && a.status !== "No Show") {
+        day.booked++;
+        validVisits++;
+      }
+      dayBuckets.set(a.date, day);
+      statusCounts.set(a.status, (statusCounts.get(a.status) ?? 0) + 1);
+
+      if (a.departmentId && a.date >= cutoff) {
+        deptCounts.set(
+          a.departmentId,
+          (deptCounts.get(a.departmentId) ?? 0) + 1,
+        );
+      }
+
+      if (a.date === today) {
+        todays.push(a);
+        if (a.status === "Confirmed") todayConfirmed++;
+        if (a.status === "Checked In") todayCheckedIn++;
+        if (
+          a.status === "Completed" ||
+          a.status === "In Progress" ||
+          a.status === "Checked In"
+        ) {
+          inMotionToday++;
+        }
+      } else if (
+        a.date > today &&
+        (a.status === "Scheduled" || a.status === "Confirmed")
+      ) {
+        upcomingRaw.push(a);
+      }
+    }
+
+    // Today's floor timeline — one small sort per data change, not per render.
+    todays.sort((a, b) => a.time.localeCompare(b.time));
+
+    // last 14 days, oldest → newest
+    const labels: string[] = [];
+    const booked: number[] = [];
+    const completedOnDay: number[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const day = addDays(new Date(), -i);
+      const bucket = dayBuckets.get(day);
+      labels.push(
+        new Date(day).toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+        }),
+      );
+      booked.push(bucket?.booked ?? 0);
+      completedOnDay.push(bucket?.completed ?? 0);
+    }
+
+    // upcoming — sort the (few) still-open future bookings exactly once
+    const upcoming = [...upcomingRaw]
+      .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
+      .slice(0, 6);
+
+    return {
+      validVisits,
+      todays,
+      todayConfirmed,
+      todayCheckedIn,
+      inMotionToday,
+      upcoming,
+      trendSeries: {
+        labels,
+        booked,
+        completed: completedOnDay,
+      },
+      statusCounts,
+      deptCounts,
+    };
+  }, [appointments, today]);
+
+  /** The dashboard's own per-render aliases over the memoized story. */
+  const todaysAppointments = appointmentsStory.todays;
+  const timeline = appointmentsStory.todays;
+  const upcoming = appointmentsStory.upcoming;
+  const trendSeries = appointmentsStory.trendSeries;
 
   const totals = useMemo(() => {
     const sums = invoices.map((inv: any) => ({ inv, t: invoiceTotals(inv) }));
@@ -388,91 +499,53 @@ export function DashboardPage() {
     return { revenue, outstanding, invoiceCount: sums.length };
   }, [invoices]);
 
-  const trendSeries = useMemo(() => {
-    const days = Array.from({ length: 14 }, (_, i) =>
-      addDays(new Date(), i - 13),
-    );
-    return {
-      labels: days.map((d) =>
-        new Date(d).toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-        }),
+  const statusMix = useMemo(
+    () => ({
+      labels: STATUS_BUCKETS,
+      values: STATUS_BUCKETS.map(
+        (b) => appointmentsStory.statusCounts.get(b) ?? 0,
       ),
-      booked: days.map(
-        (d) =>
-          appointments.filter(
-            (a: any) =>
-              a.date === d && !["Cancelled", "No Show"].includes(a.status),
-          ).length,
-      ),
-      completed: days.map(
-        (d) =>
-          appointments.filter(
-            (a: any) => a.date === d && a.status === "Completed",
-          ).length,
-      ),
-    };
-  }, [appointments]);
-
-  const statusMix = useMemo(() => {
-    const buckets = [
-      "Scheduled",
-      "Confirmed",
-      "Checked In",
-      "In Progress",
-      "Completed",
-      "Cancelled",
-      "No Show",
-    ];
-    return {
-      labels: buckets,
-      values: buckets.map(
-        (b) => appointments.filter((a: any) => a.status === b).length,
-      ),
-    };
-  }, [appointments]);
+    }),
+    [appointmentsStory],
+  );
 
   const deptLoad = useMemo(() => {
     const rows = departments
       .filter((d: any) => d.status === "active")
       .map((d: any) => ({
         label: d.name,
-        value: appointments.filter(
-          (a: any) =>
-            a.departmentId === d.id && a.date >= addDays(new Date(), -30),
-        ).length,
+        value: appointmentsStory.deptCounts.get(d.id) ?? 0,
       }));
     return {
       labels: rows.map((r) => r.label),
       values: rows.map((r) => r.value),
     };
-  }, [departments, appointments]);
+  }, [departments, appointmentsStory]);
+
+  /** Closed vs still open — two whole-array filters before, one scan now. */
+  const consultationStats = useMemo(() => {
+    let completed = 0;
+    for (const c of consultations) {
+      if (c.status === "Completed") completed++;
+    }
+    return { completed, pending: consultations.length - completed };
+  }, [consultations]);
+
+  const activeDoctorCount = useMemo(() => {
+    let active = 0;
+    for (const d of doctors) {
+      if (d.status === "active") active++;
+    }
+    return active;
+  }, [doctors]);
 
   const occupancy = todaysAppointments.length
     ? Math.round(
-        (todaysAppointments.filter((a: any) =>
-          ["Completed", "In Progress", "Checked In"].includes(a.status),
-        ).length /
-          todaysAppointments.length) *
-          100,
+        (appointmentsStory.inMotionToday / todaysAppointments.length) * 100,
       )
     : 0;
 
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-  const timeline = [...todaysAppointments].sort((a: any, b: any) =>
-    a.time.localeCompare(b.time),
-  );
-
-  const upcoming = appointments
-    .filter(
-      (a: any) =>
-        a.date > today && ["Scheduled", "Confirmed"].includes(a.status),
-    )
-    .sort((a: any, b: any) =>
-      `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`),
-    )
-    .slice(0, 6);
 
   // Loading owns the whole page: the skeleton stands in for the real blocks
   // (banner, KPI grid, three panels) and no card content is rendered with it.
@@ -505,7 +578,7 @@ export function DashboardPage() {
             </h2>
             <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-white/55">
               {occupancy}% of today's schedule is already in motion ·{" "}
-              {pendingConsultations.length} consultations awaiting closure ·{" "}
+              {consultationStats.pending} consultations awaiting closure ·{" "}
               {formatMoney(totals.outstanding)} awaiting settlement.
             </p>
           </div>
@@ -562,11 +635,11 @@ export function DashboardPage() {
         {can("doctors", "view") && (
           <KpiCard
             label="Doctors"
-            value={doctors.filter((d: any) => d.status === "active").length}
+            value={activeDoctorCount}
             icon={<Stethoscope />}
             tone="lagoon"
             trend={4}
-            hint={`${doctors.length - doctors.filter((d: any) => d.status === "active").length} on leave / inactive`}
+            hint={`${doctors.length - activeDoctorCount} on leave / inactive`}
             to="/app/doctors"
           />
         )}
@@ -575,7 +648,7 @@ export function DashboardPage() {
           value={todaysAppointments.length}
           icon={<CalendarClock />}
           tone="amber"
-          hint={`${todaysAppointments.filter((a: any) => a.status === "Confirmed").length} confirmed · ${todaysAppointments.filter((a: any) => a.status === "Checked In").length} checked in`}
+          hint={`${appointmentsStory.todayConfirmed} confirmed · ${appointmentsStory.todayCheckedIn} checked in`}
           trend={9}
         />
         <KpiCard
@@ -589,7 +662,7 @@ export function DashboardPage() {
         {can("consultations", "view") && (
           <KpiCard
             label="Completed consultations"
-            value={completed.length}
+            value={consultationStats.completed}
             icon={<CheckCircle2 />}
             tone="mint"
             trend={18}
@@ -600,7 +673,7 @@ export function DashboardPage() {
         {can("consultations", "view") && (
           <KpiCard
             label="Pending consultations"
-            value={pendingConsultations.length}
+            value={consultationStats.pending}
             icon={<ClipboardList />}
             tone="coral"
             hint="Awaiting doctor closure"
@@ -640,14 +713,7 @@ export function DashboardPage() {
             subtitle="Bookings against completed visits — refreshed from the scheduling engine"
             icon={<TrendingUp />}
             action={
-              <Badge tone="brand">
-                {
-                  appointments.filter(
-                    (a: any) => !["Cancelled", "No Show"].includes(a.status),
-                  ).length
-                }{" "}
-                valid visits
-              </Badge>
+              <Badge tone="brand">{appointmentsStory.validVisits} valid visits</Badge>
             }
           />
           <div className="p-4">

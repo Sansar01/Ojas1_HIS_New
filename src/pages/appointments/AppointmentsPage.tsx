@@ -20,7 +20,7 @@ import { APPT_TYPE_COLORS, APPOINTMENT_STATUSES } from "@/constants";
 import { addDays } from "@/utils";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
-import { appointmentService } from "@/pages/appointments/appointment.service";
+import { appointmentService, toApiAppointmentStatus } from "@/pages/appointments/appointment.service";
 import { departmentService } from "@/pages/Departments/department.service";
 
 import { toast } from "@/store/slices/uiSlice";
@@ -326,7 +326,10 @@ export function AppointmentsPage() {
 
   const advance = async (a: Appointment, next: AppointmentStatus) => {
     try {
-      await appointmentService.updateAppointment(a.id, { status: next });
+      // the row keeps the UI status ("Completed"), the DTO gets the enum
+      await appointmentService.updateAppointment(a.id, {
+        status: toApiAppointmentStatus(next),
+      });
       setAppointments((rows) =>
         rows.map((row) =>
           row.id === a.id ? ({ ...row, status: next } as Appointment) : row,

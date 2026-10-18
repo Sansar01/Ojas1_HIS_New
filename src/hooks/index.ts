@@ -103,6 +103,29 @@ export function useTable<T extends Record<string, any>>(
     sortDir: "desc",
   });
 
+  /**
+   * Pages hand this hook inline object literals (searchFields, filters,
+   * sortAccessors), so `options` changes identity on every render and the
+   * memoized filter/sort below would silently re-run each time — a full
+   * refilter of the table on any unrelated state change. `filtered` therefore
+   * keys off this compact canonical form instead of the object itself.
+   *
+   * Computed on every render (no memo): options is tiny — a few keys and,
+   * for `filters`, the page's current filter values, several call sites of
+   * which pass live state that MUST re-trigger filtering — and
+   * `JSON.stringify` costs microseconds. Only the resulting string is a
+   * dependency, so the expensive filter/sort still runs only when the
+   * effective configuration actually changes. Function-valued accessors
+   * serialize away; the accessors in this codebase read nothing but row
+   * fields, so a `rows` change already re-runs the memo for them.
+   */
+  const optionsKey = JSON.stringify([
+    options.pageSize,
+    options.searchFields,
+    options.filters ?? null,
+    options.sortAccessors,
+  ]);
+
   const filtered = useMemo(() => {
     const search = query.search.trim().toLowerCase();
     let out = rows;
@@ -139,21 +162,26 @@ export function useTable<T extends Record<string, any>>(
         options.sortAccessors?.[query.sortBy] ??
         ((row: T) => row[query.sortBy as keyof T]);
       const dir = query.sortDir === "asc" ? 1 : -1;
-      out = [...out].sort((a, b) => {
-        const av = accessor(a) as any;
-        const bv = accessor(b) as any;
-        if (av === bv) return 0;
-        if (typeof av === "number" && typeof bv === "number")
-          return (av - bv) * dir;
-        return (
-          String(av ?? "").localeCompare(String(bv ?? ""), undefined, {
-            numeric: true,
-          }) * dir
-        );
-      });
+      // Decorate-once: the accessor/string conversion ran inside the
+      // comparator before — O(n log n) conversions instead of one per row.
+      out = out
+        .map((row) => ({ row, key: accessor(row) as any }))
+        .sort((a, b) => {
+          const av = a.key;
+          const bv = b.key;
+          if (av === bv) return 0;
+          if (typeof av === "number" && typeof bv === "number")
+            return (av - bv) * dir;
+          return (
+            String(av ?? "").localeCompare(String(bv ?? ""), undefined, {
+              numeric: true,
+            }) * dir
+          );
+        })
+        .map((x) => x.row);
     }
     return out;
-  }, [rows, query.search, query.sortBy, query.sortDir, options]);
+  }, [rows, query.search, query.sortBy, query.sortDir, optionsKey]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));

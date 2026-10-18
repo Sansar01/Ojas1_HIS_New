@@ -16,12 +16,114 @@
  */
 
 import { axios } from "@/api/axios";
+import type { Appointment, AppointmentStatus } from "@/types";
 
 /** Appointment endpoints — owned by the appointment feature. */
 const APPOINTMENTS = "/api/opd/appointments";
 const appointmentPath = (id: string | number) => `${APPOINTMENTS}/${id}`;
 const CONSULTATION_TYPES =
   "/api/hospital/masters/global/dropdown/CONSULTATION_TYPE";
+
+/* --------------------- backend DTO → UI model mapping ---------------------- */
+
+/**
+ * The API answers with its own DTO (`appointmentNo`, `appointmentDate`,
+ * `slotStartTime`, `appointmentType`, `consultationFee`, SNAKE_CASE statuses,
+ * ids only inside `patient`/`doctor`), while every screen renders the UI model
+ * (`code`, `date`, `time`, `type`, `fee`, "Title Case" statuses, `patientId`,
+ * `doctorId`). One normaliser at the service boundary keeps every page —
+ * dashboard, patients, doctors, billing, appointments — on the same shape.
+ */
+
+const STATUS_TO_UI: Record<string, AppointmentStatus> = {
+  BOOKED: "Scheduled",
+  SCHEDULED: "Scheduled",
+  PENDING: "Scheduled",
+  CONFIRMED: "Confirmed",
+  CHECKED_IN: "Checked In",
+  IN_QUEUE: "Checked In",
+  WAITING: "Checked In",
+  IN_PROGRESS: "In Progress",
+  CONSULTING: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  CANCELED: "Cancelled",
+  NO_SHOW: "No Show",
+  NOSHOW: "No Show",
+};
+
+/** UI status → the status enum the write endpoints expect. */
+const STATUS_TO_API: Record<string, string> = {
+  Scheduled: "SCHEDULED",
+  Confirmed: "CONFIRMED",
+  "Checked In": "CHECKED_IN",
+  "In Progress": "IN_PROGRESS",
+  Completed: "COMPLETED",
+  Cancelled: "CANCELLED",
+  "No Show": "NO_SHOW",
+};
+
+const PRIORITY_LABELS: Record<string, string> = {
+  0: "Routine",
+  1: "Urgent",
+  2: "Emergency",
+};
+
+/** "COMPLETED" → "Completed" — for statuses neither side knows yet. */
+const titleCase = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Backend status enum → the UI status every screen filters/compares on. */
+export const toUiAppointmentStatus = (raw: unknown): AppointmentStatus =>
+  STATUS_TO_UI[String(raw ?? "").trim().toUpperCase()] ?? titleCase(raw);
+
+/** UI status ("Checked In") → the enum the PATCH endpoint expects. */
+export const toApiAppointmentStatus = (ui: string): string =>
+  STATUS_TO_API[ui] ?? String(ui ?? "").toUpperCase().replace(/\s+/g, "_");
+
+/**
+ * One appointment row → the UI model. Non-destructive: every backend field is
+ * spread through, so screens that already read the raw DTO keep working, and
+ * re-running the mapper over an already-normalised row is a no-op.
+ */
+export function normaliseAppointment(raw: any): Appointment {
+  const doctor = raw?.doctor
+    ? {
+        ...raw.doctor,
+        // the board/slot picker reads `slotDuration`, the DTO sends `slotDurationMins`
+        slotDuration: raw.doctor.slotDuration ?? raw.doctor.slotDurationMins,
+      }
+    : raw?.doctor;
+
+  return {
+    ...raw,
+    code: raw?.code ?? raw?.appointmentNo ?? "—",
+    patientId: raw?.patientId ?? raw?.patient?.id ?? "",
+    doctorId: raw?.doctorId ?? raw?.doctor?.id ?? "",
+    departmentId: raw?.departmentId ?? "",
+    departmentName: raw?.departmentName ?? "",
+    date: raw?.date ?? raw?.appointmentDate ?? "",
+    time: raw?.time ?? raw?.slotStartTime ?? "",
+    endTime: raw?.endTime ?? raw?.slotEndTime ?? undefined,
+    duration: Number(raw?.duration ?? raw?.doctor?.slotDurationMins ?? 0) || 0,
+    type: raw?.type ?? raw?.appointmentType ?? "WALK_IN",
+    fee: Number(raw?.fee ?? raw?.consultationFee ?? 0) || 0,
+    priority: PRIORITY_LABELS[String(raw?.priority ?? "")]
+      ? PRIORITY_LABELS[String(raw?.priority ?? "")]
+      : titleCase(raw?.priority ?? "Routine"),
+    status: toUiAppointmentStatus(raw?.status),
+    notes: raw?.notes ?? "",
+    createdAt: raw?.createdAt ?? raw?.bookedAt ?? "",
+    bookedAt: raw?.bookedAt ?? "",
+    token: raw?.token ?? null,
+    patient: raw?.patient,
+    doctor,
+  } as unknown as Appointment;
+}
 
 /** Optional query parameters of the appointment list (date / status / paging). */
 export interface AppointmentQueryParams {
@@ -51,11 +153,29 @@ export type AppointmentPayload = Record<string, any>;
  * ----------------------------------------------------------------------- */
 
 export const appointmentService = {
-  fetchAppointments: (params?: AppointmentQueryParams) =>
-    axios.get(APPOINTMENTS, { params }),
+  /**
+   * Appointment list. Rows are normalised to the UI model before they leave
+   * the service (see `normaliseAppointment`), so every screen that renders an
+   * appointment — dashboard, patients, doctors, billing, this page — reads the
+   * same field names regardless of the backend DTO.
+   */
+  fetchAppointments: async (params?: AppointmentQueryParams) => {
+    const response = await axios.get(APPOINTMENTS, { params });
+    const body: any = response.data;
+    if (Array.isArray(body?.data)) {
+      body.data = body.data.map(normaliseAppointment);
+    }
+    return response;
+  },
   /** Today's appointments of the signed-in doctor / facility. */
-  fetchTodayAppointments: (params?: AppointmentQueryParams) =>
-    axios.get(APPOINTMENTS + "/today", { params }),
+  fetchTodayAppointments: async (params?: AppointmentQueryParams) => {
+    const response = await axios.get(APPOINTMENTS + "/today", { params });
+    const body: any = response.data;
+    if (Array.isArray(body?.data)) {
+      body.data = body.data.map(normaliseAppointment);
+    }
+    return response;
+  },
   fetchAppointmentById: (id: string | number) => axios.get(appointmentPath(id)),
   /** One appointment prepared for editing (server-side edit payload). */
   fetchAppointmentForEdit: (id: string | number) =>

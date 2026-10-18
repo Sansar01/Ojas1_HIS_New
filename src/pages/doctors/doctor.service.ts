@@ -53,8 +53,10 @@ export const mapScheduleToApi = (schedule: ScheduleDay[]) =>
     ...(day.enabled && {
       startTime: day.start,
       endTime: day.end,
-      breakStartTime: day.breakStartTime,
-      breakEndTime: day.breakEndTime,
+      // Break times only travel when filled in — the backend
+      // time regex rejects empty strings.
+      ...(day.breakStartTime ? { breakStartTime: day.breakStartTime } : {}),
+      ...(day.breakEndTime ? { breakEndTime: day.breakEndTime } : {}),
     }),
   }));
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Settings2, Trash2, ArrowLeft, Save } from "lucide-react";
-import { Dialog } from "@/components/ui/overlays";
+import { ConfirmDialog, Dialog } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
 import { Input, SearchInput, fieldClasses } from "@/components/ui/fields";
 import { DataTable, RowActions, type Column } from "@/components/ui/table";
@@ -29,8 +29,20 @@ const suggestTariffCode = (name: string) => {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "-") // Replace spaces/special chars with hyphens
     .replace(/^-+|-+$/g, "") // Trim hyphens from start/end
-    .slice(0, 10); // Keep it short
+    .slice(0, 10) // Keep it short
+    .replace(/-+$/g, ""); // …and strip any hyphen the slice left dangling
   return `TRF-${cleanName}`;
+};
+
+/**
+ * The master APIs answer either as a bare array or as an envelope
+ * ({ data: [...] }) — accept both, and drop soft-deleted rows so a
+ * `deletedAt` record never reaches the table.
+ */
+const parseRows = <T,>(res: any): T[] => {
+  const body = res?.data;
+  const rows = Array.isArray(body) ? body : (body?.data ?? []);
+  return Array.isArray(rows) ? rows.filter((r) => r && !r.deletedAt) : [];
 };
 
 export function TariffMaster({
@@ -59,7 +71,8 @@ export function TariffMaster({
     try {
       setTariffsLoading(true);
       const response = await masterService.fetchTariffs();
-      if (response.status === 200) setTariffs(response.data?.data ?? []);
+      if (response.status === 200)
+        setTariffs(parseRows<TariffMasterItem>(response));
     } catch (e: any) {
       dispatch(toast.error("Failed to load tariffs", e?.message));
     } finally {
@@ -71,7 +84,8 @@ export function TariffMaster({
     try {
       setServicesLoading(true);
       const response = await masterService.fetchServices();
-      if (response.status === 200) setBaseServices(response.data?.data ?? []);
+      if (response.status === 200)
+        setBaseServices(parseRows<ServiceMasterItem>(response));
     } catch (e: any) {
       dispatch(toast.error("Failed to load services", e?.message));
     } finally {
@@ -102,6 +116,12 @@ export function TariffMaster({
   const [newTariffCode, setNewTariffCode] = useState("");
   const [codeTouched, setCodeTouched] = useState(false); // 👈 Tracks if user manually edited code
 
+  // Delete confirmation state (design-system dialog, never native confirm())
+  const [deleteTarget, setDeleteTarget] = useState<TariffMasterItem | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+
   // ─── Data Fetching ────────────────────────────────────────────────
 
   const loadServicesAndRates = useCallback(
@@ -112,7 +132,9 @@ export function TariffMaster({
         void loadServices();
 
         const detailResponse = await masterService.fetchTariffById(tariffId);
-        const tariffDetail: any = detailResponse.data?.data ?? {};
+        // envelope ({ data: {...} }) or bare object — accept both
+        const body: any = detailResponse.data;
+        const tariffDetail: any = body?.data ?? body ?? {};
 
         const initialRates: RateMap = {};
         tariffDetail.rates?.forEach((r: any) => {
@@ -144,16 +166,22 @@ export function TariffMaster({
 
   // ─── Handlers (List View) ─────────────────────────────────────────
   const handleAddTariff = async () => {
-    if (!newTariffCode.trim() || !newTariffName.trim()) {
+    const code = newTariffCode.toUpperCase().trim();
+    if (!code || !newTariffName.trim()) {
       dispatch(toast.warning("Tariff Code and Name are required"));
+      return;
+    }
+    // Duplicate-code guard — the catalogue is keyed by tariffCode
+    if (tariffs.some((t) => t.tariffCode.toUpperCase() === code)) {
+      dispatch(toast.warning("This tariff code already exists"));
       return;
     }
 
     setSaving(true);
     try {
       await masterService.createTariff({
-        tariffCode: newTariffCode.toUpperCase(),
-        tariffName: newTariffName,
+        tariffCode: code,
+        tariffName: newTariffName.trim(),
       });
       dispatch(toast.success("Tariff created successfully"));
 
@@ -170,14 +198,18 @@ export function TariffMaster({
     }
   };
 
-  const handleDeleteTariff = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this Tariff?")) return;
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await masterService.deleteTariff(id);
+      await masterService.deleteTariff(deleteTarget.id);
       dispatch(toast.success("Tariff deleted"));
+      setDeleteTarget(null);
       loadTariffs();
     } catch (error: any) {
       dispatch(toast.error("Delete failed", error.message));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -257,6 +289,22 @@ export function TariffMaster({
       render: (r) => (
         <span className="font-medium text-ink-900">{r.tariffName}</span>
       ),
+    },
+    {
+      key: "rates",
+      header: "RATES",
+      width: "w-28",
+      align: "right",
+      render: (r) => {
+        const count = r._count?.rates ?? 0;
+        return count > 0 ? (
+          <span className="font-semibold text-brand-600">{count}</span>
+        ) : (
+          <span className="rounded bg-amberly-50 px-2 py-0.5 text-[11px] font-semibold text-amberly-600">
+            0 — configure
+          </span>
+        );
+      },
     },
     {
       key: "status",
@@ -458,11 +506,26 @@ export function TariffMaster({
                     label: "Delete",
                     icon: <Trash2 />,
                     tone: "danger",
-                    onClick: () => handleDeleteTariff(row.id),
+                    onClick: () => setDeleteTarget(row),
                   },
                 ]}
               />
             )}
+          />
+
+          {/* ─── DELETE CONFIRMATION ────────────────────────────── */}
+          <ConfirmDialog
+            open={!!deleteTarget}
+            onOpenChange={(v) => !v && setDeleteTarget(null)}
+            title="Delete tariff?"
+            description={
+              deleteTarget
+                ? `'${deleteTarget.tariffName}' (${deleteTarget.tariffCode}) will be deleted. Rate overrides under this tariff stop applying.`
+                : ""
+            }
+            confirmLabel="Delete Tariff"
+            loading={deleting}
+            onConfirm={handleDeleteConfirm}
           />
         </div>
       ) : (

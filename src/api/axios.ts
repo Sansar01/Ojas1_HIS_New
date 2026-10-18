@@ -42,7 +42,7 @@ import axiosPackage, {
  */
 export const API_BASE_URL: string = String(
   (import.meta.env as any).VITE_API_BASE_URL ||
-    "https://cloud-his-backend.onrender.com",
+    "https://hims-version2.onrender.com",
 )
   .replace(/\/+$/, "")
   .replace(/\/api$/, "");

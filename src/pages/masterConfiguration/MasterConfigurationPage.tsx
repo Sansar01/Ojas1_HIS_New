@@ -25,6 +25,8 @@ import { toast } from "@/store/slices/uiSlice";
 import { GlobalConfiguration } from "@/pages/masterConfiguration/GlobalConfiguration";
 import { PanelMaster } from "@/pages/masterConfiguration/PanelMaster";
 import { InvestigationMaster } from "@/pages/masterConfiguration/InvestigationMaster";
+import { LabMasters } from "@/pages/masterConfiguration/LabMasters";
+import { DoctorMasters } from "@/pages/masterConfiguration/DoctorMasters";
 import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
 
@@ -130,7 +132,14 @@ export function MasterConfigurationPage() {
   const openItemModal = (type: string) => {
     if (!type) return;
     setItemType(type as ItemType);
-    setActiveModal("investigation");
+    // Lab/Radio items are managed by the relational lab-masters chain
+    // (departments → sample types → investigations); other item types keep
+    // the legacy investigation dialog.
+    setActiveModal(
+      type === "laboratory" || type === "radiology"
+        ? "lab-masters"
+        : "investigation",
+    );
   };
 
   const closeModal = () => {
@@ -146,9 +155,6 @@ export function MasterConfigurationPage() {
     }
   };
 
-  const comingSoon = (title: string) => () =>
-    dispatch(toast.info(title, "Coming soon"));
-
   return (
     <div className="w-full">
       <PageIntro
@@ -162,9 +168,10 @@ export function MasterConfigurationPage() {
           icon={<UserCog />}
           label="Doctor Management"
           tone="lagoon"
-          value="28 Doctors"
-          hint="Manage doctors & slots"
-          onClick={comingSoon("Doctor Management")}
+          value="Doctors"
+          hint="Depts & Specializations"
+          active={activeModal === "doctor-masters"}
+          onClick={() => setActiveModal("doctor-masters")}
         />
 
         {/* 👇 LIVE PANEL COUNT */}
@@ -268,6 +275,15 @@ export function MasterConfigurationPage() {
         itemType={itemType as ItemType}
         onOpenChange={(v) => !v && closeModal()}
       />
+      <LabMasters
+        open={activeModal === "lab-masters"}
+        onOpenChange={(v) => !v && closeModal()}
+      />
+      <DoctorMasters
+        open={activeModal === "doctor-masters"}
+        onOpenChange={(v) => !v && closeModal()}
+      />
+
       <GlobalConfiguration
         open={activeModal === "global"}
         onOpenChange={(v) => !v && closeModal()}

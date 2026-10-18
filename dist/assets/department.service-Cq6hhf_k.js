@@ -1,0 +1,1 @@
+import{R as e}from"./index-B7xuIo7R.js";const p="/api/hospital/masters/departments",a=t=>`${p}/${t}`,m={fetchDepartments:t=>e.get(p,{params:t}),fetchDepartmentById:t=>e.get(a(t)),createDepartment:t=>e.post(p,t),updateDepartment:(t,r)=>e.patch(a(t),r),deleteDepartment:t=>e.delete(a(t))};export{m as d};

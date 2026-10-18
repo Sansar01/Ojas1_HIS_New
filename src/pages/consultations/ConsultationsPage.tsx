@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CheckCheck,
@@ -16,13 +16,16 @@ import {
   ClipboardList,
   HeartPulse,
   History,
+  Pencil,
 } from "lucide-react";
 import { CONSULTATION_STATUSES } from "@/constants";
 import { consultationService } from "@/pages/consultations/consultation.service";
-import { idGen } from "@/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
-import { usePermission } from "@/hooks";
+import {
+  useDebouncedValue,
+  usePermission,
+} from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { formatDate, formatTime } from "@/utils";
 import { cn } from "@/utils/cn";
@@ -33,6 +36,7 @@ import {
   StatusBadge,
   Panel,
 } from "@/components/ui/primitives";
+import { Dialog } from "@/components/ui/overlays";
 import {
   DataTable,
   Pagination,
@@ -118,6 +122,137 @@ const formatBpFromApi = (
   return `${sys ?? "—"}/${dia ?? "—"}`;
 };
 
+/* --------------------------- prescription drafts --------------------------- */
+/** One medicine line as the doctor edits it before/after saving to the API. */
+export interface RxLine {
+  /** undefined/null while the row is not yet persisted — otherwise the row id. */
+  id?: string | null;
+  medicineName: string;
+  medicineType: string;
+  doseAmount: number;
+  doseUnit: string;
+  frequency: string;
+  route: string;
+  mealRelation: string;
+  durationDays: number;
+  instructions: string;
+}
+
+const RX_OPTIONS = {
+  medicineType: [
+    "Tablet",
+    "Capsule",
+    "Syrup",
+    "Suspension",
+    "Injection",
+    "Drops",
+    "Ointment",
+    "Cream",
+    "Inhaler",
+    "Spray",
+    "Sachet",
+  ],
+  doseUnit: [
+    "tablet",
+    "capsule",
+    "ml",
+    "mg",
+    "drop",
+    "puff",
+    "sachet",
+    "teaspoon",
+    "unit",
+  ],
+  frequency: [
+    { value: "OD", label: "OD · Once daily" },
+    { value: "BID", label: "BID · Twice a day" },
+    { value: "TID", label: "TID · Three times a day" },
+    { value: "QID", label: "QID · Four times a day" },
+    { value: "QHS", label: "QHS · At bedtime" },
+    { value: "SOS", label: "SOS · As needed" },
+  ],
+  route: [
+    "ORAL",
+    "IV",
+    "IM",
+    "SC",
+    "SUBLINGUAL",
+    "TOPICAL",
+    "INHALATION",
+    "NASAL",
+    "OPHTHALMIC",
+    "OTIC",
+    "RECTAL",
+  ],
+  mealRelation: ["BEFORE_MEAL", "AFTER_MEAL", "WITH_MEAL", "EMPTY_STOMACH"],
+};
+
+/** A fresh, unsaved medicine row with sensible OPD defaults. */
+const newRxLine = (): RxLine => ({
+  id: null,
+  medicineName: "",
+  medicineType: "Tablet",
+  doseAmount: 1,
+  doseUnit: "tablet",
+  frequency: "BID",
+  route: "ORAL",
+  mealRelation: "AFTER_MEAL",
+  durationDays: 5,
+  instructions: "",
+});
+
+/** Backend prescription row → editable draft (tolerant of older field shapes). */
+const mapRxLine = (p: any): RxLine => ({
+  id: p?.id ?? null,
+  medicineName: p?.medicineName || "",
+  medicineType: p?.medicineType || "Tablet",
+  doseAmount:
+    p?.doseAmount != null
+      ? Number(p.doseAmount) || 1
+      : parseFloat(p?.dosage) || 1,
+  doseUnit: p?.doseUnit || "tablet",
+  frequency: p?.frequency || "BID",
+  route: p?.route || "ORAL",
+  mealRelation: p?.mealRelation || "AFTER_MEAL",
+  durationDays: p?.durationDays != null ? Number(p.durationDays) : 5,
+  instructions: p?.instructions || "",
+});
+
+/** Editable draft → the exact `POST/PATCH /prescriptions` DTO. */
+/** Option lists ({value, label}) → the human label of a raw enum value. */
+const labelOf = (
+  list: { value: string; label: string }[],
+  value: string,
+): string => list.find((o) => o.value === value)?.label ?? value;
+
+const rxLineToBody = (l: RxLine) => ({
+  medicineName: l.medicineName,
+  medicineType: l.medicineType,
+  doseAmount: Number(l.doseAmount) || 1,
+  doseUnit: l.doseUnit,
+  frequency: l.frequency,
+  route: l.route,
+  mealRelation: l.mealRelation,
+  durationDays: Number(l.durationDays) || 5,
+  instructions: l.instructions,
+});
+
+/**
+ * UI form → the `PATCH /api/opd/consultations/:id` note DTO.
+ * Dates travel as real ISO timestamps, never the raw `<input type="date">`.
+ */
+const buildNotePayload = (v: any) => ({
+  chiefComplaints: v.chiefComplaint || "",
+  historyOfIllness: v.historyOfIllness || "",
+  generalExamination: v.systemicExamination || "",
+  provisionalDiagnosis: v.diagnosis || "",
+  specialInstructions: v.advice || "",
+  clinicalNotes: v.followUpNotes || "",
+  followUpDate: v.followUpDate
+    ? new Date(v.followUpDate).toISOString()
+    : null,
+});
+
 const CONSULT_MAP_KEY = "opd_consultation_map";
 const saveConsultationMapping = (
   appointmentId: string,
@@ -147,8 +282,17 @@ export function ConsultationsPage() {
   const navigate = useNavigate();
   const { canCreate, canDelete } = usePermission();
 
+  const sessionUser =
+    useAppSelector((s: any) => s.auth?.session?.user) || null;
+
+  // The doctor whose queue this screen drives. The backend login payload keeps
+  // it under `doctorProfileId` on some accounts and as a nested profile on
+  // others — accept the common variants before giving up.
   const activeDoctorId =
-    useAppSelector((s: any) => s.auth?.session?.user?.doctorProfileId) || null;
+    sessionUser?.doctorProfileId ??
+    sessionUser?.doctorProfile?.id ??
+    sessionUser?.doctor?.id ??
+    null;
 
   const [consultations, setConsultations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -169,12 +313,25 @@ export function ConsultationsPage() {
   );
 
   const [search, setSearch] = useState("");
+  /**
+   * The list query is server-side, so the search box must not drive a
+   * request per keystroke: the input keeps instant local state (`search`,
+   * what the box shows) while the fetch reads this debounced echo.
+   */
+  const debouncedSearch = useDebouncedValue(search, 350);
   const [filters, setFilters] = useState({
     doctor: "all",
     status: "all",
     from: "",
     to: "",
   });
+
+  /**
+   * Monotonic sequence for the list fetch — `fetchConsultations` tags each
+   * call and discards any response that is no longer the newest (search
+   * terms settle while earlier in-flight requests are still coming back).
+   */
+  const fetchSequence = useRef(0);
 
   const currentToken = queueData?.currentToken ?? null;
   const waitingTokens =
@@ -185,29 +342,50 @@ export function ConsultationsPage() {
     [];
 
   const fetchConsultations = useCallback(async () => {
+    /**
+     * Newest-call-wins bookkeeping (hooks doc §24): a settled search term
+     * can start a new request while a slow older answer is still in flight,
+     * and answers can arrive out of order. The sequence check below makes a
+     * superseded response a no-op — stale rows never overwrite fresher ones,
+     * and neither does a superseded error toast.
+     */
+    const seq = ++fetchSequence.current;
     setLoading(true);
     try {
       const params: Record<string, string> = {
         page: String(page),
         limit: String(limit),
       };
-      if (search.trim()) params.search = search.trim();
+      if (debouncedSearch.trim())
+        params.search = debouncedSearch.trim();
       if (filters.status !== "all") params.status = toApiStatus(filters.status);
       if (filters.doctor !== "all") params.doctorId = filters.doctor;
       if (filters.from) params.from = filters.from;
       if (filters.to) params.to = filters.to;
 
       const response = await consultationService.fetchConsultations(params);
+      if (seq !== fetchSequence.current) return;
       if (response.status === 200) {
         const body = response.data ?? {};
         setConsultations(body.data ?? []);
         setTotalItems(body.meta?.total ?? 0);
         setTotalPages(body.meta?.totalPages ?? 1);
       }
+    } catch (err: any) {
+      if (seq !== fetchSequence.current) return;
+      console.error("Consultations fetch failed:", err);
+      dispatch(
+        toast.error(
+          "Could not load consultations",
+          err?.message || "The list request did not succeed.",
+        ),
+      );
     } finally {
-      setLoading(false);
+      // Only the latest call owns the loading flag — an older call finishing
+      // late must not clear the newer call's spinner.
+      if (seq === fetchSequence.current) setLoading(false);
     }
-  }, [page, limit, search, filters]);
+  }, [page, limit, debouncedSearch, filters, dispatch]);
 
   const fetchDoctorQueue = useCallback(async () => {
     if (!activeDoctorId) return;
@@ -217,11 +395,22 @@ export function ConsultationsPage() {
         activeDoctorId,
         queueDate,
       );
-      if (response.status === 200) setQueueData(response.data?.data ?? null);
+      if (response.status === 200)
+        setQueueData(response.data?.data ?? response.data ?? null);
+    } catch (err: any) {
+      // Never swallow queue failures — a hidden panel without a reason is
+      // indistinguishable from "no patients today".
+      console.error("Doctor queue fetch failed:", err);
+      dispatch(
+        toast.error(
+          "Could not load the OPD queue",
+          err?.message || "The queue request did not succeed.",
+        ),
+      );
     } finally {
       setLoadingQueue(false);
     }
-  }, [activeDoctorId, queueDate]);
+  }, [activeDoctorId, queueDate, dispatch]);
 
   useEffect(() => {
     fetchConsultations();
@@ -255,8 +444,10 @@ export function ConsultationsPage() {
       const postRes = await consultationService.createConsultation({
         appointmentId,
       });
-      if (postRes.status === 200 && postRes.data?.data?.id) {
-        consultationId = postRes.data.data.id;
+      // Creates return 201 with the raw record (or a `{ data }` envelope) —
+      // accept both, like the vitals create does.
+      if (postRes.status >= 200 && postRes.status < 300) {
+        consultationId = postRes.data?.data?.id ?? postRes.data?.id ?? null;
       }
       if (!consultationId) consultationId = token.consultationId;
       if (!consultationId)
@@ -290,18 +481,16 @@ export function ConsultationsPage() {
         activeDoctorId,
         queueDate,
       );
-
-      if (response.status === 200 && response.data?.data?.appointmentId) {
-        const calledToken = response.data.data;
+      const calledToken = response.data?.data ?? response.data;
+      if (calledToken?.appointmentId) {
         const postRes = await consultationService.createConsultation({
           appointmentId: calledToken.appointmentId,
         });
-        if (postRes.status === 200 && postRes.data?.data?.id) {
-          saveConsultationMapping(
-            calledToken.appointmentId,
-            postRes.data.data.id,
-          );
-          navigate(`/consultation/${postRes.data.data.id}`);
+        // Creates return 201 with the raw record (or an envelope) — accept both.
+        const createdId = postRes.data?.data?.id ?? postRes.data?.id ?? null;
+        if (createdId) {
+          saveConsultationMapping(calledToken.appointmentId, createdId);
+          navigate(`/consultation/${createdId}`);
         } else {
           fetchDoctorQueue();
         }
@@ -311,6 +500,12 @@ export function ConsultationsPage() {
           message: "No patients currently waiting in queue.",
         });
       }
+    } catch (err: any) {
+      setActiveError({
+        patientName: "—",
+        message: err?.message || "Could not call the next patient.",
+      });
+      dispatch(toast.error("Could not call next patient", err?.message));
     } finally {
       setActionLoadingId(null);
     }
@@ -319,14 +514,16 @@ export function ConsultationsPage() {
   const handleSkip = async (tokenId: string) => {
     setActionLoadingId(tokenId);
     const response = await consultationService.skipToken(tokenId);
-    if (response.status === 200) fetchDoctorQueue();
+    // Success can be 200 or 204 — accept the whole 2xx range.
+    if (response.status >= 200 && response.status < 300) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
   const handleRequeue = async (tokenId: string) => {
     setActionLoadingId(tokenId);
     const response = await consultationService.requeueToken(tokenId);
-    if (response.status === 200) fetchDoctorQueue();
+    // Success can be 200 or 204 — accept the whole 2xx range.
+    if (response.status >= 200 && response.status < 300) fetchDoctorQueue();
     setActionLoadingId(null);
   };
 
@@ -394,6 +591,26 @@ export function ConsultationsPage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Explain why the queue panel is missing when no doctor is linked */}
+      {!activeDoctorId && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-ink-200 bg-white p-3.5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <CircleDot className="mt-0.5 size-5 shrink-0 text-ink-400" />
+            <div>
+              <p className="text-[13px] font-semibold text-ink-900">
+                OPD queue unavailable for this account
+              </p>
+              <p className="mt-0.5 text-[12px] text-ink-600">
+                The signed-in user has no linked doctor profile
+                (&quot;doctorProfileId&quot;), so the doctor queue and
+                &quot;Call &amp; Start&quot; actions are hidden. Sign in with a
+                doctor account, or link a doctor profile to this user.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -547,6 +764,11 @@ export function ConsultationsPage() {
         <TableToolbar
           search={search}
           onSearch={(val) => {
+            // Page reset is synchronous (and free when already on page 1, so
+            // it does not re-render) — by the time the debounced term starts
+            // a request, `page` is guaranteed to be 1: exactly one fetch per
+            // settled search term, never one per keystroke and never a
+            // stale-page request first.
             setSearch(val);
             setPage(1);
           }}
@@ -627,7 +849,9 @@ export function ConsultationsPage() {
                     if (confirm("Delete this record?")) {
                       const response =
                         await consultationService.deleteConsultation(c.id);
-                      if (response.status === 200) fetchConsultations();
+                      // DELETE can answer 200 or 204.
+                      if (response.status >= 200 && response.status < 300)
+                        fetchConsultations();
                     }
                   },
                 },
@@ -677,7 +901,13 @@ export function ConsultationWorkspacePage() {
   const [record, setRecord] = useState<any>(null);
   const [loadingRecord, setLoadingRecord] = useState(true);
   const [vitalsId, setVitalsId] = useState<string | null>(null);
-  const [rx, setRx] = useState<any[]>([]);
+  const [rx, setRx] = useState<RxLine[]>([]);
+  // Medicine add/edit modal — `editing` null means "add a new medicine".
+  const [rxModal, setRxModal] = useState<{
+    open: boolean;
+    editing: RxLine | null;
+  }>({ open: false, editing: null });
+  const [rxSaving, setRxSaving] = useState(false);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
@@ -718,17 +948,19 @@ export function ConsultationWorkspacePage() {
     setLoadingRecord(true);
     try {
       const response = await consultationService.fetchConsultationById(id);
-      if (response.status !== 200) throw new Error("Failed");
-      const d = response?.data;
+      if (response.status < 200 || response.status >= 300)
+        throw new Error("Failed");
+      // The backend may answer with the record itself or an `{ data }` envelope.
+      const d = response?.data?.data ?? response?.data;
       setRecord(d);
 
       form.setValues({
         chiefComplaint: d.chiefComplaints || "",
-        historyOfIllness: d.history || "", // Mapping assumption
-        systemicExamination: d.examination || "", // Mapping assumption
+        historyOfIllness: d.historyOfIllness || d.history || "",
+        systemicExamination: d.generalExamination || d.examination || "",
         diagnosis: d.provisionalDiagnosis || d.finalDiagnosis || "",
         advice: d.specialInstructions || "",
-        followUpNotes: d.internalNotes || "", // Mapping assumption
+        followUpNotes: d.clinicalNotes || d.internalNotes || "",
         followUpDate: d.followUpDate ? String(d.followUpDate).slice(0, 10) : "",
         bp: "",
         pulse: "",
@@ -737,15 +969,7 @@ export function ConsultationWorkspacePage() {
         spo2: "",
       });
 
-      const lines = (d.prescriptions || []).map((p: any) => ({
-        id: p.id || idGen("rx"),
-        medicine: p.medicineName || "",
-        dosage: p.dosage || "",
-        frequency: p.frequency || "",
-        duration: p.durationDays ? `${p.durationDays} days` : p.duration || "",
-        instructions: p.instructions || p.mealRelation || "",
-      }));
-      setRx(lines);
+      setRx((d.prescriptions || []).map(mapRxLine));
     } finally {
       setLoadingRecord(false);
     }
@@ -757,8 +981,9 @@ export function ConsultationWorkspacePage() {
       try {
         const response =
           await consultationService.fetchVitalsByAppointment(appointmentId);
-        const vitals = response.data?.data;
-        if (response.status !== 200 || !vitals) return;
+        // The backend may answer with the vitals itself or an `{ data }` envelope.
+        const vitals = response.data?.data ?? response.data;
+        if (response.status < 200 || response.status >= 300 || !vitals) return;
         setVitalsId(vitals.id || null);
         form.setValues((prev) => ({
           ...prev,
@@ -793,17 +1018,18 @@ export function ConsultationWorkspacePage() {
      ========================================================================== */
   const runAutoSave = useCallback(
     debounce(async (consultationId: string, values: any) => {
-      // Rule 1: Strip fields that backend validation pipes throw 400 bad request for
-      const payload: Record<string, any> = {
-        chiefComplaints: values.chiefComplaint || "",
-        provisionalDiagnosis: values.diagnosis || "",
-        specialInstructions: values.advice || "",
-        followUpDate: values.followUpDate || null,
-      };
+      // The exact note DTO the backend PATCH validation accepts.
+      const payload = buildNotePayload(values);
 
-      await consultationService.updateConsultationNote(consultationId, payload);
+      const res = await consultationService
+        .updateConsultationNote(consultationId, payload)
+        .catch(() => null);
+      // Subtle confirmation on the debounced path; failures only surface on
+      // the explicit "Save note" (banner + toast) to avoid toast spam.
+      if (res && res.status >= 200 && res.status < 300)
+        dispatch(toast.success("Saved successfully", "Consultation updated."));
     }, 1500),
-    [],
+    [dispatch],
   );
 
   const handleSoapChange = (field: string, value: string) => {
@@ -827,19 +1053,13 @@ export function ConsultationWorkspacePage() {
     setErrorBanner(null);
 
     try {
-      // 1. Save consultation note — only the properties the backend's
-      //    validation accepts (extra fields get a 400 back).
+      // 1. Save consultation note — the full note DTO.
       const consultRes = await consultationService.updateConsultationNote(
         record.id,
-        {
-          chiefComplaints: form.values.chiefComplaint || "",
-          provisionalDiagnosis: form.values.diagnosis || "",
-          specialInstructions: form.values.advice || "",
-          followUpDate: form.values.followUpDate || null,
-        },
+        buildNotePayload(form.values),
       );
 
-      if (consultRes.status !== 200) {
+      if (consultRes.status < 200 || consultRes.status >= 300) {
         setErrorBanner(
           consultRes.data?.message || "Failed to update consultation.",
         );
@@ -870,30 +1090,14 @@ export function ConsultationWorkspacePage() {
           vitalsId,
         );
 
-        if (vitalsRes.status === 200 && vitalsRes.data?.data?.id) {
-          setVitalsId(vitalsRes.data.data.id);
+        // Creates return 201 with the raw record (or an envelope) — accept both.
+        const savedVitalsId = vitalsRes.data?.data?.id ?? vitalsRes.data?.id;
+        if (vitalsRes.status >= 200 && vitalsRes.status < 300) {
+          if (savedVitalsId) setVitalsId(String(savedVitalsId));
         }
       }
 
-      // 3. Save prescription medicines (new rows POST, existing rows PATCH)
-      for (const line of rx.filter((r) => r.medicine.trim())) {
-        const py = {
-          medicineName: line.medicine,
-          dosage: line.dosage,
-          frequency: line.frequency,
-          durationDays: parseInt(line.duration) || 3,
-          mealRelation: line.instructions || "AFTER_FOOD",
-        };
-        if (line.id.startsWith("rx_"))
-          await consultationService.addPrescriptionLine(record.id, py);
-        else
-          await consultationService.updatePrescriptionLine(
-            record.id,
-            line.id,
-            py,
-          );
-      }
-
+      dispatch(toast.success("Saved successfully", "Consultation updated."));
       return true;
     } catch (err: any) {
       setErrorBanner(err.message || "Something went wrong during save.");
@@ -904,13 +1108,90 @@ export function ConsultationWorkspacePage() {
     }
   };
 
+  /* ==========================================================================
+     MEDICINE MODAL — POST/PATCH one prescription line, then refresh
+     ========================================================================== */
+  /** Refetch just the prescriptions of this consultation (list refresh). */
+  const refreshPrescriptions = useCallback(async () => {
+    if (!id) return;
+    const res = await consultationService.fetchConsultationById(id);
+    const d = res?.data?.data ?? res?.data;
+    if (d) {
+      if (record)
+        setRecord((prev: any) => ({
+          ...prev,
+          prescriptions: d.prescriptions ?? [],
+        }));
+      setRx((d.prescriptions || []).map(mapRxLine));
+    }
+    // Intentionally only rx/prescriptions — the open form must keep its text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const handleSaveMedicine = async () => {
+    const editing = rxModal.editing;
+    if (!editing) return;
+
+    if (!editing.medicineName.trim()) {
+      dispatch(
+        toast.warning(
+          "Medicine name is required",
+          "Enter the medicine name and strength before saving.",
+        ),
+      );
+      return;
+    }
+
+    setRxSaving(true);
+    try {
+      const body = rxLineToBody(editing);
+      const res = editing.id
+        ? await consultationService.updatePrescriptionLine(
+            id,
+            editing.id,
+            body,
+          )
+        : await consultationService.addPrescriptionLine(id, body);
+
+      if (res.status < 200 || res.status >= 300)
+        throw new Error(res.data?.message || "Could not save the medicine.");
+
+      // Success: refresh the prescription list from the source of truth.
+      await refreshPrescriptions();
+      dispatch(
+        toast.success(
+          editing.id ? "Medicine updated" : "Medicine added",
+          `${body.medicineName} saved to the prescription.`,
+        ),
+      );
+      setRxModal({ open: false, editing: null });
+    } catch (e: any) {
+      setErrorBanner(e?.message || "Could not save the medicine.");
+      dispatch(toast.error("Could not save medicine", e?.message));
+    } finally {
+      setRxSaving(false);
+    }
+  };
+
   const handleCompleteConsultation = async () => {
     setErrorBanner(null);
 
-    // Business Logic pre-checks: Diagnosis is structurally required to finish
+    // Validation — the backend requires both to complete a consultation.
+    if (!form.values.chiefComplaint?.trim()) {
+      dispatch(
+        toast.warning(
+          "Chief complaint required",
+          "Fill in the chief complaint before completing the consultation.",
+        ),
+      );
+      return;
+    }
     if (!form.values.diagnosis?.trim()) {
-      setErrorBanner(
-        "Diagnosis is mandatory before completing the consultation.",
+      dispatch(
+        toast.warning(
+          "Diagnosis required",
+          "Diagnosis is required to complete consultation.",
+        ),
       );
       return;
     }
@@ -920,11 +1201,40 @@ export function ConsultationWorkspacePage() {
 
     setCompleting(true);
     try {
-      await handleSaveNote();
-      const response = await consultationService.completeConsultation(
-        record.id,
-      );
-      if (response.status === 200) navigate("/consultations");
+      // Persist the latest note (and vitals) before closing the visit; if the
+      // save fails, do NOT complete — the banner already shows the reason.
+      const saved = await handleSaveNote();
+      if (!saved) return;
+
+      try {
+        const response = await consultationService.completeConsultation(
+          record.id,
+        );
+        if (response.status >= 200 && response.status < 300) {
+          // Optional PDF/print view if the completion response carries one.
+          const printUrl: string | undefined =
+            response.data?.data?.printUrl ??
+            response.data?.data?.pdfUrl ??
+            response.data?.printUrl ??
+            response.data?.pdfUrl;
+          if (printUrl) window.open(printUrl, "_blank");
+          dispatch(
+            toast.success(
+              "Consultation completed",
+              "The visit has been closed.",
+            ),
+          );
+          navigate("/consultations");
+        }
+      } catch (e: any) {
+        // 400s land here (e.g. "Diagnosis is required to complete consultation").
+        dispatch(
+          toast.error(
+            "Could not complete consultation",
+            e?.message || "The completion request was rejected.",
+          ),
+        );
+      }
     } finally {
       setCompleting(false);
     }
@@ -1045,7 +1355,7 @@ export function ConsultationWorkspacePage() {
               onClick={handleCompleteConsultation}
               className="bg-[#1D6C63] text-white hover:bg-[#15544d] border-transparent shadow-sm"
             >
-              Complete consultation
+              {completing ? "Completing…" : "Complete consultation"}
             </Button>
           )}
         </div>
@@ -1355,7 +1665,7 @@ export function ConsultationWorkspacePage() {
 
           <div className="mb-2">
             <p className="text-[12px] text-ink-500 text-center mb-4">
-              Add medicines with dosage, frequency and duration
+              Add medicines with dose, frequency, route and duration
             </p>
 
             {rx.length === 0 ? (
@@ -1363,107 +1673,44 @@ export function ConsultationWorkspacePage() {
                 No medicines added yet.
               </div>
             ) : (
-              <div className="space-y-3">
-                {rx.map((line) => (
+              <div className="space-y-2">
+                {rx.map((line, i) => (
                   <div
-                    key={line.id}
-                    className="flex gap-3 items-start p-3 border border-ink-100 rounded-lg bg-ink-50/30 relative group"
+                    key={line.id ?? `unsaved-${i}`}
+                    className="flex items-start gap-3 p-3 border border-ink-100 rounded-lg bg-ink-50/30 group"
                   >
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
-                      <div className="md:col-span-5">
-                        <input
-                          className="w-full bg-white border border-ink-200 rounded-md px-3 py-1.5 text-[13px] font-semibold text-ink-900 focus:outline-none focus:border-[#1D6C63]"
-                          placeholder="Medicine Name & Strength"
-                          value={line.medicine}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setRx((p) =>
-                              p.map((r) =>
-                                r.id === line.id
-                                  ? { ...r, medicine: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[13px] font-semibold text-ink-900">
+                          {line.medicineName}
+                        </span>
+                        <span className="rounded border border-ink-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-ink-600">
+                          {line.medicineType}
+                        </span>
                       </div>
-                      <div className="md:col-span-2">
-                        <input
-                          className="w-full bg-white border border-ink-200 rounded-md px-3 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
-                          placeholder="Dosage"
-                          value={line.dosage}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setRx((p) =>
-                              p.map((r) =>
-                                r.id === line.id
-                                  ? { ...r, dosage: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          className="w-full bg-white border border-ink-200 rounded-md px-3 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
-                          placeholder="Frequency"
-                          value={line.frequency}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setRx((p) =>
-                              p.map((r) =>
-                                r.id === line.id
-                                  ? { ...r, frequency: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-1">
-                        <input
-                          className="w-full bg-white border border-ink-200 rounded-md px-3 py-1.5 text-[13px] focus:outline-none focus:border-[#1D6C63]"
-                          placeholder="Days"
-                          value={line.duration}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setRx((p) =>
-                              p.map((r) =>
-                                r.id === line.id
-                                  ? { ...r, duration: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          className="w-full bg-white border border-ink-200 rounded-md px-3 py-1.5 text-[13px] italic focus:outline-none focus:border-[#1D6C63]"
-                          placeholder="Instructions"
-                          value={line.instructions}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            setRx((p) =>
-                              p.map((r) =>
-                                r.id === line.id
-                                  ? { ...r, instructions: e.target.value }
-                                  : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
+                      <p className="mt-1 text-[11.5px] text-ink-600">
+                        {[
+                          `${line.doseAmount} ${line.doseUnit}`,
+                          labelOf(RX_OPTIONS.frequency, line.frequency),
+                          line.route,
+                          line.mealRelation.split("_").join(" "),
+                          `${line.durationDays} days`,
+                        ].join(" · ")}
+                      </p>
+                      {line.instructions && (
+                        <p className="mt-0.5 text-[11.5px] italic text-ink-500">
+                          {line.instructions}
+                        </p>
+                      )}
                     </div>
                     {!readOnly && (
                       <button
                         onClick={() =>
-                          setRx((p) => p.filter((r) => r.id !== line.id))
+                          setRxModal({ open: true, editing: { ...line } })
                         }
-                        className="text-coral-400 hover:text-coral-600 p-1.5 bg-white border border-transparent hover:border-coral-200 rounded-md transition-colors print:hidden"
+                        className="shrink-0 flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-ink-600 hover:text-[#1D6C63] hover:border-[#1D6C63]/40 transition-colors print:hidden"
                       >
-                        <Trash2 className="size-4" />
+                        <Pencil className="size-3.5" /> Edit
                       </button>
                     )}
                   </div>
@@ -1473,19 +1720,7 @@ export function ConsultationWorkspacePage() {
 
             {!readOnly && (
               <button
-                onClick={() =>
-                  setRx((p) => [
-                    ...p,
-                    {
-                      id: idGen("rx"),
-                      medicine: "",
-                      dosage: "",
-                      frequency: "",
-                      duration: "",
-                      instructions: "",
-                    },
-                  ])
-                }
+                onClick={() => setRxModal({ open: true, editing: newRxLine() })}
                 className="mt-3 text-[12px] font-semibold text-ink-600 hover:text-[#1D6C63] flex items-center gap-1.5 py-1.5 px-3 border border-ink-200 rounded-md bg-white hover:bg-teal-50 transition-colors print:hidden"
               >
                 <Plus className="size-3.5" /> Add medicine
@@ -1548,6 +1783,187 @@ export function ConsultationWorkspacePage() {
           </div>
         </div>
       </div>
+      {/* ADD / EDIT MEDICINE MODAL */}
+      <Dialog
+        open={rxModal.open}
+        onOpenChange={(open) => setRxModal((m) => ({ ...m, open }))}
+        title={rxModal.editing?.id ? "Edit medicine" : "Add medicine"}
+        description="Dose, frequency, route and duration are sent with the prescription line."
+        size="md"
+        footer={
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              variant="outline"
+              disabled={rxSaving}
+              onClick={() => setRxModal({ open: false, editing: null })}
+            >
+              Cancel
+            </Button>
+            <Button disabled={rxSaving} onClick={handleSaveMedicine}>
+              {rxSaving ? "Saving…" : "Save medicine"}
+            </Button>
+          </div>
+        }
+      >
+        {rxModal.editing && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Medicine name &amp; strength{" "}
+                <span className="text-coral-500">*</span>
+              </label>
+              <input
+                className="w-full border border-ink-200 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:border-[#1D6C63]"
+                placeholder="Paracetamol 500mg"
+                value={rxModal.editing.medicineName}
+                onChange={(e) =>
+                  setRxModal((m) => ({
+                    ...m,
+                    editing: { ...m.editing!, medicineName: e.target.value },
+                  }))
+                }
+              />
+            </div>
+
+            <Select
+              size="md"
+              label="Medicine type"
+              value={rxModal.editing.medicineType}
+              onChange={(v) =>
+                setRxModal((m) => ({
+                  ...m,
+                  editing: { ...m.editing!, medicineType: v },
+                }))
+              }
+              options={RX_OPTIONS.medicineType.map((v) => ({
+                value: v,
+                label: v,
+              }))}
+            />
+
+            <div>
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Dose
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  className="w-[45%] border border-ink-200 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:border-[#1D6C63]"
+                  value={rxModal.editing.doseAmount}
+                  onChange={(e) =>
+                    setRxModal((m) => ({
+                      ...m,
+                      editing: {
+                        ...m.editing!,
+                        doseAmount: Number(e.target.value),
+                      },
+                    }))
+                  }
+                />
+                <div className="flex-1">
+                  <Select
+                    size="md"
+                    value={rxModal.editing.doseUnit}
+                    onChange={(v) =>
+                      setRxModal((m) => ({
+                        ...m,
+                        editing: { ...m.editing!, doseUnit: v },
+                      }))
+                    }
+                    options={RX_OPTIONS.doseUnit.map((v) => ({
+                      value: v,
+                      label: v,
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Select
+              size="md"
+              label="Frequency"
+              value={rxModal.editing.frequency}
+              onChange={(v) =>
+                setRxModal((m) => ({
+                  ...m,
+                  editing: { ...m.editing!, frequency: v },
+                }))
+              }
+              options={RX_OPTIONS.frequency}
+            />
+
+            <Select
+              size="md"
+              label="Route"
+              value={rxModal.editing.route}
+              onChange={(v) =>
+                setRxModal((m) => ({
+                  ...m,
+                  editing: { ...m.editing!, route: v },
+                }))
+              }
+              options={RX_OPTIONS.route.map((v) => ({ value: v, label: v }))}
+            />
+
+            <Select
+              size="md"
+              label="Meal relation"
+              value={rxModal.editing.mealRelation}
+              onChange={(v) =>
+                setRxModal((m) => ({
+                  ...m,
+                  editing: { ...m.editing!, mealRelation: v },
+                }))
+              }
+              options={RX_OPTIONS.mealRelation.map((v) => ({
+                value: v,
+                label: v.split("_").join(" "),
+              }))}
+            />
+
+            <div>
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Duration (days)
+              </label>
+              <input
+                type="number"
+                min={1}
+                className="w-full border border-ink-200 rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:border-[#1D6C63]"
+                value={rxModal.editing.durationDays}
+                onChange={(e) =>
+                  setRxModal((m) => ({
+                    ...m,
+                    editing: {
+                      ...m.editing!,
+                      durationDays: Number(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-[12px] font-bold text-ink-700 mb-1.5">
+                Instructions
+              </label>
+              <input
+                className="w-full border border-ink-200 rounded-lg px-3 py-2 text-[13px] italic focus:outline-none focus:border-[#1D6C63]"
+                placeholder="Take after food"
+                value={rxModal.editing.instructions}
+                onChange={(e) =>
+                  setRxModal((m) => ({
+                    ...m,
+                    editing: { ...m.editing!, instructions: e.target.value },
+                  }))
+                }
+              />
+            </div>
+          </div>
+        )}
+      </Dialog>
+
       <PrescriptionPrintPreview
         open={printPreviewOpen}
         onOpenChange={setPrintPreviewOpen}
@@ -1555,7 +1971,14 @@ export function ConsultationWorkspacePage() {
         patient={patient}
         doctor={doctor}
         consultation={record}
-        lines={rx}
+        lines={rx.map((l) => ({
+          id: l.id ?? `unsaved`,
+          medicine: l.medicineName,
+          dosage: `${l.doseAmount} ${l.doseUnit}`,
+          frequency: l.frequency,
+          duration: l.durationDays ? `${l.durationDays} days` : "",
+          instructions: l.instructions,
+        }))}
         vitals={{
           bp: form.values.bp,
           pulse: form.values.pulse,
@@ -1602,8 +2025,8 @@ function PatientHistoryPanel({
         setHistoryError(null);
         const response =
           await consultationService.fetchPatientHistory(patientKey);
-        if (active && response.status === 200) {
-          setHistory(response.data?.data ?? []);
+        if (active && response.status >= 200 && response.status < 300) {
+          setHistory(response.data?.data ?? response.data ?? []);
         }
       } catch (e: any) {
         if (active) {

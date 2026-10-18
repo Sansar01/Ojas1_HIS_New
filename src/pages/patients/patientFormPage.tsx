@@ -3,11 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Check } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { useForm, type Rule } from "@/hooks/useForm";
-import { departmentService } from "@/pages/Departments/department.service";
 import { patientService } from "@/pages/patients/patient.service";
 import { masterService } from "@/pages/masterConfiguration/master.service";
 import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
-import type { Department } from "@/types";
 import {
   Emptyish,
   FormRow,
@@ -30,7 +28,7 @@ import {
   MARITAL_STATUS,
   guardianRelations,
 } from "@/constants";
-import type { Patient } from "@/types";
+import type { Patient, ClinicalDepartmentItem, PanelMasterItem } from "@/types";
 import { toBackendBloodGroup, toDisplayBloodGroup } from "@/utils/bloodGroup";
 
 /* ── HELPERS ────────────────────────────────────────────────── */
@@ -126,6 +124,19 @@ function titleCase(s?: string) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+/**
+ * The master APIs answer either as a bare array or as an envelope
+ * ({ data: ...  }) — accept both, and drop soft-deleted rows.
+ */
+function parseMasterRows<T>(response: any): T[] {
+  const rows = Array.isArray(response?.data)
+    ? response.data
+    : (response?.data?.data ?? []);
+  return Array.isArray(rows)
+    ? rows.filter((r) => r && !r.deletedAt)
+    : [];
+}
+
 /* ── PAGE SHELL ────────────────────────────────────────────── */
 
 export function PatientsFormPage() {
@@ -196,30 +207,36 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   const navigate = useNavigate();
   const isEdit = Boolean(patient?.id);
 
-  /** Department + panel dropdowns — each loaded by this form, when it needs them. */
-  const [departments, setDepartments] = useState<Department[]>([]);
+  /** Clinical-department + panel dropdowns — each loaded by this form, when it needs them. */
+  const [departments, setDepartments] = useState<ClinicalDepartmentItem[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(false);
 
   /**
-   * The registration form cannot be filled without its department list, so this
-   * load is the page's blocking initialization → global loader while it runs
-   * (the panels list below is optional and gets no global UI).
+   * The registration form cannot be filled without its clinical-department
+   * list, so this load is the page's blocking initialization → global loader
+   * while it runs (the panels list below is optional and gets no global UI).
    */
   useEffect(() => {
     let active = true;
     (async () => {
       dispatch(showLoader("Loading"));
       try {
-        const response = await departmentService.fetchDepartments();
+        setDepartmentsLoading(true);
+        const response = await masterService.fetchClinicalDepartments();
         if (active && response.status === 200) {
           setDepartments(
-            (response.data?.data ?? []).filter(
-              (row: Department) => row.isActive === true,
+            parseMasterRows<ClinicalDepartmentItem>(response).filter(
+              (row) => row.isActive !== false,
             ),
           );
         }
       } catch (e: any) {
         if (active)
-          dispatch(toast.error("Could not load departments", e?.message));
+          dispatch(
+            toast.error("Could not load clinical departments", e?.message),
+          );
+      } finally {
+        if (active) setDepartmentsLoading(false);
       }
       dispatch(hideLoader());
     })();
@@ -230,22 +247,28 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
   }, [dispatch]);
 
   const [panels, setPanels] = useState<{ value: any; label: string }[]>([]);
+  const [panelsLoading, setPanelsLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const response = await masterService.fetchPanelDropdown();
+        setPanelsLoading(true);
+        const response = await masterService.fetchPanels();
         if (active && response.status === 200) {
           setPanels(
-            (response.data?.data ?? []).map((p: any) => ({
-              value: p.id,
-              label: p.panelName,
-            })),
+            parseMasterRows<PanelMasterItem>(response)
+              .filter((row) => row.isActive !== false)
+              .map((p) => ({
+                value: p.id,
+                label: p.panelName,
+              })),
           );
         }
       } catch (e: any) {
         if (active) dispatch(toast.error("Could not load panels", e?.message));
+      } finally {
+        if (active) setPanelsLoading(false);
       }
     })();
     return () => {
@@ -282,9 +305,11 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       : "",
     guardianMobile: p?.guardianMobile ?? "",
     panelId: p?.panelId ?? "",
-    panelPolicyNo: p?.panelPolicyNo ?? p?.insurancePolicyNo ?? "",
+    panelPolicyNo:
+      p?.panelPolicyNo ?? p?.policyNumber ?? p?.insurancePolicyNo ?? "",
     panelValidTill:
       p?.panelValidTill?.slice?.(0, 10) ??
+      p?.policyValidTill?.slice?.(0, 10) ??
       p?.insuranceValidTill?.slice?.(0, 10) ??
       "",
     allergies: patient?.allergies ?? "",
@@ -434,7 +459,10 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
       guardianName: values.guardianName || undefined,
       guardianMobile: values.guardianMobile || undefined,
       panelId: values.panelId || undefined,
-      panelPolicyNo: values.panelPolicyNo || undefined,
+      // Patient DTO: `panelPolicyNo` was removed — the policy number and its
+      // validity date now travel as `policyNumber` / `policyValidTill`.
+      policyNumber: values.panelPolicyNo || undefined,
+      policyValidTill: toISO(values.panelValidTill),
       allergies: values.allergies || undefined,
       chronicDiseases: values.chronicDiseases || undefined,
       department: values.department || undefined,
@@ -761,9 +789,13 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 name="panelId"
                 label="Select Panel"
                 placeholder="Cash / Self Pay"
+                hint="Default: Cash / Self Pay"
                 value={form.values.panelId}
                 onChange={(v) => form.setValue("panelId", v)}
                 options={panels}
+                clearable
+                loading={panelsLoading}
+                loadingLabel="Loading panels…"
               />
               <Input
                 ref={form.registerRef("panelPolicyNo")}
@@ -817,9 +849,12 @@ function PatientsFormContent({ patient }: { patient?: Patient }) {
                 value={form.values.department}
                 onChange={(v) => form.setValue("department", v)}
                 options={departments.map((d) => ({
-                  value: String(d.id),
+                  value: d.id,
                   label: d.name,
                 }))}
+                clearable
+                loading={departmentsLoading}
+                loadingLabel="Loading departments…"
               />
               <Input
                 name="country"

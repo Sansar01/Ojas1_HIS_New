@@ -3,13 +3,16 @@
  *
  *   GET    /api/opd/billing                   fetchInvoices(filters?)
  *   GET    /api/opd/billing/:id               fetchInvoiceById(id)
- *   POST   /api/opd/billing                   createInvoice(payload)
+ *   GET    /api/opd/billing/appointment/:id   fetchBillByAppointment(id)
+ *   GET    /api/opd/billing/:id/receipt       fetchReceipt(id)
+ *   POST   /api/opd/billing                   createInvoice(payload) | createBill(payload)
  *   PATCH  /api/opd/billing/:id               updateInvoice(id, payload)
  *   DELETE /api/opd/billing/:id               deleteInvoice(id)
  *   PATCH  /api/opd/billing/:id/cancel        cancelInvoice(id, reason)
  *   GET    /api/opd/billing/daily-summary     fetchDailySummary(date?)
  *   GET    /api/opd/billing/payments          fetchPayments(filters?)
  *   POST   /api/opd/billing/:billId/payments  collectPayment(billId, payload)
+ *   POST   /api/opd/billing/:billId/refund     refundBill(billId, payload)
  *
  * Only invoice/payment operations belong here. Patients, doctors and
  * appointments stay in their own services — the billing screens import them
@@ -17,6 +20,11 @@
  */
 
 import { axios } from "@/api/axios";
+import type {
+  BillReceiptData,
+  BillResponse,
+  CreateBillPayload,
+} from "@/types/billingTypes";
 
 /** Billing endpoints — owned by the billing feature. */
 const BILLING = "/api/opd/billing";
@@ -28,6 +36,8 @@ export interface InvoiceFilters {
   limit?: number;
   patientId?: string;
   date?: string;
+  fromDate?: string;
+  toDate?: string;
   billStatus?: string;
   paymentStatus?: string;
   [key: string]: unknown;
@@ -89,4 +99,18 @@ export const billingService = {
   /** Record a payment against one bill. */
   collectPayment: (billId: string | number, payload: Record<string, unknown>) =>
     axios.post(`${invoicePath(billId)}/payments`, payload),
+  /**
+   * Printable counter receipt — hospital header, patient/doctor, resolved
+   * line rates, totals (incl. panel split) and payment receipts.
+   */
+  fetchReceipt: (billId: string | number) =>
+    axios.get<BillReceiptData>(`${invoicePath(billId)}/receipt`),
+  /** Issue a credit note against a paid bill. `{ creditNote, bill }`. */
+  refundBill: (billId: string | number, payload: Record<string, unknown>) =>
+    axios.post(`${invoicePath(billId)}/refund`, payload),
+  /** Bill linked to an appointment — used by the 409 "View Bill" action. */
+  fetchBillByAppointment: (appointmentId: string) =>
+    axios.get(`${BILLING}/appointment/${appointmentId}`),
+  /** Generate a bill — spec payload, bare `BillResponse` on 201. */
+  createBill: (payload: CreateBillPayload) => axios.post<BillResponse>(BILLING, payload),
 };
