@@ -27,6 +27,7 @@ import {
   usePermission,
 } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { consultationSchema } from "@/pages/consultations/consultation.schema";
 import { formatDate, formatTime } from "@/utils";
 import { cn } from "@/utils/cn";
 import {
@@ -936,10 +937,7 @@ export function ConsultationWorkspacePage() {
       weight: "",
       spo2: "",
     },
-    schema: {
-      chiefComplaint: [{ required: "Required", min: 3 }],
-      diagnosis: [{ required: "Required", min: 3 }],
-    },
+    schema: consultationSchema,
   });
 
   // Fetch Core consultation on mount

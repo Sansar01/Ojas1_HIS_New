@@ -15,6 +15,10 @@ import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import {
+  FORCE_PASSWORD_LABELS,
+  buildForcePasswordSchema,
+} from "@/pages/auth/auth.schema";
+import {
   changePassword,
   logout,
   logoutRequest,
@@ -40,6 +44,7 @@ import { fullName } from "@/utils";
  * ------------------------------------------------------------------------- */
 
 const MIN_LENGTH = 8;
+const FORCE_PASSWORD_SCHEMA = buildForcePasswordSchema(MIN_LENGTH);
 
 const rules = (value: string) => [
   {
@@ -69,33 +74,11 @@ export function ForcePasswordChange() {
 
   const form = useForm({
     initialValues: { oldPassword: "", newPassword: "" },
-    labels: {
-      oldPassword: "Current password",
-      newPassword: "New password",
-    },
+    labels: FORCE_PASSWORD_LABELS,
     // field-level feedback: on blur, and everything revealed on submit
     validateOnChange: false,
     validateOnBlur: true,
-    schema: {
-      oldPassword: [
-        { required: "Enter the password you signed in with" },
-        { min: 1, message: "Enter the password you signed in with" },
-      ],
-      newPassword: [
-        { required: "New password is required" },
-        {
-          min: MIN_LENGTH,
-          message: `New password must be at least ${MIN_LENGTH} characters`,
-        },
-        {
-          message: "New password must be different from the current password",
-          validate: (value: string, all: any) =>
-            value && value === all.oldPassword
-              ? "New password must be different from the current password"
-              : true,
-        },
-      ],
-    },
+    schema: FORCE_PASSWORD_SCHEMA,
   });
 
   const strength = strengthOf(form.values.newPassword);

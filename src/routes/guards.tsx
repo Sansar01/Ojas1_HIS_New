@@ -143,6 +143,7 @@ export function RequireBootstrap({ children }: { children: React.ReactNode }) {
   const status = useAuthStatus();
   const session = useAppSelector(selectUser);
   const bootstrapStatus = useAppSelector(selectBootstrapStatus);
+  const location = useLocation();
 
   if ((status === "restoring" || status === "idle") && !session) {
     return <Splash />;
@@ -155,8 +156,12 @@ export function RequireBootstrap({ children }: { children: React.ReactNode }) {
   }
 
   if (bootstrapStatus !== "ready") {
+    // Carry the attempted route through the bootstrap stage so a hard refresh
+    // returns the user to the exact page they were on (§49). The bootstrap
+    // page validates it and falls back to the dashboard for anything else.
+    const next = `${location.pathname}${location.search}`;
     return (
-      <Navigate to="/permission" replace />
+      <Navigate to={`/permission?next=${encodeURIComponent(next)}`} replace />
     );
   }
 

@@ -45,37 +45,18 @@ export default defineConfig({
     },
   },
   build: {
-    target: "es2020",
-    sourcemap: false,
-
     rollupOptions: {
       output: {
-        /**
-         * Three stable vendor chunks instead of one everything-bundle:
-         *
-         *   charts-vendor → chart.js + react-chartjs-2. Only DashboardPage
-         *             imports them, and DashboardPage is a lazy route — so
-         *             first-time visitors (login screen) never download
-         *             chart code.
-         *   framework → react, react-dom, scheduler, react-router(+dom),
-         *             redux + toolkit/react-redux/immer/reselect. The shell
-         *             itself depends on these, so they are eagerly needed,
-         *             but they change far more slowly than app code —
-         *             isolating them means an app-only release re-uses the
-         *             cached framework chunk (see netlify.toml's immutable
-         *             /assets policy).
-         *   vendor   → the remaining libraries (radix, lucide, axios,
-         *             clsx, tailwind-merge, …).
-         *
-         * Feature screens keep their own per-page chunks from the `lazy()`
-         * route imports, cache-busted by content hashes and staying valid
-         * across releases that only touch other chunks.
-         */
+        // vendor code changes rarely → stays cached across deploys
         manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (belongsTo(CHART_PACKAGES, id)) return "charts-vendor";
-          if (belongsTo(FRAMEWORK_PACKAGES, id)) return "framework";
-          return "vendor";
+          if (!id.includes("node_modules")) return;
+          if (/react-router|react-dom|[\\/]react[\\/]|scheduler/.test(id))
+            return "react";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("chart.js") || id.includes("react-chartjs-2"))
+            return "charts";
+          if (id.includes("@reduxjs") || id.includes("react-redux") || id.includes("immer") || id.includes("reselect"))
+            return "redux";
         },
       },
     },

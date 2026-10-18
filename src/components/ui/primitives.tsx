@@ -67,7 +67,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={cn(
-          "inline-flex cursor-pointer select-none items-center justify-center font-medium transition-all duration-150",
+          "inline-flex cursor-pointer select-none items-center justify-center font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
           "active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:translate-y-0",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
           VARIANTS[variant],
@@ -107,7 +107,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         aria-label={label}
         title={label}
         className={cn(
-          "inline-flex items-center justify-center rounded-lg transition-all duration-150",
+          "inline-flex items-center justify-center rounded-lg transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25 disabled:opacity-50",
           "[&>svg]:size-4",
           size === "sm" ? "size-8" : "size-9.5",
@@ -409,7 +409,7 @@ export function Kpi({
         className={cn(
           "flex flex-col items-start rounded-xl border border-ink-100 bg-white p-5 text-left shadow-card",
           onClick &&
-            "cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
+            "cursor-pointer transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
           active && "border-brand-500 ring-1 ring-brand-500",
           className,
         )}

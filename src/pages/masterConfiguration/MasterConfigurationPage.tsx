@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { masterService } from "@/pages/masterConfiguration/master.service";
 import {
+  BedDouble,
   ClipboardList,
   Percent,
   Plus,
@@ -29,6 +31,7 @@ import { LabMasters } from "@/pages/masterConfiguration/LabMasters";
 import { DoctorMasters } from "@/pages/masterConfiguration/DoctorMasters";
 import { TariffMaster } from "./TariffMaster";
 import { ServiceMaster } from "./ServiceMaster";
+import { WardSetupDialog } from "./WardSetupDialog";
 
 // Live Panel API
 
@@ -101,8 +104,22 @@ const PANEL_COLUMNS: Column<PanelMasterItem>[] = [
 export function MasterConfigurationPage() {
   const dispatch = useAppDispatch();
   const [activeModal, setActiveModal] = useState<
-    ModalType | "service-master" | "rate-managment" | ""
+    ModalType | "service-master" | "rate-managment" | "ward-setup" | ""
   >("");
+
+  /**
+   * Ward setup is a dialog on this page, not a screen of its own. The ward
+   * board links here with `?open=ward-setup` (and the old `/ipd/setup` +
+   * `/master-config/ward-setup` paths redirect to the same URL), so the hub
+   * opens the dialog for that link and then cleans the query away.
+   */
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("open") === "ward-setup") {
+      setActiveModal("ward-setup");
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   const [itemType, setItemType] = useState<ItemType | "">("");
 
   // ─── LIVE PANEL STATE ──────────────────────────────────────────
@@ -235,6 +252,22 @@ export function MasterConfigurationPage() {
         />
       </div>
 
+      {/* ─── WARD / ROOM / BED MASTER ───────────────────────────────
+          The ward STRUCTURE lives here (master data); IPD runs its
+          operational use — occupancy, allocation, transfer, discharge.
+          Full-width entry so it does not disturb the KPI grid above. */}
+      <div className="mb-6">
+        <Kpi
+          icon={<BedDouble />}
+          label="Ward, Room & Bed Setup"
+          tone="brand"
+          value="Wards & beds"
+          hint="Room types · rooms · beds (single + bulk) · amenities"
+          active={activeModal === "ward-setup"}
+          onClick={() => setActiveModal("ward-setup")}
+        />
+      </div>
+
       {/* ─── TWO TABLES ────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-1">
         {/* 👇 LIVE PANEL TABLE */}
@@ -294,6 +327,10 @@ export function MasterConfigurationPage() {
       />
       <ServiceMaster
         open={activeModal === "service-master"}
+        onOpenChange={(v) => !v && closeModal()}
+      />
+      <WardSetupDialog
+        open={activeModal === "ward-setup"}
         onOpenChange={(v) => !v && closeModal()}
       />
     </div>

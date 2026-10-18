@@ -17,6 +17,7 @@ import { GENDERS, WEEKDAYS_SHORT } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { doctorSchema } from "@/pages/doctors/doctor.schema";
 import { Skeleton } from "@/components/ui/feedback";
 
 import { departmentService } from "@/pages/Departments/department.service";
@@ -424,40 +425,7 @@ function DoctorForm({
       about: initial.about ?? "",
       schedule: (initial.schedule ?? emptyDoctor().schedule!) as ScheduleDay[],
     },
-    schema: {
-      firstName: [{ required: "First name is required", min: 2 }],
-      lastName: [{ required: "Last name is required", min: 2 }],
-      email: [{ required: "Email address is required", email: true }],
-      mobile: [
-        {
-          required: "Mobile number is required",
-          pattern: /^[+0-9][0-9\s()-]{7,}$/,
-        },
-      ],
-      registrationNumber: [
-        { required: "Medical registration number is required", min: 4 },
-      ],
-      consultationFee: [
-        {
-          required: "Consultation fee is required",
-          validate: (v: number) =>
-            Number(v) > 0 ? true : "Fee must be greater than zero",
-        },
-      ],
-      slotDuration: [
-        {
-          required: "Slot duration is required",
-          validate: (v: number) =>
-            Number(v) >= 5 ? true : "Minimum slot length is 5 minutes",
-        },
-      ],
-      maxPatientsPerDay: [
-        {
-          validate: (v: number) =>
-            Number(v) > 0 ? true : "Set a daily capacity",
-        },
-      ],
-    },
+    schema: doctorSchema,
   });
 
   const save = form.handleSubmit(async (values) => {

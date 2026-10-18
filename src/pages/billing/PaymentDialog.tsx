@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { CircleDollarSign } from "lucide-react";
 import { useForm } from "@/hooks/useForm";
+import { buildPaymentSchema } from "@/pages/billing/payment.schema";
 import { formatMoney } from "@/utils";
 import { Input, NumberInput, Select } from "@/components/ui/fields";
 
@@ -18,6 +20,12 @@ export function PaymentDialog({
   onSuccess: () => void;
 }) {
   const dispatch = useAppDispatch();
+
+  const paymentSchema = useMemo(
+    () => buildPaymentSchema(bill.dueAmount),
+    [bill.dueAmount],
+  );
+
   const form = useForm({
     initialValues: {
       amount: bill.dueAmount,
@@ -25,17 +33,7 @@ export function PaymentDialog({
       reference: "",
       notes: "",
     },
-    schema: {
-      amount: [
-        {
-          required: "Amount is required",
-          validate: (v: number) =>
-            Number(v) > 0 && Number(v) <= bill.dueAmount
-              ? true
-              : `Max ${bill.dueAmount}`,
-        },
-      ],
-    },
+    schema: paymentSchema,
   });
 
   const save = form.handleSubmit(async (values) => {

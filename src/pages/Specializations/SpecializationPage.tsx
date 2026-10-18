@@ -16,6 +16,7 @@ import { doctorService } from "@/pages/doctors/doctor.service";
 import { toast } from "@/store/slices/uiSlice";
 import { usePermission, useTable } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { specializationSchema } from "@/pages/Specializations/specialization.schema";
 import { Specialization, Status } from "@/types";
 import { cn } from "@/utils/cn";
 import { Layers, Pencil, Ban, CheckCircle2, Trash2 } from "lucide-react";
@@ -371,14 +372,7 @@ function SpecializationForm({
       description: initial.description ?? "",
       status: (initial.status ?? "active") as Status,
     },
-    schema: {
-      name: [{ required: "Name is required", min: 3 }],
-      code: [{ required: "Code is required", pattern: /^[A-Za-z]{2,6}$/ }],
-      departmentId: [
-        { required: "Attach this specialization to a department" },
-      ],
-      description: [{ required: "Description is required", min: 8 }],
-    },
+    schema: specializationSchema,
   });
 
   const save = form.handleSubmit(async (values) => {

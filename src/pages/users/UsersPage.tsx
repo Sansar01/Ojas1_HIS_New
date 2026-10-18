@@ -16,6 +16,7 @@ import { APP_NAME, AVATAR_COLORS, PERMISSIONS } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission, useTable, useCurrentUser } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { buildUserSchema } from "@/pages/users/user.schema";
 import { userService } from "@/pages/users/user.service";
 import { roleService } from "@/pages/admin/role.service";
 import { departmentService } from "@/pages/Departments/department.service";
@@ -781,6 +782,9 @@ function UserFormDialog({
     };
   }, []);
 
+  const userSchema = useMemo(() => buildUserSchema(isEdit), [isEdit]);
+
+
   const form = useForm({
     initialValues: {
       firstName: initial.firstName ?? "",
@@ -801,22 +805,7 @@ function UserFormDialog({
         initial.color ??
         AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
     },
-    schema: {
-      firstName: [{ required: "First name is required", min: 2 }],
-      lastName: [{ required: "Last name is required", min: 2 }],
-      email: [{ required: "Email address is required", email: true }],
-      mobile: [
-        {
-          required: "Mobile number is required",
-          pattern: /^[+0-9][0-9\s()-]{7,}$/,
-        },
-      ],
-      roleId: [{ required: "Choose a role" }],
-      dateOfBirth: [{ required: "Date of birth is required" }],
-      password: isEdit
-        ? []
-        : [{ required: "A temporary password is required", min: 6 }],
-    },
+    schema: userSchema,
   });
 
   const entitlementModules = useAppSelector(

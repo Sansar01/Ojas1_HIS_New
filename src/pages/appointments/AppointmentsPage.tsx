@@ -131,7 +131,7 @@ export function SlotPicker({
             disabled={s.state !== "available"}
             onClick={() => onChange(s.time)}
             className={cn(
-              "group rounded-lg border px-1.5 py-2 text-center transition-all duration-150",
+              "group rounded-lg border px-1.5 py-2 text-center transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
               s.state === "available" &&
                 "border-ink-200 bg-white hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-card",
               s.state === "booked" &&
@@ -547,7 +547,7 @@ export function AppointmentsPage() {
                           a.status !== "Completed" && (
                             <button
                               onClick={() => advance(a, "Completed")}
-                              className="rounded-md p-1 text-ink-300 opacity-0 transition-all hover:bg-mint-50 hover:text-mint-600 group-hover:opacity-100"
+                              className="rounded-md p-1 text-ink-300 opacity-0 transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:bg-mint-50 hover:text-mint-600 group-hover:opacity-100"
                               aria-label="Mark completed"
                             >
                               <CheckCheck className="size-4" />

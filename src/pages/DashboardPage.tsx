@@ -297,7 +297,7 @@ function KpiCard({
     ink: "from-ink-900/10 text-ink-700",
   }[tone];
   const body = (
-    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop">
+    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop">
       <div
         className={cn(
           "absolute inset-x-0 -top-10 h-24 bg-gradient-to-b to-transparent opacity-70",
@@ -343,7 +343,7 @@ function KpiCard({
         )}
       </div>
       {to && (
-        <span className="absolute bottom-3 right-3 translate-y-1 text-[11px] font-semibold text-brand-600 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+        <span className="absolute bottom-3 right-3 translate-y-1 text-[11px] font-semibold text-brand-600 opacity-0 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100">
           Open <ArrowUpRight className="inline size-3" />
         </span>
       )}
@@ -586,7 +586,7 @@ export function DashboardPage() {
             {canCreate("appointments") && (
               <button
                 onClick={() => navigate("/app/appointments?new=1")}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-all hover:bg-brand-400 hover:shadow-[0_14px_28px_-16px_rgba(64,190,174,.95)]"
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:bg-brand-400 hover:shadow-[0_14px_28px_-16px_rgba(64,190,174,.95)]"
               >
                 <CalendarPlus className="size-4" /> Book appointment
               </button>

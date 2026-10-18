@@ -26,7 +26,7 @@
  */
 
 import { useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, RefreshCw, ShieldCheck } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchModules } from "@/store/slices/moduleSlice";
@@ -43,18 +43,38 @@ import { Button } from "@/components/ui/primitives";
 /**
  * Where the bootstrap stage hands the signed-in user over to.
  *
- * Always the dashboard: whoever logs in — superadmin, doctor, nurse, any other
- * user type — starts from the dashboard. No route is carried across a login, so
- * the page the *previous* user happened to be on can never be restored.
+ * Fresh login → always the dashboard: whoever logs in — superadmin, doctor,
+ * nurse, any other user type — starts from the dashboard. No route is carried
+ * across a login, so the page the *previous* user happened to be on can never
+ * be restored.
+ *
+ * Refresh bootstrap → the route the user was on is carried here as
+ * `?next=...` by RequireBootstrap and restored (§49).
  */
 const POST_BOOTSTRAP_ROUTE = "/dashboard";
+
+/** Only an in-app route may be restored — never an external URL, the bootstrap
+ *  stage itself, an auth page, or the bare root (login → dashboard). */
+function sanitizeNext(next: string): string {
+  if (
+    next.startsWith("/") &&
+    !next.startsWith("//") &&
+    !next.startsWith("/permission") &&
+    !next.startsWith("/accounts") &&
+    next !== "/"
+  ) {
+    return next;
+  }
+  return POST_BOOTSTRAP_ROUTE;
+}
 
 export function PermissionBootstrapPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const status = useAppSelector(selectBootstrapStatus);
   const error = useAppSelector(selectBootstrapError);
-  const target = POST_BOOTSTRAP_ROUTE;
+  const target = sanitizeNext(searchParams.get("next") ?? "");
 
   /**
    * One effect, one owner (§48): the status drives the whole sequence.

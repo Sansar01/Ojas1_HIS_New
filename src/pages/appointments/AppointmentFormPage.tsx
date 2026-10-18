@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DatePicker, Input, Textarea, Select } from "@/components/ui/fields";
 import { Button, Badge } from "@/components/ui/primitives";
 import { appointmentService } from "@/pages/appointments/appointment.service";
@@ -9,7 +9,8 @@ import { consultationService } from "@/pages/consultations/consultation.service"
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
-import { addDays, formatDate, type SlotOption } from "@/utils";
+import { appointmentSchema } from "@/pages/appointments/appointment.schema";
+import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
 import { SlotPicker } from "./AppointmentsPage";
 import { APPOINTMENT_TYPES, VISIT_TYPES } from "@/constants";
@@ -176,6 +177,31 @@ export function AppointmentFormModal({
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
+
+  /** patient Select options (ACTIVE only) recomputed only when the list changes */
+  const patientOptions = useMemo(
+    () =>
+      patients
+        .filter((p: any) => p.status === "ACTIVE")
+        .map((p: any) => ({
+          value: p.id,
+          label: fullName(p),
+          description: p.mrn,
+        })),
+    [patients],
+  );
+
+  /** doctor Select options recomputed only when the list itself changes */
+  const doctorOptions = useMemo(
+    () =>
+      doctors.map((d: any) => ({
+        value: d.id,
+        label: `Dr. ${fullName(d)}`,
+        description: d.specialization ?? undefined,
+        disabled: d.isActive !== true,
+      })),
+    [doctors],
+  );
   // slot-conflict source for the picker below — loaded lazily, only once the
   // doctor/date pair makes the slot picker relevant (see the effect below)
   const [existingAppointments, setExistingAppointments] = useState<any[]>([]);
@@ -255,14 +281,7 @@ export function AppointmentFormModal({
       notes: "",
       reason: "",
     },
-    schema: {
-      patientId: [{ required: "Patient is required" }],
-      doctorId: [{ required: "Doctor is required" }],
-      date: [{ required: "Date is required" }],
-      time: [{ required: "Time slot is required" }],
-      // appointmentType / visitType are not required — they default to
-      // WALK_IN / NEW_VISIT in the booking payload (spec)
-    },
+    schema: appointmentSchema,
   });
 
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);

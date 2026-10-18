@@ -349,7 +349,7 @@ export function PatientDetailPage() {
                 key={t.value}
                 onClick={() => setTab(t.value)}
                 className={cn(
-                  "relative flex shrink-0 items-center gap-2 rounded-t-lg px-3.5 py-2 text-[13px] font-medium transition-all",
+                  "relative flex shrink-0 items-center gap-2 rounded-t-lg px-3.5 py-2 text-[13px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                   tab === t.value
                     ? "bg-white text-brand-700 shadow-[0_-1px_0_0_rgba(30,158,144,.7)_inset]"
                     : "text-ink-500 hover:bg-white/60 hover:text-ink-800",
@@ -446,7 +446,7 @@ export function PatientDetailPage() {
                   <button
                     key={a.id}
                     onClick={() => navigate(`/app/appointments?focus=${a.id}`)}
-                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-all hover:border-brand-200 hover:shadow-card"
+                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:border-brand-200 hover:shadow-card"
                   >
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                       {formatDate(a.date)}
