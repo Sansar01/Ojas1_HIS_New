@@ -88,6 +88,15 @@ export function useForm<T extends Record<string, any>>({
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const nodes = useRef<Record<string, HTMLElement | null>>({});
+  // latest schema/values/labels without making every callback depend on them
+  // (pages pass inline schema objects, which are new on every render)
+  const schemaRef = useRef(schema);
+  schemaRef.current = schema;
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
+  const refCache = useRef<Record<string, (el: HTMLElement | null) => void>>({});
   // mirrors of the state above so callbacks always read the latest value
   const touchedRef = useRef<Record<string, boolean>>({});
   const attemptedRef = useRef(false);
@@ -95,15 +104,15 @@ export function useForm<T extends Record<string, any>>({
   /* ------------------------------ labelling ------------------------------ */
 
   const labelOf = useCallback(
-    (name: string) => (labels as any)?.[name] ?? humanizeField(name),
-    [labels],
+    (name: string) => (labelsRef.current as any)?.[name] ?? humanizeField(name),
+    [],
   );
 
   /* ------------------------------ validation ----------------------------- */
 
   const validateField = useCallback(
     (name: keyof T, value: any, all: T) => {
-      for (const rule of schema[name] ?? []) {
+      for (const rule of schemaRef.current[name] ?? []) {
         if (rule.required && isBlank(value))
           return typeof rule.required === "string"
             ? rule.required
@@ -125,22 +134,24 @@ export function useForm<T extends Record<string, any>>({
       }
       return undefined;
     },
-    [schema],
+    [],
   );
 
   const runValidation = useCallback(
     (names?: (keyof T)[]) => {
       const next: Partial<Record<keyof T, string>> = {};
+      const sch = schemaRef.current as any;
+      const vals = valuesRef.current;
       const keys = names?.length
-        ? names.filter((k) => (schema as any)[k])
-        : (Object.keys(schema) as (keyof T)[]);
+        ? names.filter((k) => sch[k])
+        : (Object.keys(sch) as (keyof T)[]);
       keys.forEach((key) => {
-        const message = validateField(key, (values as any)[key], values);
+        const message = validateField(key, (vals as any)[key], vals);
         if (message) next[key] = message;
       });
       return next;
     },
-    [schema, validateField, values],
+    [validateField],
   );
 
   const validate = useCallback(() => {
@@ -181,20 +192,20 @@ export function useForm<T extends Record<string, any>>({
    */
   const missingFields = useCallback(
     (names?: string[]): MissingField[] => {
+      const sch = schemaRef.current as any;
+      const vals = valuesRef.current;
       const keys = (
-        names?.length
-          ? names.filter((n) => (schema as any)[n])
-          : Object.keys(schema)
+        names?.length ? names.filter((n) => sch[n]) : Object.keys(sch)
       ) as (keyof T)[];
       return keys
         .map((key) => ({
           name: String(key),
           label: labelOf(String(key)),
-          message: validateField(key, (values as any)[key], values) ?? "",
+          message: validateField(key, (vals as any)[key], vals) ?? "",
         }))
         .filter((f) => f.message);
     },
-    [schema, values, validateField, labelOf],
+    [validateField, labelOf],
   );
 
   const isValid = useCallback(
@@ -214,7 +225,8 @@ export function useForm<T extends Record<string, any>>({
       }
       if (validateOnBlur) {
         setErrors((prev) => {
-          const message = validateField(name, (values as any)[key], values);
+          const vals = valuesRef.current;
+          const message = validateField(name, (vals as any)[key], vals);
           const next = { ...prev };
           if (message) next[name] = message;
           else delete next[name];
@@ -222,7 +234,7 @@ export function useForm<T extends Record<string, any>>({
         });
       }
     },
-    [validateOnBlur, validateField, values],
+    [validateOnBlur, validateField],
   );
 
   /** Reveal errors for a set of fields (used before advancing a step). */
@@ -271,45 +283,50 @@ export function useForm<T extends Record<string, any>>({
 
   const setValue = useCallback(
     (name: keyof T, value: any, validateNow = true) => {
-      setValues((prev) => {
-        const nextValues = { ...prev, [name]: value } as T;
+      const prev = valuesRef.current;
+      // unchanged value → no new object, no error recalculation, no rerender
+      if (Object.is(prev[name], value)) return;
+      const nextValues = { ...prev, [name]: value } as T;
+      valuesRef.current = nextValues; // later calls in the same tick see it
+      setValues(nextValues);
 
-        // Always keep the error state accurate for fields the user can already
-        // see feedback on; untouched fields stay quiet until blurred/attempted.
-        const key = String(name);
-        const shouldValidate =
-          validateNow &&
-          (validateOnChange || touchedRef.current[key] || attemptedRef.current);
-
-        if (shouldValidate) {
-          const message = validateField(name, value, nextValues);
-          setErrors((e) => {
-            const newErrors = { ...e };
-            if (message) {
-              newErrors[name] = message;
-            } else {
-              delete newErrors[name];
-            }
-            return newErrors;
-          });
-        }
-
-        return nextValues;
-      });
-
+      // Keep the error state accurate for fields the user can already see
+      // feedback on; untouched fields stay quiet until blurred/attempted.
+      const key = String(name);
+      const shouldValidate =
+        validateNow &&
+        (validateOnChange || touchedRef.current[key] || attemptedRef.current);
+      if (shouldValidate) {
+        const message = validateField(name, value, nextValues);
+        setErrors((e) => {
+          // message already accurate → keep the same errors object
+          if (message ? e[name] === message : !(name in e)) return e;
+          const newErrors = { ...e };
+          if (message) newErrors[name] = message;
+          else delete newErrors[name];
+          return newErrors;
+        });
+      }
       setDirty(true);
     },
     [validateField, validateOnChange],
   );
 
   const setMany = useCallback((patch: Partial<T>) => {
-    setValues((prev) => ({ ...prev, ...patch }) as T);
+    const prev = valuesRef.current;
+    if (Object.keys(patch).every((k) => Object.is(prev[k as keyof T], (patch as any)[k])))
+      return; // nothing actually changed → skip the update entirely
+    const next = { ...prev, ...patch } as T;
+    valuesRef.current = next;
+    setValues(next);
     setDirty(true);
   }, []);
 
   const reset = useCallback(
     (next?: Partial<T>) => {
-      setValues({ ...initialValues, ...(next ?? {}) } as T);
+      const fresh = { ...initialValues, ...(next ?? {}) } as T;
+      valuesRef.current = fresh;
+      setValues(fresh);
       setErrors({});
       setTouched({});
       setDirty(false);
@@ -321,26 +338,28 @@ export function useForm<T extends Record<string, any>>({
     [initialValues],
   );
 
-  const handleSubmit =
+  const handleSubmit = useCallback(
     (onValid: (values: T) => void | Promise<void>) =>
-    async (e?: React.FormEvent | React.MouseEvent) => {
-      e?.preventDefault?.();
-      if (submitting) return;
-      const next = validate();
-      if (Object.keys(next).length) {
-        attemptedRef.current = true;
-        setSubmitAttempted(true);
-        dispatch(FORM_INVALID());
-        focusField(Object.keys(next)[0]);
-        return;
-      }
-      setSubmitting(true);
-      try {
-        await onValid(values);
-      } finally {
-        setSubmitting(false);
-      }
-    };
+      async (e?: React.FormEvent | React.MouseEvent) => {
+        e?.preventDefault?.();
+        if (submitting) return;
+        const next = validate();
+        if (Object.keys(next).length) {
+          attemptedRef.current = true;
+          setSubmitAttempted(true);
+          dispatch(FORM_INVALID());
+          focusField(Object.keys(next)[0]);
+          return;
+        }
+        setSubmitting(true);
+        try {
+          await onValid(values);
+        } finally {
+          setSubmitting(false);
+        }
+      },
+    [submitting, validate, values, dispatch, focusField],
+  );
 
   // ==================== GLOBAL NUMERIC INPUT HANDLER ====================
   const handleNumericChange = useCallback(
@@ -349,12 +368,10 @@ export function useForm<T extends Record<string, any>>({
       const numericValue = value.replace(/[^0-9]/g, "");
 
       // Update the field value
+      // setValue validates against the fresh value itself
       setValue(field, numericValue);
-
-      // Trigger real-time validation
-      validateFields([field as string]);
     },
-    [setValue, validateFields],
+    [setValue],
   );
 
   const api = useMemo(() => {
@@ -381,21 +398,25 @@ export function useForm<T extends Record<string, any>>({
       reset,
       handleSubmit,
       handleNumericChange,
-      schema,
+      schema: schemaRef.current,
       hasError: Object.keys(errors).length > 0,
-      registerRef: (name: keyof T) => (el: HTMLElement | null) => {
+      registerRef: (name: keyof T) => {
         const key = String(name);
-        const prev = nodes.current[key] as any;
-        if (prev && prev.__useFormBlur) {
-          prev.removeEventListener("blur", prev.__useFormBlur);
-          prev.__useFormBlur = null;
-        }
-        nodes.current[key] = el;
-        if (el && validateOnBlur) {
-          const handler = () => touch(name);
-          el.addEventListener("blur", handler);
-          (el as any).__useFormBlur = handler;
-        }
+        // same function identity every render → React doesn't detach and
+        // re-attach every field's ref (and blur listener) on each keystroke
+        return (refCache.current[key] ??= (el: HTMLElement | null) => {
+          const prev = nodes.current[key] as any;
+          if (prev && prev.__useFormBlur) {
+            prev.removeEventListener("blur", prev.__useFormBlur);
+            prev.__useFormBlur = null;
+          }
+          nodes.current[key] = el;
+          if (el && validateOnBlur) {
+            const handler = () => touch(name);
+            el.addEventListener("blur", handler);
+            (el as any).__useFormBlur = handler;
+          }
+        });
       },
     };
   }, [
@@ -419,7 +440,6 @@ export function useForm<T extends Record<string, any>>({
     reset,
     handleSubmit,
     handleNumericChange,
-    schema,
     validateOnBlur,
   ]);
 

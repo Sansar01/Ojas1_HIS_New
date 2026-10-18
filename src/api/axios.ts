@@ -443,3 +443,33 @@ axios.interceptors.response.use(
 );
 
 export default axios;
+
+/**
+ * 2xx — writes answer `201 CREATED`, state moves answer `200 OK`, reads `200`.
+ * Callers check this instead of `=== 200` so a created write still toasts and
+ * closes; the interceptor has already thrown for anything else.
+ */
+export const isOk = (status: number) => status >= 200 && status < 300;
+
+/* ------------------------------ query helpers ----------------------------- */
+
+/**
+ * Drop empty / `"all"` filter values so the query string stays identical, and
+ * return `undefined` when nothing is left (no stray `?` in the URL).
+ *
+ * Shared by every feature service (IPD + ward-master reads/writes) — the one
+ * copy of the helper, next to the HTTP layer that consumes it.
+ */
+export const compactQuery = (
+  params: Record<string, unknown> = {},
+): Record<string, unknown> | undefined => {
+  const entries = Object.entries(params).filter(
+    ([, value]) =>
+      value !== undefined &&
+      value !== null &&
+      value !== "" &&
+      value !== "all" &&
+      value !== false,
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
+};

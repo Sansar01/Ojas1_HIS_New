@@ -12,6 +12,10 @@ import { AuthLayout } from "@/layouts/AuthLayout";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import {
+  buildResetPasswordSchema,
+  forgotPasswordSchema,
+} from "@/pages/auth/auth.schema";
+import {
   resetPasswordWithCode,
   sendResetCode,
   setResetEmail,
@@ -33,7 +37,7 @@ export function ForgotPasswordPage() {
 
   const form = useForm({
     initialValues: { email: "" },
-    schema: { email: [{ required: "Email address is required", email: true }] },
+    schema: forgotPasswordSchema,
   });
 
   // Countdown that re-enables the resend button after 60 seconds.
@@ -173,6 +177,8 @@ const score = (pw: string): number => {
   return s;
 };
 
+const RESET_PASSWORD_SCHEMA = buildResetPasswordSchema(score);
+
 export function ResetPasswordPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -185,29 +191,7 @@ export function ResetPasswordPage() {
   // it would invalidate the code that was sent.
   const form = useForm({
     initialValues: { email: storeEmail, code: "", password: "", confirm: "" },
-    schema: {
-      email: [{ required: "Email address is required", email: true }],
-      code: [
-        {
-          required: "Enter the 6-digit code from your email",
-          pattern: /^[A-Za-z0-9_]{4,12}$/,
-        },
-      ],
-      password: [
-        { required: "New password is required", min: 8 },
-        {
-          validate: (v: string) =>
-            score(v) < 3 ? "Use upper case, a number and a symbol" : true,
-        },
-      ],
-      confirm: [
-        { required: "Confirm your new password" },
-        {
-          validate: (v: string, all: any) =>
-            v === all.password ? true : "Passwords do not match",
-        },
-      ],
-    },
+    schema: RESET_PASSWORD_SCHEMA,
   });
 
   const strength = score(form.values.password);

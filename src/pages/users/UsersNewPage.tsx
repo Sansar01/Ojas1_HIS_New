@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
+import { NEW_USER_LABELS, newUserSchema } from "@/pages/users/user.schema";
 import { departmentService } from "@/pages/Departments/department.service";
 import { roleService } from "@/pages/admin/role.service";
 import { userService } from "@/pages/users/user.service";
@@ -183,50 +184,11 @@ export function UsersNewPage() {
       sendCredentialsViaSms: false,
       sendCredentialsViaEmail: true,
     },
-    labels: {
-      firstName: "First name",
-      lastName: "Last name",
-      email: "Email address",
-      mobile: "Mobile number",
-      userType: "User type",
-      primaryRoleId: "Primary role",
-      password: "Temporary password",
-    },
+    labels: NEW_USER_LABELS,
     // errors appear on blur / step attempt instead of on the first keystroke
     validateOnChange: false,
     validateOnBlur: true,
-    schema: {
-      firstName: [
-        { required: "First name is required" },
-        { min: 2, message: "Use at least 2 characters" },
-        {
-          pattern: /^[A-Za-z][A-Za-z .'-]*$/,
-          message: "Letters, spaces, apostrophes and hyphens only",
-        },
-      ],
-      lastName: [
-        { required: "Last name is required" },
-        { min: 2, message: "Use at least 2 characters" },
-        {
-          pattern: /^[A-Za-z][A-Za-z .'-]*$/,
-          message: "Letters, spaces, apostrophes and hyphens only",
-        },
-      ],
-      email: [{ required: "Email address is required", email: true }],
-      mobile: [
-        { required: "Mobile number is required" },
-        {
-          pattern: /^(\+?\d{1,3}[\s-]?)?\d{10}$/,
-          message: "Enter a 10-digit mobile number (optionally with +91)",
-        },
-      ],
-      userType: [{ required: "User type is required" }],
-      primaryRoleId: [{ required: "Primary role is required" }],
-      password: [
-        { required: "Temporary password is required" },
-        { min: 8, message: "Use at least 8 characters" },
-      ],
-    },
+    schema: newUserSchema,
   });
 
   /* ------------------------------ step helpers ----------------------------- */

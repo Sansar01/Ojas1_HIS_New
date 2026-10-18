@@ -14,6 +14,8 @@ import { PERMISSIONS } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { facilitySchema } from "@/pages/admin/facility.schema";
+import { buildRoleSchema } from "@/pages/admin/role.schema";
 import { roleService } from "@/pages/admin/role.service";
 import { userService } from "@/pages/users/user.service";
 import { toast } from "@/store/slices/uiSlice";
@@ -537,6 +539,9 @@ function RoleForm({
     })();
   }, [dispatch, initial.id]);
 
+  const roleSchema = useMemo(() => buildRoleSchema(roleMode), [roleMode]);
+
+
   const form = useForm({
     initialValues: {
       roleNameId: "",
@@ -549,18 +554,7 @@ function RoleForm({
       >,
       modules: Object.keys(initial.permissions ?? {}) as string[],
     },
-    schema: {
-      roleNameId:
-        roleMode === "master" ? [{ required: "Select a master role" }] : [],
-      name:
-        roleMode === "custom"
-          ? [{ required: "Role name is required", min: 3 }]
-          : [],
-      slug: [
-        { required: "Slug is required", pattern: /^[a-z][a-z0-9_]{2,24}$/ },
-      ],
-      description: [{ required: "Describe what this role does", min: 10 }],
-    },
+    schema: roleSchema,
   });
 
   const toggle = (module: string, permission: Permission) => {
@@ -853,16 +847,7 @@ export function SettingsPage() {
       timezone: "",
       licenseNo: "",
     } as HospitalInfo,
-    schema: {
-      name: [{ required: "Facility name is required", min: 4 }],
-      address: [{ required: "Address is required" }],
-      phone: [{ required: "Phone is required" }],
-      email: [{ required: "Email is required", email: true }],
-      invoicePrefix: [
-        { required: "Invoice prefix required", pattern: /^[A-Za-z]{2,6}$/ },
-      ],
-      defaultTaxRate: [{ required: "Tax rate is required" }],
-    },
+    schema: facilitySchema,
   });
 
   useEffect(() => {

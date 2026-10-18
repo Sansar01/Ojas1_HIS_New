@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import * as SwitchPrimitive from "@radix-ui/react-switch";
@@ -31,6 +31,7 @@ export function Field({
   children,
   className,
   action,
+  tone = "error",
 }: {
   label?: React.ReactNode;
   htmlFor?: string;
@@ -40,6 +41,12 @@ export function Field({
   children: React.ReactNode;
   className?: string;
   action?: React.ReactNode;
+  /**
+   * Which colour family the error message uses. `"error"` (default — coral
+   * red, unchanged everywhere) or `"warning"` (soft amber) for screens that
+   * want a gentler invalid-value cue.
+   */
+  tone?: "error" | "warning";
 }) {
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
@@ -59,8 +66,18 @@ export function Field({
       )}
       {children}
       {error ? (
-        <p className="flex items-start gap-1 text-[11.5px] font-medium text-coral-600">
-          <span className="mt-[3px] size-1 shrink-0 rounded-full bg-coral-500" />
+        <p
+          className={cn(
+            "flex items-start gap-1 text-[11.5px] font-medium",
+            tone === "warning" ? "text-[#b45309]" : "text-coral-600",
+          )}
+        >
+          <span
+            className={cn(
+              "mt-[3px] size-1 shrink-0 rounded-full",
+              tone === "warning" ? "bg-[#f59e0b]" : "bg-coral-500",
+            )}
+          />
           {error}
         </p>
       ) : hint ? (
@@ -71,14 +88,20 @@ export function Field({
 }
 
 const controlBase =
-  "w-full rounded-lg border bg-white text-sm text-ink-800 transition-all duration-150 placeholder:text-ink-400 " +
+  "w-full rounded-lg border bg-white text-sm text-ink-800 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150 placeholder:text-ink-400 " +
   "focus:outline-none focus:ring-4 focus:ring-brand-500/20 focus:border-brand-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400";
 
-export const fieldClasses = (invalid?: boolean) =>
+export const fieldClasses = (
+  invalid?: boolean,
+  tone: "error" | "warning" = "error",
+) =>
   cn(
     controlBase,
     invalid
-      ? "border-coral-500/70 bg-coral-50/40 focus:ring-coral-500/15"
+      ? tone === "warning"
+        ? // soft amber instead of red — a calmer "please fix this" cue
+          "border-[#f59e0b]/70 bg-[#fffbeb]/50 focus:ring-[#f59e0b]/15"
+        : "border-coral-500/70 bg-coral-50/40 focus:ring-coral-500/15"
       : "border-ink-200 hover:border-ink-300",
   );
 
@@ -93,6 +116,8 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   trailingIcon?: React.ReactNode;
   prefix?: string;
   name: string;
+  /** Error styling: red (default) or amber warning */
+  tone?: "error" | "warning";
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
@@ -109,6 +134,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       id,
       name,
       type = "text",
+      tone = "error",
       ...rest
     },
     ref,
@@ -121,6 +147,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         error={error}
         hint={hint}
         required={required}
+        tone={tone}
       >
         <div className="relative">
           {leadingIcon && (
@@ -140,7 +167,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             type={type}
             aria-invalid={!!error}
             className={cn(
-              fieldClasses(!!error),
+              fieldClasses(!!error, tone),
               "h-10 px-3",
               leadingIcon && "pl-9",
               prefix && "pl-7",
@@ -170,9 +197,11 @@ export const Textarea = React.forwardRef<
     hint?: React.ReactNode;
     required?: boolean;
     name: string;
+    /** Error styling: red (default) or amber warning */
+    tone?: "error" | "warning";
   }
 >(function Textarea(
-  { label, error, hint, required, className, id, name, rows = 3, ...rest },
+  { label, error, hint, required, className, id, name, rows = 3, tone = "error", ...rest },
   ref,
 ) {
   const inputId = id ?? `f_${name}`;
@@ -183,6 +212,7 @@ export const Textarea = React.forwardRef<
       error={error}
       hint={hint}
       required={required}
+      tone={tone}
     >
       <textarea
         ref={ref}
@@ -191,7 +221,7 @@ export const Textarea = React.forwardRef<
         rows={rows}
         aria-invalid={!!error}
         className={cn(
-          fieldClasses(!!error),
+          fieldClasses(!!error, tone),
           "resize-y px-3 py-2 leading-relaxed",
           className,
         )}
@@ -302,6 +332,9 @@ export function Select({
   clearable,
   loading = false,
   loadingLabel,
+  searchable = false,
+  searchPlaceholder,
+  tone = "error",
 }: {
   label?: React.ReactNode;
   value: string;
@@ -324,10 +357,34 @@ export function Select({
   loading?: boolean;
   /** e.g. "Loading departments…" / "Searching patients…" */
   loadingLabel?: string;
+  /**
+   * When true, a type-to-filter search box is rendered at the top of the open
+   * list and the options filter as the user types. Off by default — every
+   * existing dropdown keeps its current behaviour.
+   */
+  searchable?: boolean;
+  /** e.g. "Search country…" */
+  searchPlaceholder?: string;
+  /** Error styling: red (default) or amber warning */
+  tone?: "error" | "warning";
 }) {
   // tracked for the guard above: Radix's hidden input can only echo a value
   // back while this list is closed
   const [listOpen, setListOpen] = useState(false);
+  // live filter text (searchable lists) — cleared every time the list closes
+  const [search, setSearch] = useState("");
+
+  const query = search.trim().toLowerCase();
+  // search-filter memoised so a 500-option COUNTRY/STATE list doesn't get
+  // refiltered on every keystroke of ANY field in the form — only when the
+  // options or the query actually change.
+  const visibleOptions = useMemo(
+    () =>
+      query
+        ? options.filter((o) => o.label.toLowerCase().includes(query))
+        : options,
+    [options, query],
+  );
 
   return (
     <Field
@@ -336,10 +393,14 @@ export function Select({
       error={error}
       hint={hint}
       className={className}
+      tone={tone}
     >
       <SelectPrimitive.Root
         value={value ?? ""}
-        onOpenChange={setListOpen}
+        onOpenChange={(open) => {
+          setListOpen(open);
+          if (!open) setSearch("");
+        }}
         onValueChange={(next) => {
           /**
            * Radix keeps a visually hidden native <select> ("bubble input") in
@@ -361,7 +422,7 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           className={cn(
-            fieldClasses(!!error),
+            fieldClasses(!!error, tone),
             "flex items-center justify-between gap-2 px-3 text-left data-[state=open]:border-brand-400 data-[state=open]:ring-4 data-[state=open]:ring-brand-500/20",
             size === "sm" ? "h-9 text-[13px]" : "h-10",
           )}
@@ -405,6 +466,31 @@ export function Select({
             sideOffset={6}
             className="z-[70] max-h-[19rem] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-ink-100 bg-white shadow-pop animate-fade-in"
           >
+            {searchable && !loading && (
+              <div className="flex items-center gap-2 border-b border-ink-100 px-3">
+                <Search className="size-4 shrink-0 text-ink-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    // typing must never reach Radix's own item typeahead
+                    e.stopPropagation();
+                  }}
+                  placeholder={searchPlaceholder ?? "Type to search…"}
+                  className="h-9 w-full bg-transparent text-[13px] text-ink-800 placeholder:text-ink-400 focus:outline-none"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearch("")}
+                    className="rounded p-0.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             <SelectPrimitive.Viewport className="p-1.5">
               {loading ? (
                 <div className="flex items-center gap-2 px-3 py-6 text-[13px] text-ink-500">
@@ -413,12 +499,14 @@ export function Select({
                 </div>
               ) : (
                 <>
-                  {options.length === 0 && (
+                  {visibleOptions.length === 0 && (
                     <div className="px-3 py-6 text-center text-[13px] text-ink-400">
-                      No options available
+                      {options.length === 0
+                        ? "No options available"
+                        : `No match for “${search.trim()}”`}
                     </div>
                   )}
-                  {options.map((opt) => (
+                  {visibleOptions.map((opt) => (
                 <SelectPrimitive.Item
                   key={opt.value}
                   value={opt.value}
@@ -589,7 +677,7 @@ export function MultiSelect<T extends string = string>({
                   >
                     <span
                       className={cn(
-                        "grid size-4.5 shrink-0 place-items-center rounded border transition-all",
+                        "grid size-4.5 shrink-0 place-items-center rounded border transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                         checked
                           ? "border-brand-600 bg-brand-600 text-white"
                           : "border-ink-300 bg-white",
@@ -643,7 +731,7 @@ export function Checkbox({
         disabled={disabled}
         onCheckedChange={(v) => onCheckedChange(v === true)}
         className={cn(
-          "mt-0.5 grid size-[17px] shrink-0 place-items-center rounded-[5px] border transition-all duration-150",
+          "mt-0.5 grid size-[17px] shrink-0 place-items-center rounded-[5px] border transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
           checked
             ? "border-brand-600 bg-brand-600 text-white"
@@ -765,7 +853,7 @@ export function RadioGroup({
             key={opt.value}
             value={opt.value}
             className={cn(
-              "group flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-all",
+              "group flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
               value === opt.value
                 ? "border-brand-500 bg-brand-25 text-brand-800 shadow-[0_0_0_3px_rgba(30,158,144,.08)]"
                 : "border-ink-200 bg-white text-ink-600 hover:border-ink-300",
@@ -849,7 +937,7 @@ export function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(opt.value)}
           className={cn(
-            "rounded-[7px] font-medium transition-all duration-150",
+            "rounded-[7px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
             size === "sm"
               ? "px-2.5 py-1 text-[12px]"
               : "px-3.5 py-1.5 text-[13px]",
@@ -881,6 +969,7 @@ export function DatePicker({
   placeholder = "Pick a date",
   clearable = true,
   name,
+  tone = "error",
 }: {
   label?: React.ReactNode;
   value: string;
@@ -895,6 +984,8 @@ export function DatePicker({
   placeholder?: string;
   clearable?: boolean;
   name?: string;
+  /** Error styling: red (default) or amber warning */
+  tone?: "error" | "warning";
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -941,6 +1032,7 @@ export function DatePicker({
       error={error}
       hint={hint}
       className={className}
+      tone={tone}
     >
       <div ref={wrapRef} className="relative">
         <button
@@ -953,7 +1045,7 @@ export function DatePicker({
             setView({ y: cursor.getFullYear(), m: cursor.getMonth() });
           }}
           className={cn(
-            fieldClasses(!!error),
+            fieldClasses(!!error, tone),
             "flex h-10 items-center justify-between gap-2 px-3 text-left",
           )}
         >
@@ -1045,7 +1137,7 @@ export function DatePicker({
                       setOpen(false);
                     }}
                     className={cn(
-                      "num h-8 rounded-lg text-[12.5px] font-medium transition-all",
+                      "num h-8 rounded-lg text-[12.5px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                       active
                         ? "bg-brand-600 text-white shadow-[0_6px_14px_-8px_rgba(13,105,97,.9)]"
                         : disabledDay
@@ -1146,7 +1238,7 @@ export function PermissionMatrix({
                       disabled={readOnly}
                       onClick={() => onToggle(m, p)}
                       className={cn(
-                        "mx-auto grid size-6 place-items-center rounded-md border transition-all",
+                        "mx-auto grid size-6 place-items-center rounded-md border transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                         checked
                           ? "border-brand-600 bg-brand-600 text-white"
                           : "border-ink-200 bg-white text-transparent hover:border-brand-300",

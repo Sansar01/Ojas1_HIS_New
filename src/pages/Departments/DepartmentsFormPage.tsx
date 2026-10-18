@@ -8,6 +8,7 @@ import { useAppDispatch } from "@/store/hooks";
 import { doctorService } from "@/pages/doctors/doctor.service";
 import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
+import { departmentSchema } from "@/pages/Departments/department.schema";
 import { Department } from "@/types";
 import { fullName } from "@/utils";
 
@@ -53,9 +54,7 @@ export function DepartmentFormDialog({
       // to active.
       isActive: (initial.id ? initial.status === "active" : true) as boolean,
     },
-    schema: {
-      name: [{ required: "Department name is required", min: 3 }],
-    },
+    schema: departmentSchema,
   });
 
   const save = form.handleSubmit(async (values) => {

@@ -40,7 +40,7 @@ export const store = configureStore({
   // modules + permissions in sync with the session
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().prepend(authListenerMiddleware.middleware),
-  devTools: true,
+  devTools: import.meta.env.DEV,
 });
 
 export type RootState = ReturnType<typeof store.getState>;

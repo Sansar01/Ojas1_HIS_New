@@ -16,6 +16,7 @@ import { useAppDispatch } from "@/store/hooks";
 import { useAuthStatus } from "@/hooks";
 import { login, verifyOtp } from "@/store/slices/authSlice";
 import { useForm } from "@/hooks/useForm";
+import { loginSchema } from "@/pages/auth/auth.schema";
 import { Button } from "@/components/ui/primitives";
 import { Checkbox, Input } from "@/components/ui/fields";
 import { toast } from "@/store/slices/uiSlice";
@@ -36,10 +37,7 @@ export function LoginPage() {
 
   const form = useForm({
     initialValues: { email: "", password: "" },
-    schema: {
-      email: [{ required: "Email address is required", email: true }],
-      password: [{ required: "Password is required", min: 6 }],
-    },
+    schema: loginSchema,
   });
 
   /**
