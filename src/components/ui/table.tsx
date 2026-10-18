@@ -349,7 +349,7 @@ export function Pagination({
             <button
               onClick={() => onPage(n)}
               className={cn(
-                "num size-8 rounded-lg text-[12.5px] font-semibold transition-all",
+                "num size-8 rounded-lg text-[12.5px] font-semibold transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                 n === page
                   ? "bg-brand-600 text-white shadow-[0_8px_16px_-10px_rgba(13,105,97,.9)]"
                   : "text-ink-600 hover:bg-ink-50",

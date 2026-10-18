@@ -20,6 +20,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { BedDouble, CheckCircle2 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
+import { ADMISSION_LABELS, admissionSchema } from "@/pages/ipd/ipd.schema";
 import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Button, Badge, Panel } from "@/components/ui/primitives";
 import {
@@ -135,16 +136,8 @@ export function IpdAdmissionFormPage() {
       expectedDischargeDate: "",
       advancePaid: 0,
     },
-    schema: {
-      patientId: [{ required: "Select the patient being admitted" }],
-      doctorProfileId: [{ required: "Select the admitting doctor" }],
-      admissionType: [{ required: "Select the admission type" }],
-    },
-    labels: {
-      patientId: "Patient",
-      doctorProfileId: "Admitting doctor",
-      admissionType: "Admission type",
-    },
+    schema: admissionSchema,
+    labels: ADMISSION_LABELS,
   });
 
   const selectedPatient = useMemo(

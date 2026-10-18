@@ -85,7 +85,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   const unread = activities.slice(0, 6);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-ink-100 bg-white/88 px-3 backdrop-blur-md sm:px-5">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-ink-100 bg-white px-3 sm:px-5">
       <IconButton
         label="Open navigation"
         className="lg:hidden"
@@ -123,7 +123,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
 
       <button
         onClick={onOpenSearch}
-        className="group hidden h-9.5 w-64 items-center gap-2 rounded-lg border border-ink-200 bg-ink-25/80 px-3 text-left text-[12.5px] text-ink-400 transition-all hover:border-brand-300 hover:bg-white md:flex xl:w-80"
+        className="group hidden h-9.5 w-64 items-center gap-2 rounded-lg border border-ink-200 bg-ink-25/80 px-3 text-left text-[12.5px] text-ink-400 transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:border-brand-300 hover:bg-white md:flex xl:w-80"
       >
         <Search className="size-4 transition-colors group-hover:text-brand-600" />
         <span className="flex-1 truncate">
@@ -406,7 +406,7 @@ export function GlobalSearch({
 
   return (
     <div
-      className="fixed inset-0 z-[85] flex items-start justify-center bg-ink-950/45 p-4 pt-[12vh] backdrop-blur-[2px] animate-fade-in"
+      className="fixed inset-0 z-[85] flex items-start justify-center bg-ink-950/55 p-4 pt-[12vh] animate-fade-in"
       onClick={onClose}
     >
       <div

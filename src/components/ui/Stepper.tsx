@@ -45,7 +45,7 @@ export function Stepper<T extends StepItem>({
 
           const Icon: LucideIcon = step.icon;
           const circle = cn(
-            "grid size-10 shrink-0 place-items-center rounded-full border transition-all duration-200",
+            "grid size-10 shrink-0 place-items-center rounded-full border transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200",
             isCompleted
               ? "border-mint-500 bg-mint-500 text-white"
               : isActive
@@ -69,7 +69,7 @@ export function Stepper<T extends StepItem>({
                 aria-disabled={locked || undefined}
                 title={locked ? "Complete step 1 to unlock" : step.hint}
                 className={cn(
-                  "group flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all duration-150 sm:flex-none",
+                  "group flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150 sm:flex-none",
                   "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20",
                   locked
                     ? "cursor-not-allowed"
@@ -132,7 +132,7 @@ export function Stepper<T extends StepItem>({
                 <span className="hidden h-0.5 flex-1 overflow-hidden rounded-full bg-ink-100 sm:block">
                   <span
                     className={cn(
-                      "block h-full rounded-full bg-mint-500 transition-all duration-500",
+                      "block h-full rounded-full bg-mint-500 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-500",
                       isCompleted ? "w-full" : "w-0",
                     )}
                   />

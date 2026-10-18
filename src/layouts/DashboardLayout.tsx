@@ -44,7 +44,7 @@ export function DashboardLayout() {
         createPortal(
           <div className="fixed inset-0 z-50 lg:hidden">
             <div
-              className="absolute inset-0 bg-ink-950/50 backdrop-blur-[2px] animate-fade-in"
+              className="absolute inset-0 bg-ink-950/55 animate-fade-in"
               onClick={() => dispatch(setMobileNav(false))}
             />
             <div className="absolute inset-y-0 left-0 w-[262px] animate-slide-in">

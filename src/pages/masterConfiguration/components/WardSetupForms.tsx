@@ -17,6 +17,18 @@
 
 import { useEffect, useState } from "react";
 import { useForm } from "@/hooks/useForm";
+import {
+  roomTypeSchema,
+  ROOM_TYPE_LABELS,
+  roomSchema,
+  ROOM_LABELS,
+  bedSchema,
+  BED_LABELS,
+  bulkBedsSchema,
+  BULK_BEDS_LABELS,
+  amenitySchema,
+  AMENITY_LABELS,
+} from "@/pages/masterConfiguration/ward.schema";
 import { BedDouble, Plus } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
@@ -135,8 +147,8 @@ export function RoomTypeForm({
       isDialysis: editing?.isDialysis ?? false,
       isActive: editing?.isActive ?? true,
     },
-    schema: { name: [{ required: "Required" }], code: [{ required: "Required" }] },
-    labels: { name: "Name", code: "Code" },
+    schema: roomTypeSchema,
+    labels: ROOM_TYPE_LABELS,
   });
 
   const submit = form.handleSubmit(async (v) => {
@@ -326,11 +338,8 @@ export function RoomForm({
       hasMonitor: false,
       isActive: editing?.isActive ?? true,
     },
-    schema: {
-      roomTypeId: [{ required: "Required" }],
-      roomNumber: [{ required: "Required" }],
-    },
-    labels: { roomTypeId: "Room type", roomNumber: "Room number" },
+    schema: roomSchema,
+    labels: ROOM_LABELS,
   });
 
   const submit = form.handleSubmit(async (v) => {
@@ -514,11 +523,8 @@ export function BedForm({
   /* Values, validation and touched state live in the shared form hook. */
   const form = useForm({
     initialValues: { roomId: presetRoomId ?? "", bedNumber: "" },
-    schema: {
-      roomId: [{ required: "Required" }],
-      bedNumber: [{ required: "Required" }],
-    },
-    labels: { roomId: "Room", bedNumber: "Bed number" },
+    schema: bedSchema,
+    labels: BED_LABELS,
   });
 
   const submit = form.handleSubmit(async (v) => {
@@ -615,8 +621,8 @@ export function BulkBedsForm({
       endNumber: 20,
       prefix: "",
     },
-    schema: { roomId: [{ required: "Required" }] },
-    labels: { roomId: "Room" },
+    schema: bulkBedsSchema,
+    labels: BULK_BEDS_LABELS,
   });
   /* The per-run result is page state, not a form field. */
   const [result, setResult] = useState<BulkBedsResult | null>(null);
@@ -891,8 +897,8 @@ export function AmenityForm({
       icon: editing?.icon ?? "",
       isActive: editing?.isActive ?? true,
     },
-    schema: { name: [{ required: "Required" }], code: [{ required: "Required" }] },
-    labels: { name: "Name", code: "Code" },
+    schema: amenitySchema,
+    labels: AMENITY_LABELS,
   });
 
   const submit = form.handleSubmit(async (v) => {

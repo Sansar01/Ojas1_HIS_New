@@ -260,7 +260,7 @@ export function Dialog({
         <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger>
       )}
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="no-print fixed inset-0 z-[60] bg-ink-950/45 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="no-print fixed inset-0 z-[60] bg-ink-950/55 data-[state=open]:animate-fade-in" />
         <div
           className={cn(
             "print-dialog-shell fixed inset-0 z-[61] flex items-start justify-center overflow-y-auto p-4 sm:p-6",
@@ -346,7 +346,7 @@ export function Dialog({
                                 setStep(Math.min(steps.length - 1, maxDone + 1));
                               }}
                               className={cn(
-                                "group flex w-full min-w-[11rem] items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all",
+                                "group flex w-full min-w-[11rem] items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                                 active
                                   ? "bg-white shadow-card ring-1 ring-brand-200"
                                   : "hover:bg-white/70",
@@ -452,7 +452,7 @@ export function Sheet({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-ink-950/45 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[60] bg-ink-950/55 data-[state=open]:animate-fade-in" />
         <DialogPrimitive.Content
           className={cn(
             "fixed inset-y-0 z-[61] flex w-full flex-col border-ink-100 bg-white shadow-pop",
@@ -514,7 +514,7 @@ export function ConfirmDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-ink-950/50 backdrop-blur-[2px]" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-ink-950/55" />
         <div className="fixed inset-0 z-[71] grid place-items-center p-4">
           <DialogPrimitive.Content className="w-full max-w-md rounded-2xl border border-ink-100 bg-white p-5 shadow-pop animate-fade-up">
             <div className="flex gap-3.5">
@@ -718,7 +718,7 @@ export function Tabs({
             key={tab.value}
             value={tab.value}
             className={cn(
-              "relative flex shrink-0 items-center gap-2 whitespace-nowrap text-[13px] font-medium transition-all",
+              "relative flex shrink-0 items-center gap-2 whitespace-nowrap text-[13px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
               variant === "underline"
                 ? "border-b-2 border-transparent px-3 py-2.5 text-ink-500 hover:text-ink-800 data-[state=active]:border-brand-500 data-[state=active]:text-brand-700"
                 : "rounded-lg px-3 py-1.5 text-ink-500 hover:text-ink-800 data-[state=active]:bg-white data-[state=active]:text-ink-900 data-[state=active]:shadow-sm",

@@ -9,6 +9,7 @@ import { consultationService } from "@/pages/consultations/consultation.service"
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
+import { appointmentSchema } from "@/pages/appointments/appointment.schema";
 import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
 import { SlotPicker } from "./AppointmentsPage";
@@ -227,14 +228,7 @@ export function AppointmentFormModal({
       notes: "",
       reason: "",
     },
-    schema: {
-      patientId: [{ required: "Patient is required" }],
-      doctorId: [{ required: "Doctor is required" }],
-      type: [{ required: "Appointment Type is required" }],
-      visitType: [{ required: "Visit Type is required" }],
-      date: [{ required: "Date is required" }],
-      time: [{ required: "Time slot is required" }],
-    },
+    schema: appointmentSchema,
   });
 
   const doctor = doctors.find((d: any) => d.id === form.values.doctorId);

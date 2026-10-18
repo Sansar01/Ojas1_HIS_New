@@ -99,7 +99,7 @@ export function BedTile({
           : `${bed.bedIdentifier} — ${meta.label}`
       }
       className={cn(
-        "group relative flex flex-col items-start gap-1 rounded-xl border px-2.5 py-2 text-left transition-all duration-150",
+        "group relative flex flex-col items-start gap-1 rounded-xl border px-2.5 py-2 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
         meta.tile,
         clickable && "cursor-pointer hover:-translate-y-0.5 hover:shadow-pop",
         !clickable && "cursor-not-allowed opacity-70",

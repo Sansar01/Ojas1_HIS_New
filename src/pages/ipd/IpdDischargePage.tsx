@@ -36,6 +36,7 @@ import {
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
+import { DISCHARGE_LABELS, dischargeSchema } from "@/pages/ipd/ipd.schema";
 import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
 import { Button, Badge } from "@/components/ui/primitives";
 import { Select, Textarea } from "@/components/ui/fields";
@@ -175,10 +176,8 @@ export function IpdDischargePage() {
       dischargeType: "NORMAL",
       dischargeSummary: "",
     },
-    schema: {
-      dischargeType: [{ required: "Select the discharge type" }],
-    },
-    labels: { dischargeType: "Discharge type" },
+    schema: dischargeSchema,
+    labels: DISCHARGE_LABELS,
   });
 
   const submitOrder = form.handleSubmit(async (values) => {

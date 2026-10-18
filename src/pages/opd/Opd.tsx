@@ -417,7 +417,7 @@ export function OpdExaminationRoom() {
               <button
                 type="button"
                 onClick={() => setActiveTab("waiting")}
-                className={`flex-1 py-1.5 rounded-md transition-all ${
+                className={`flex-1 py-1.5 rounded-md transition-[color,background-color,border-color,box-shadow,transform,opacity] ${
                   activeTab === "waiting"
                     ? "bg-white shadow border border-gray-200 text-gray-900"
                     : "text-gray-500 hover:text-gray-700"
@@ -428,7 +428,7 @@ export function OpdExaminationRoom() {
               <button
                 type="button"
                 onClick={() => setActiveTab("done")}
-                className={`flex-1 py-1.5 rounded-md transition-all ${
+                className={`flex-1 py-1.5 rounded-md transition-[color,background-color,border-color,box-shadow,transform,opacity] ${
                   activeTab === "done"
                     ? "bg-white shadow border border-gray-200 text-gray-900"
                     : "text-gray-500 hover:text-gray-700"
@@ -473,7 +473,7 @@ export function OpdExaminationRoom() {
                     <div
                       key={item.id}
                       onClick={() => handleSelectPatient(item)}
-                      className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                      className={`border rounded-lg p-4 cursor-pointer transition-[color,background-color,border-color,box-shadow,transform,opacity] ${
                         isActive
                           ? "border-teal-500 bg-teal-50/30 shadow-sm ring-1 ring-teal-500"
                           : "border-gray-200 bg-white hover:border-teal-300 hover:shadow-sm"
@@ -616,7 +616,7 @@ export function OpdExaminationRoom() {
                             type="button"
                             onClick={() => setPainScore(num)}
                             disabled={submitting}
-                            className={`w-9 h-9 flex items-center justify-center rounded-md border text-sm font-medium transition-all ${
+                            className={`w-9 h-9 flex items-center justify-center rounded-md border text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity] ${
                               painScore === num
                                 ? "bg-teal-700 text-white border-teal-700 shadow-inner"
                                 : "bg-white text-gray-700 border-gray-300 hover:bg-slate-50"
@@ -887,7 +887,7 @@ function VitalInput({
         {label}
       </label>
       <div
-        className={`flex items-center border rounded-lg bg-white overflow-hidden transition-all focus-within:ring-1 focus-within:border-teal-500 focus-within:ring-teal-500 ${
+        className={`flex items-center border rounded-lg bg-white overflow-hidden transition-[color,background-color,border-color,box-shadow,transform,opacity] focus-within:ring-1 focus-within:border-teal-500 focus-within:ring-teal-500 ${
           isAlert ? "border-red-300 bg-red-50/10" : "border-gray-300"
         } ${disabled ? "opacity-60 bg-gray-50 cursor-not-allowed" : ""}`}
       >

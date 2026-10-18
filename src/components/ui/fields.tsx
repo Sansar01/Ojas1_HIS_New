@@ -88,7 +88,7 @@ export function Field({
 }
 
 const controlBase =
-  "w-full rounded-lg border bg-white text-sm text-ink-800 transition-all duration-150 placeholder:text-ink-400 " +
+  "w-full rounded-lg border bg-white text-sm text-ink-800 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150 placeholder:text-ink-400 " +
   "focus:outline-none focus:ring-4 focus:ring-brand-500/20 focus:border-brand-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400";
 
 export const fieldClasses = (
@@ -677,7 +677,7 @@ export function MultiSelect<T extends string = string>({
                   >
                     <span
                       className={cn(
-                        "grid size-4.5 shrink-0 place-items-center rounded border transition-all",
+                        "grid size-4.5 shrink-0 place-items-center rounded border transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                         checked
                           ? "border-brand-600 bg-brand-600 text-white"
                           : "border-ink-300 bg-white",
@@ -731,7 +731,7 @@ export function Checkbox({
         disabled={disabled}
         onCheckedChange={(v) => onCheckedChange(v === true)}
         className={cn(
-          "mt-0.5 grid size-[17px] shrink-0 place-items-center rounded-[5px] border transition-all duration-150",
+          "mt-0.5 grid size-[17px] shrink-0 place-items-center rounded-[5px] border transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
           "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
           checked
             ? "border-brand-600 bg-brand-600 text-white"
@@ -853,7 +853,7 @@ export function RadioGroup({
             key={opt.value}
             value={opt.value}
             className={cn(
-              "group flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-all",
+              "group flex items-center gap-2 rounded-lg border px-3 py-2 text-[13px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
               value === opt.value
                 ? "border-brand-500 bg-brand-25 text-brand-800 shadow-[0_0_0_3px_rgba(30,158,144,.08)]"
                 : "border-ink-200 bg-white text-ink-600 hover:border-ink-300",
@@ -937,7 +937,7 @@ export function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(opt.value)}
           className={cn(
-            "rounded-[7px] font-medium transition-all duration-150",
+            "rounded-[7px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
             size === "sm"
               ? "px-2.5 py-1 text-[12px]"
               : "px-3.5 py-1.5 text-[13px]",
@@ -1137,7 +1137,7 @@ export function DatePicker({
                       setOpen(false);
                     }}
                     className={cn(
-                      "num h-8 rounded-lg text-[12.5px] font-medium transition-all",
+                      "num h-8 rounded-lg text-[12.5px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                       active
                         ? "bg-brand-600 text-white shadow-[0_6px_14px_-8px_rgba(13,105,97,.9)]"
                         : disabledDay
@@ -1238,7 +1238,7 @@ export function PermissionMatrix({
                       disabled={readOnly}
                       onClick={() => onToggle(m, p)}
                       className={cn(
-                        "mx-auto grid size-6 place-items-center rounded-md border transition-all",
+                        "mx-auto grid size-6 place-items-center rounded-md border transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                         checked
                           ? "border-brand-600 bg-brand-600 text-white"
                           : "border-ink-200 bg-white text-transparent hover:border-brand-300",

@@ -78,7 +78,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                   to={path}
                   className={({ isActive }) =>
                     cn(
-                      "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-all duration-150",
+                      "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
                       isActive
                         ? "bg-brand-500/16 text-white ring-1 ring-inset ring-brand-400/35"
                         : "text-white/62 hover:bg-white/7 hover:text-white",
@@ -90,7 +90,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                     <>
                       <span
                         className={cn(
-                          "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300 transition-all",
+                          "absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-300 transition-[color,background-color,border-color,box-shadow,transform,opacity]",
                           isActive ? "opacity-100" : "opacity-0",
                         )}
                       />

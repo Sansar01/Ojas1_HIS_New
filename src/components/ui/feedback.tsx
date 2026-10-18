@@ -437,23 +437,16 @@ export function LoaderOverlay({
   visible: boolean;
   label?: string | null;
 }) {
+  // Unmounted while idle: an always-present full-screen layer costs
+  // compositing work on every scroll for nothing.
+  if (!visible) return null;
   return (
     <div
-      className={cn(
-        "fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/25 backdrop-blur-[1px] transition-opacity duration-200",
-        visible
-          ? "pointer-events-auto opacity-100"
-          : "pointer-events-none opacity-0",
-      )}
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/25 animate-fade-in"
       aria-live="polite"
-      aria-busy={visible}
+      aria-busy
     >
-      <div
-        className={cn(
-          "flex items-center gap-3 rounded-xl border border-ink-100 bg-white/95 px-4 py-3 shadow-pop transition-transform",
-          visible ? "scale-100" : "scale-95",
-        )}
-      >
+      <div className="flex items-center gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3 shadow-pop">
         <span className="relative grid size-8 place-items-center">
           <Spinner className="text-brand-600" size={26} />
         </span>
@@ -509,7 +502,7 @@ function ToastCard({ toast }: { toast: Toast }) {
     <div
       role="status"
       className={cn(
-        "pointer-events-auto relative w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-ink-100 bg-white/97 pl-3.5 pr-3 py-3 shadow-pop ring-1 animate-fade-up backdrop-blur",
+        "pointer-events-auto relative w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-ink-100 bg-white pl-3.5 pr-3 py-3 shadow-pop ring-1 animate-fade-up",
         style.ring,
       )}
     >
