@@ -26,8 +26,14 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
-import { Button, Badge, Kpi, Panel, Progress } from "@/components/ui/primitives";
+import { toast } from "@/store/slices/uiSlice";
+import {
+  Button,
+  Badge,
+  Kpi,
+  Panel,
+  Progress,
+} from "@/components/ui/primitives";
 import { Select, SearchInput } from "@/components/ui/fields";
 import {
   CardSkeleton,
@@ -39,6 +45,7 @@ import {
 import { PageIntro, SectionPanel } from "@/components/common";
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { ipdService } from "./ipd.service";
+import { wardMasterService } from "@/pages/masterConfiguration/wardMaster.service";
 import {
   AssignBedDialog,
   BedLegend,
@@ -58,7 +65,7 @@ import {
 export function IpdWardBoardPage() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const { canCreate } = usePermission();
+  const { canCreate, canView } = usePermission();
   const { ask, confirmNode } = useConfirmDialog();
 
   const [beds, setBeds] = useState<BedRow[]>([]);
@@ -71,8 +78,6 @@ export function IpdWardBoardPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** false until the board has answered once — marks the blocking first paint */
-  const [initialised, setInitialised] = useState(false);
 
   const [typeFilter, setTypeFilter] = useState("all");
   const [genderFilter, setGenderFilter] = useState("all");
@@ -87,7 +92,7 @@ export function IpdWardBoardPage() {
     setError(null);
     try {
       const [bedsRes, activeRes, borRes, hkRes] = await Promise.all([
-        ipdService.fetchBeds({ isActive: true }),
+        wardMasterService.fetchBeds({ isActive: true }),
         ipdService.fetchActiveAdmissions(),
         ipdService.fetchBorDashboard(),
         ipdService.fetchHousekeepingQueue(),
@@ -101,7 +106,6 @@ export function IpdWardBoardPage() {
       dispatch(toast.error("Could not load the ward board", e?.message));
     } finally {
       setLoading(false);
-      setInitialised(true);
     }
   }, [dispatch]);
 
@@ -110,26 +114,17 @@ export function IpdWardBoardPage() {
   }, [loadAll]);
 
   /**
-   * The board is the whole screen: with no bed data there is nothing to read.
-   * The first paint is therefore the page's blocking initialization and runs
-   * under the app-wide loader (same rule as the record forms). Later loads —
-   * Refresh included — keep the app-wide loader down but swap every section
-   * for its skeleton, so the reload is always visible.
+   * Loading policy (review §C): page + dashboard loads use their own
+   * skeletons, never the app-wide loader; Refresh carries its button spinner
+   * and swaps every section back to its skeleton, so a reload is always
+   * visible and pressing Refresh is never silent.
    */
-  const initialLoading = loading && !initialised;
-  useEffect(() => {
-    if (!initialLoading) return;
-    dispatch(showLoader("Loading ward board"));
-    return () => {
-      dispatch(hideLoader());
-    };
-  }, [initialLoading, dispatch]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const res = await ipdService.fetchRoomTypes();
+        const res = await wardMasterService.fetchRoomTypes();
         if (active && res.status === 200) setRoomTypes(res.data ?? []);
       } catch {
         /* filter list is optional — the board still works without it */
@@ -152,10 +147,7 @@ export function IpdWardBoardPage() {
 
   /** Admissions the doctor advised but no bed was given yet. */
   const pendingAdmissions = useMemo(
-    () =>
-      admissions.filter(
-        (a) => a.status === "ADMITTED" && !a.bedId,
-      ),
+    () => admissions.filter((a) => a.status === "ADMITTED" && !a.bedId),
     [admissions],
   );
 
@@ -184,8 +176,8 @@ export function IpdWardBoardPage() {
 
   const markBedAvailable = useCallback(
     async (bed: { id: string; bedIdentifier: string }, reason: string) => {
-      // bed status is a write to the ward state machine → global loader
-      dispatch(showLoader("Releasing bed"));
+      // write to the ward state machine → the confirm button shows its own
+      // spinner while this runs (useConfirmDialog), no global loader
       try {
         await ipdService.changeBedStatus(bed.id, {
           status: "AVAILABLE",
@@ -200,8 +192,6 @@ export function IpdWardBoardPage() {
         void loadAll();
       } catch (e: any) {
         dispatch(toast.error("Could not update bed", e?.message));
-      } finally {
-        dispatch(hideLoader());
       }
     },
     [dispatch, loadAll],
@@ -287,14 +277,6 @@ export function IpdWardBoardPage() {
             >
               Refresh
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<BedDouble />}
-              onClick={() => navigate("/ipd/setup")}
-            >
-              Ward setup
-            </Button>
           </>
         }
         onCreate={() => navigate("/ipd/admissions/new")}
@@ -308,21 +290,21 @@ export function IpdWardBoardPage() {
               <Skeleton className="h-6 w-32 rounded-full" />
             </>
           ) : (
-          <>
-            <Badge tone="brand" dot>
-              {occupied} occupied
-            </Badge>
-            <Badge tone="mint" dot>
-              {available} available
-            </Badge>
-            <Badge tone="amber">{housekeepingCount} cleaning</Badge>
-            <Badge tone="neutral">{totalBeds} countable beds</Badge>
-            {pendingAdmissions.length > 0 && (
-              <Badge tone="coral">
-                {pendingAdmissions.length} awaiting bed
+            <>
+              <Badge tone="brand" dot>
+                {occupied} occupied
               </Badge>
-            )}
-          </>
+              <Badge tone="mint" dot>
+                {available} available
+              </Badge>
+              <Badge tone="amber">{housekeepingCount} cleaning</Badge>
+              <Badge tone="neutral">{totalBeds} countable beds</Badge>
+              {pendingAdmissions.length > 0 && (
+                <Badge tone="coral">
+                  {pendingAdmissions.length} awaiting bed
+                </Badge>
+              )}
+            </>
           )
         }
       />
@@ -331,40 +313,40 @@ export function IpdWardBoardPage() {
       {loading ? (
         <CardSkeleton count={4} />
       ) : (
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi
-          label="Bed occupancy rate"
-          value={`${borPercent}%`}
-          hint={`${occupied} of ${totalBeds} countable beds`}
-          tone="brand"
-          icon={<TrendingUp />}
-          card
-        />
-        <Kpi
-          label="Occupied"
-          value={occupied}
-          hint="Patient currently in a bed"
-          tone="coral"
-          icon={<BedDouble />}
-          card
-        />
-        <Kpi
-          label="Available"
-          value={available}
-          hint="Ready to admit now"
-          tone="mint"
-          icon={<BedDouble />}
-          card
-        />
-        <Kpi
-          label="Awaiting bed"
-          value={pendingAdmissions.length}
-          hint="Admitted, bed not assigned"
-          tone="amber"
-          icon={<Users />}
-          card
-        />
-      </div>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Kpi
+            label="Bed occupancy rate"
+            value={`${borPercent}%`}
+            hint={`${occupied} of ${totalBeds} countable beds`}
+            tone="brand"
+            icon={<TrendingUp />}
+            card
+          />
+          <Kpi
+            label="Occupied"
+            value={occupied}
+            hint="Patient currently in a bed"
+            tone="coral"
+            icon={<BedDouble />}
+            card
+          />
+          <Kpi
+            label="Available"
+            value={available}
+            hint="Ready to admit now"
+            tone="mint"
+            icon={<BedDouble />}
+            card
+          />
+          <Kpi
+            label="Awaiting bed"
+            value={pendingAdmissions.length}
+            hint="Admitted, bed not assigned"
+            tone="amber"
+            icon={<Users />}
+            card
+          />
+        </div>
       )}
 
       <div className="mb-4 grid gap-4 xl:grid-cols-[2fr_1fr]">
@@ -415,7 +397,11 @@ export function IpdWardBoardPage() {
           </div>
 
           {error ? (
-            <ErrorState message={error} onRetry={() => void loadAll()} compact />
+            <ErrorState
+              message={error}
+              onRetry={() => void loadAll()}
+              compact
+            />
           ) : (
             <>
               {beds.length === 0 && !loading && (
@@ -428,9 +414,9 @@ export function IpdWardBoardPage() {
                       "POST /api/hospital/masters/beds + /beds/bulk",
                     ]}
                   >
-                    Create them under "Ward setup" above — the screen is ready
-                    and starts writing the moment the backend branch hims-v2 is
-                    deployed (these routes answer 404 until then). Until then
+                    Create them under Master Configuration → Ward, Room & Bed
+                    Setup — that console starts writing the moment the ward-room
+                    routes are deployed (they answer 404 until then). Until then
                     the board shows the beds the backend seed created.
                   </PendingBackendNote>
                 </div>
@@ -604,7 +590,13 @@ export function IpdWardBoardPage() {
                     </div>
                     <Progress
                       value={row.bor}
-                      tone={row.bor >= 90 ? "coral" : row.bor >= 70 ? "amber" : "mint"}
+                      tone={
+                        row.bor >= 90
+                          ? "coral"
+                          : row.bor >= 70
+                            ? "amber"
+                            : "mint"
+                      }
                     />
                   </li>
                 ))}

@@ -217,6 +217,21 @@ export interface RoomOccupancy {
 }
 
 /** `GET /api/hospital/masters/ward-room/bor-dashboard`. */
+/**
+ * One row of `GET /masters/beds/:bedId/status-history` — the bed's state-machine
+ * audit trail (who moved it, from where to where and why).
+ */
+export interface BedStatusHistoryRow {
+  id: string;
+  bedId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string | null;
+  changedBy: string | null;
+  changedAt: string;
+  createdAt: string;
+}
+
 export interface BorDashboard {
   totalBeds: number;
   countableBeds: number;

@@ -22,7 +22,7 @@ import { toast } from "@/store/slices/uiSlice";
 import { Button, Badge } from "@/components/ui/primitives";
 import { Select, SearchInput } from "@/components/ui/fields";
 import { InlineLoader } from "@/components/ui/feedback";
-import { ipdService } from "@/pages/ipd/ipd.service";
+import { wardMasterService } from "@/pages/masterConfiguration/wardMaster.service";
 import type { BedRow, RoomTypeRow } from "@/types/ipdTypes";
 import { bedStatusOf, wardGenderConflict } from "@/constants/ipd.constants";
 import { BedLegend, WardBedGrid } from "./BedGrid";
@@ -63,7 +63,7 @@ export function BedPicker({
     let active = true;
     (async () => {
       try {
-        const res = await ipdService.fetchRoomTypes();
+        const res = await wardMasterService.fetchRoomTypes();
         if (active && res.status === 200) setRoomTypes(res.data ?? []);
       } catch (e: any) {
         // a missing room-type master must not break bed selection
@@ -80,7 +80,7 @@ export function BedPicker({
   const loadBeds = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await ipdService.fetchBeds({
+      const res = await wardMasterService.fetchBeds({
         roomTypeId: typeFilter === "all" ? undefined : typeFilter,
         gender: genderFilter === "all" ? undefined : genderFilter,
         isActive: true,

@@ -115,11 +115,6 @@ const IpdWardBoardPage = lazy(() =>
     default: m.IpdWardBoardPage,
   })),
 );
-const IpdWardSetupPage = lazy(() =>
-  import("@/pages/ipd/IpdWardSetupPage").then((m) => ({
-    default: m.IpdWardSetupPage,
-  })),
-);
 const IpdAdmissionsPage = lazy(() =>
   import("@/pages/ipd/IpdAdmissionsPage").then((m) => ({
     default: m.IpdAdmissionsPage,
@@ -401,6 +396,12 @@ export function AppRoutes() {
                 </ModuleRoute>
               }
             />
+            {/* Ward setup lives as a dialog on the Master Configuration page
+                (no separate screen); both old paths land on it. */}
+            <Route
+              path="/master-config/ward-setup"
+              element={<Navigate to="/master-config?open=ward-setup" replace />}
+            />
 
             {/* ── IPD ───────────────────────────────────────────────────────
                 Additive block: ward board (/ipd) → census → admission form →
@@ -416,13 +417,11 @@ export function AppRoutes() {
                 </ModuleRoute>
               }
             />
+            {/* Moved to Master Configuration — the old path stays alive as a
+                redirect that opens the ward-setup dialog there. */}
             <Route
               path="/ipd/setup"
-              element={
-                <ModuleRoute module="ipd" label="IPD Management">
-                  <IpdWardSetupPage />
-                </ModuleRoute>
-              }
+              element={<Navigate to="/master-config?open=ward-setup" replace />}
             />
             <Route
               path="/ipd/admissions"
