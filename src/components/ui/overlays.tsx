@@ -616,8 +616,13 @@ export function useConfirmDialog() {
           tone={state.tone}
           loading={state.loading}
           onConfirm={async () => {
-            await state.action?.();
-            setState((s) => ({ ...s, open: false }));
+            if (state.loading) return; // already running — ignore a second click
+            setState((s) => ({ ...s, loading: true }));
+            try {
+              await state.action?.();
+            } finally {
+              setState((s) => ({ ...s, open: false, loading: false }));
+            }
           }}
         />,
         document.body,

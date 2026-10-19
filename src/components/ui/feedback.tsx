@@ -16,6 +16,7 @@ import { cn } from "@/utils/cn";
 import { useAppDispatch } from "@/store/hooks";
 import { dismissToast, type Toast } from "@/store/slices/uiSlice";
 import { Button } from "@/components/ui/primitives";
+import { useAppSelector } from "@/store/hooks";
 import { useNavigate } from "react-router-dom";
 
 /* ------------------------------- Skeletons --------------------------------- */
@@ -430,16 +431,12 @@ export function Spinner({
 
 /* ------------------------------ Global loader ------------------------------- */
 
-export function LoaderOverlay({
-  visible,
-  label,
-}: {
-  visible: boolean;
-  label?: string | null;
-}) {
+/** Reads its own state so a show/hide never re-renders the shell around it. */
+export function LoaderOverlay() {
+  const { count, label } = useAppSelector((s) => s.ui.loader);
   // Unmounted while idle: an always-present full-screen layer costs
   // compositing work on every scroll for nothing.
-  if (!visible) return null;
+  if (count === 0) return null;
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-ink-950/25 animate-fade-in"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -6,15 +6,13 @@ import { useSidebarSync } from "@/hooks";
 import { setMobileNav, setSidebar } from "@/store/slices/uiSlice";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
-import { LoaderOverlay } from "@/components/ui/feedback";
+import { LoaderOverlay, PageSkeleton } from "@/components/ui/feedback";
 import { createPortal } from "react-dom";
 
 export function DashboardLayout() {
   const dispatch = useAppDispatch();
   const collapsed = useAppSelector((s) => s.ui.sidebarCollapsed);
   const mobileNavOpen = useAppSelector((s) => s.ui.mobileNavOpen);
-  const loaderCount = useAppSelector((s) => s.ui.loader.count);
-  const loaderLabel = useAppSelector((s) => s.ui.loader.label);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
@@ -61,12 +59,15 @@ export function DashboardLayout() {
           className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
         >
           <div className="mx-auto w-full max-w-[1600px]">
-            <Outlet />
+            {/* a lazy page suspends here, so the sidebar and header stay put */}
+            <Suspense fallback={<PageSkeleton />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
 
-      <LoaderOverlay visible={loaderCount > 0} label={loaderLabel} />
+      <LoaderOverlay />
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );

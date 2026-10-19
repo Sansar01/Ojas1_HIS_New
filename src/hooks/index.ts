@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useDeferredValue, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useAppSelector } from "@/store/hooks";
 import { selectUser } from "@/store/slices/authSlice";
 import type { Permission } from "@/types";
@@ -125,17 +131,10 @@ export function useTable<T extends Record<string, any>>(
     options.filters ?? null,
     options.sortAccessors,
   ]);
-  // Pages pass fresh inline option objects every render; keep the latest in a
-  // ref and re-run the filter/sort only when the data, search, sort or the
-  // filter *values* change.
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
-  const filtersKey = JSON.stringify(options.filters ?? {});
   // typing stays instant; the filter over the rows runs at lower priority
   const deferredSearch = useDeferredValue(query.search);
 
   const filtered = useMemo(() => {
-    const options = optionsRef.current;
     const search = deferredSearch.trim().toLowerCase();
     let out = rows;
     if (search && options.searchFields?.length) {
@@ -190,7 +189,7 @@ export function useTable<T extends Record<string, any>>(
         .map((x) => x.row);
     }
     return out;
-  }, [rows, query.search, query.sortBy, query.sortDir, optionsKey, filtersKey]);
+  }, [rows, deferredSearch, query.sortBy, query.sortDir, optionsKey]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));

@@ -7,9 +7,8 @@
  *   POST /api/ipd/admissions/:id/cancel       { reason? }
  *
  * Each dialog closes and calls `onDone()` after a successful write so the
- * owning page can refresh its list. The write is a blocking operation, so it
- * raises the app-wide loader (`showLoader` / `hideLoader`) exactly the way the
- * record forms do — the dialog's own button keeps its spinner too.
+ * owning page can refresh. The dialog's own button shows the spinner and the
+ * `saving` guard blocks a second submit; the page behind stays visible.
  *
  * Lives in the IPD feature folder (`src/pages/ipd/components/`).
  */
@@ -17,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { BedDouble, ArrowLeftRight, Ban } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Button, Badge } from "@/components/ui/primitives";
 import { Textarea } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlays";
@@ -51,7 +50,6 @@ export function AssignBedDialog({
   const submit = async () => {
     if (!admission || !bedId || saving) return;
     setSaving(true);
-    dispatch(showLoader("Assigning bed"));
     try {
       await ipdService.assignBed(admission.id, bedId);
       dispatch(
@@ -66,7 +64,6 @@ export function AssignBedDialog({
       dispatch(toast.error("Could not assign bed", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -139,7 +136,6 @@ export function TransferBedDialog({
   const submit = async () => {
     if (!admission || !bedId || saving) return;
     setSaving(true);
-    dispatch(showLoader("Transferring patient"));
     try {
       await ipdService.transferBed(admission.id, bedId, reason);
       dispatch(
@@ -151,7 +147,6 @@ export function TransferBedDialog({
       dispatch(toast.error("Could not transfer bed", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -238,7 +233,6 @@ export function CancelAdmissionDialog({
   const submit = async () => {
     if (!admission || saving) return;
     setSaving(true);
-    dispatch(showLoader("Cancelling admission"));
     try {
       await ipdService.cancelAdmission(admission.id, reason);
       dispatch(
@@ -253,7 +247,6 @@ export function CancelAdmissionDialog({
       dispatch(toast.error("Could not cancel admission", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 

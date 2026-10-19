@@ -10,7 +10,7 @@
  *
  * Same conventions as every other dialog in this module: plain `<Dialog>` with
  * page-owned content + footer, local state, service call in try…catch, toast on
- * failure, app-wide loader for the write, `onDone()` so the owning panel
+ * failure, the button spinner for the write, `onDone()` so the owning panel
  * refreshes. Field names mirror the backend DTOs 1:1.
  *
  * Lives in the IPD feature folder (`src/pages/ipd/components/`).
@@ -21,7 +21,7 @@ import { Badge, Button } from "@/components/ui/primitives";
 import { Input, NumberInput, Select, Textarea } from "@/components/ui/fields";
 import { Dialog } from "@/components/ui/overlays";
 import { useAppDispatch } from "@/store/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { ipdService } from "@/pages/ipd/ipd.service";
 import {
   CHARGE_CATEGORY_OPTIONS,
@@ -96,7 +96,6 @@ export function RecordVitalsDialog({
   const submit = async () => {
     if (saving || !hasMeasurement) return;
     setSaving(true);
-    dispatch(showLoader("Saving vitals"));
     try {
       const res = await ipdService.recordIpdVitals({
         admissionId,
@@ -118,7 +117,6 @@ export function RecordVitalsDialog({
       dispatch(toast.error("Could not record vitals", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -260,7 +258,6 @@ export function AddRoundDialog({
   const submit = async () => {
     if (saving || !hasContent) return;
     setSaving(true);
-    dispatch(showLoader("Saving round note"));
     try {
       const res = await ipdService.recordIpdRound({
         admissionId,
@@ -281,7 +278,6 @@ export function AddRoundDialog({
       dispatch(toast.error("Could not save the round note", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -390,7 +386,6 @@ export function AddMedicationDialog({
   const submit = async () => {
     if (saving || !drugName.trim() || !dose.trim()) return;
     setSaving(true);
-    dispatch(showLoader("Saving medication order"));
     try {
       const res = await ipdService.orderIpdMedication({
         admissionId,
@@ -415,7 +410,6 @@ export function AddMedicationDialog({
       dispatch(toast.error("Could not order the medication", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -527,7 +521,6 @@ export function ChangeDietDialog({
   const submit = async () => {
     if (saving) return;
     setSaving(true);
-    dispatch(showLoader("Saving diet order"));
     try {
       const res = await ipdService.orderIpdDiet({
         admissionId,
@@ -548,7 +541,6 @@ export function ChangeDietDialog({
       dispatch(toast.error("Could not save the diet order", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -633,7 +625,6 @@ export function AddChargeDialog({
   const submit = async () => {
     if (saving || !description.trim() || unitPrice <= 0) return;
     setSaving(true);
-    dispatch(showLoader("Posting charge"));
     try {
       const res = await ipdService.postIpdCharge({
         admissionId,
@@ -669,7 +660,6 @@ export function AddChargeDialog({
       }
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 
@@ -805,7 +795,6 @@ export function RecordPaymentDialog({
   const submit = async () => {
     if (saving || amount <= 0) return;
     setSaving(true);
-    dispatch(showLoader("Recording payment"));
     try {
       const res = await ipdService.recordIpdPayment(admissionId, {
         amount,
@@ -827,7 +816,6 @@ export function RecordPaymentDialog({
       dispatch(toast.error("Could not record the payment", e?.message));
     } finally {
       setSaving(false);
-      dispatch(hideLoader());
     }
   };
 

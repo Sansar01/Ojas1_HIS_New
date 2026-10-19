@@ -21,7 +21,7 @@ import { BedDouble, CheckCircle2 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { useForm } from "@/hooks/useForm";
 import { ADMISSION_LABELS, admissionSchema } from "@/pages/ipd/ipd.schema";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Button, Badge, Panel } from "@/components/ui/primitives";
 import {
   Checkbox,
@@ -105,22 +105,8 @@ export function IpdAdmissionFormPage() {
     };
   }, [dispatch]);
 
-  /**
-   * The form cannot be filled before its reference lists arrive (no patient or
-   * doctor ⇒ no admission), so the first paint is a blocking initialization and
-   * runs under the app-wide loader — the same rule the patient registration and
-   * add-user screens follow. Each dropdown keeps its own inline
-   * "Loading …" label for the case where a later list is still in flight.
-   */
   const referenceLoading =
     patientsLoading || doctorsLoading || panelsLoading || referDoctorsLoading;
-  useEffect(() => {
-    if (!referenceLoading) return;
-    dispatch(showLoader("Loading admission form"));
-    return () => {
-      dispatch(hideLoader());
-    };
-  }, [referenceLoading, dispatch]);
 
   /* --------------------------------- form --------------------------------- */
 
@@ -223,7 +209,6 @@ export function IpdAdmissionFormPage() {
     };
 
     // creating the admission is the page's blocking write → app-wide loader
-    dispatch(showLoader("Admitting patient"));
     try {
       const res = await ipdService.createAdmission(payload as any);
       const body: any = res.data ?? {};
@@ -248,7 +233,6 @@ export function IpdAdmissionFormPage() {
     } catch (e: any) {
       dispatch(toast.error("Admission failed", e?.message));
     } finally {
-      dispatch(hideLoader());
     }
   });
 

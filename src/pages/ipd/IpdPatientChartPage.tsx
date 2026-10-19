@@ -12,7 +12,7 @@
  *         wizard page) · complete-discharge · cancel
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeftRight,
@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Avatar, Badge, Button, Panel } from "@/components/ui/primitives";
 import { Tabs, useConfirmDialog } from "@/components/ui/overlays";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/ui/feedback";
@@ -73,44 +73,44 @@ export function IpdPatientChartPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabValue>("overview");
+  // Tabs already opened stay mounted (hidden): switching back is instant and
+  // does not refetch, and each tab keeps its rows, filters and scroll position.
+  const [visited, setVisited] = useState<ReadonlySet<TabValue>>(
+    () => new Set(["overview"]),
+  );
   const [dialog, setDialog] = useState<DialogKind>(null);
+
+  // A newer request (refresh, other patient) supersedes an older response.
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
     if (!id) return;
+    const mine = ++latest.current;
     setLoading(true);
     setError(null);
     try {
       const res = await ipdService.fetchAdmissionById(id);
-      if (res.status === 200) {
+      if (mine === latest.current && res.status === 200) {
         const body: any = res.data ?? {};
         setAdmission(body.data ?? body);
       }
     } catch (e: any) {
+      if (mine !== latest.current) return;
       setError(e?.message ?? "Could not load the admission");
       dispatch(toast.error("Could not load the admission", e?.message));
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [dispatch, id]);
 
+  // Opening a chart (or switching patient) starts from the page skeleton;
+  // every later `load()` refreshes the record in place with the chart on screen.
   useEffect(() => {
+    setAdmission(null);
+    setTab("overview");
+    setVisited(new Set(["overview"]));
     void load();
   }, [load]);
-
-  /**
-   * No admission ⇒ no chart, so the very first load is the page's blocking
-   * initialization and runs under the app-wide loader. Every load paints the
-   * shared page skeleton — refresh included: a silent refetch reads as "the
-   * API never fired", so the skeleton is the feedback.
-   */
-  const initialLoading = loading && !admission;
-  useEffect(() => {
-    if (!initialLoading) return;
-    dispatch(showLoader("Loading patient chart"));
-    return () => {
-      dispatch(hideLoader());
-    };
-  }, [initialLoading, dispatch]);
 
   const roomType = admission?.bed?.room?.roomType;
   const dailyEstimate = useMemo(
@@ -120,7 +120,6 @@ export function IpdPatientChartPage() {
 
   const completeDischarge = useCallback(async () => {
     if (!admission) return;
-    dispatch(showLoader("Completing discharge"));
     try {
       await ipdService.completeDischarge(admission.id);
       dispatch(
@@ -132,12 +131,10 @@ export function IpdPatientChartPage() {
       void load();
     } catch (e: any) {
       dispatch(toast.error("Could not complete discharge", e?.message));
-    } finally {
-      dispatch(hideLoader());
     }
   }, [admission, dispatch, load]);
 
-  if (loading) {
+  if (loading && !admission) {
     return <PageSkeleton label="Loading admission chart" />;
   }
 
@@ -354,7 +351,10 @@ export function IpdPatientChartPage() {
       {/* --------------------------------- tabs --------------------------------- */}
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as TabValue)}
+        onValueChange={(v) => {
+          setTab(v as TabValue);
+          setVisited((seen) => new Set(seen).add(v as TabValue));
+        }}
         tabs={[
           { value: "overview", label: "Overview" },
           { value: "vitals", label: "Vitals" },
@@ -365,8 +365,8 @@ export function IpdPatientChartPage() {
       />
 
       <div className="mt-4 space-y-4">
-        {tab === "overview" && (
-          <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+        {visited.has("overview") && (
+          <div hidden={tab !== "overview"} className="grid gap-4 xl:grid-cols-[2fr_1fr]">
             <SectionPanel
               title="Admission details"
               subtitle="Exactly as stored on the admission record"
@@ -457,9 +457,7 @@ export function IpdPatientChartPage() {
 
               <DietCard
                 admissionId={admission.id}
-                canWrite={canWrite}
-                onChanged={() => void load()}
-              />
+                canWrite={canWrite} />
 
               <SectionPanel
                 title="Care team & billing"
@@ -519,36 +517,28 @@ export function IpdPatientChartPage() {
           </div>
         )}
 
-        {tab === "vitals" && (
-          <VitalsPanel
-            admissionId={admission.id}
-            canWrite={canWrite}
-            onChanged={() => void load()}
-          />
+        {visited.has("vitals") && (
+          <div hidden={tab !== "vitals"}>
+            <VitalsPanel admissionId={admission.id} canWrite={canWrite} />
+          </div>
         )}
 
-        {tab === "medicines" && (
-          <MedicationsPanel
-            admissionId={admission.id}
-            canWrite={canWrite}
-            onChanged={() => void load()}
-          />
+        {visited.has("medicines") && (
+          <div hidden={tab !== "medicines"}>
+            <MedicationsPanel admissionId={admission.id} canWrite={canWrite} />
+          </div>
         )}
 
-        {tab === "notes" && (
-          <RoundsPanel
-            admissionId={admission.id}
-            canWrite={canWrite}
-            onChanged={() => void load()}
-          />
+        {visited.has("notes") && (
+          <div hidden={tab !== "notes"}>
+            <RoundsPanel admissionId={admission.id} canWrite={canWrite} />
+          </div>
         )}
 
-        {tab === "billing" && (
-          <BillingPanel
-            admissionId={admission.id}
-            canWrite={canWrite}
-            onChanged={() => void load()}
-          />
+        {visited.has("billing") && (
+          <div hidden={tab !== "billing"}>
+            <BillingPanel admissionId={admission.id} canWrite={canWrite} onChanged={() => void load()} />
+          </div>
         )}
       </div>
 

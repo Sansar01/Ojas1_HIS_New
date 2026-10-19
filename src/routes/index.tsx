@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import {
   RequireAuth,
@@ -19,122 +19,57 @@ import {
 import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 import { PermissionBootstrapPage } from "@/pages/auth/PermissionBootstrapPage";
 
+/* Each screen is its own chunk. `page` keeps the named exports the routes use
+   and records every loader so `PreloadPages` can warm the chunks in the
+   background — the first visit to a module then opens without a network wait. */
+const pageLoaders: Array<() => Promise<unknown>> = [];
+function page<K extends string>(
+  load: () => Promise<Record<K, ComponentType<any>>>,
+  name: K,
+) {
+  pageLoaders.push(load);
+  return lazy(() => load().then((m) => ({ default: m[name] })));
+}
+
+/** Idle-time chunk warm-up, mounted only behind the login (see the shell route). */
+function PreloadPages() {
+  useEffect(() => {
+    const id = setTimeout(() => pageLoaders.forEach((load) => void load()), 1500);
+    return () => clearTimeout(id);
+  }, []);
+  return null;
+}
+
 /* Everything behind the shell loads on demand — one chunk per screen, so a
-   first visit ships the shell instead of all 21 screens (report §13). The
-   `m.X` mapping merely keeps the named exports the routes below already use;
-   no call site or component changes. */
-const DashboardPage = lazy(() =>
-  import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
-);
-const PatientsPage = lazy(() =>
-  import("@/pages/patients/PatientsPage").then((m) => ({
-    default: m.PatientsPage,
-  })),
-);
-const PatientsFormPage = lazy(() =>
-  import("@/pages/patients/patientFormPage").then((m) => ({
-    default: m.PatientsFormPage,
-  })),
-);
-const PatientDetailPage = lazy(() =>
-  import("@/pages/patients/patientDetailPage").then((m) => ({
-    default: m.PatientDetailPage,
-  })),
-);
-const DoctorsPage = lazy(() =>
-  import("@/pages/doctors/DoctorsPage").then((m) => ({
-    default: m.DoctorsPage,
-  })),
-);
-const DoctorDetailPage = lazy(() =>
-  import("@/pages/doctors/DoctorsPage").then((m) => ({
-    default: m.DoctorDetailPage,
-  })),
-);
-const DepartmentsPage = lazy(() =>
-  import("@/pages/Departments/DepartmentsPage").then((m) => ({
-    default: m.DepartmentsPage,
-  })),
-);
-const SpecializationsPage = lazy(() =>
-  import("@/pages/Specializations/SpecializationPage").then((m) => ({
-    default: m.SpecializationsPage,
-  })),
-);
-const AppointmentsPage = lazy(() =>
-  import("@/pages/appointments/AppointmentsPage").then((m) => ({
-    default: m.AppointmentsPage,
-  })),
-);
-const ConsultationsPage = lazy(() =>
-  import("@/pages/consultations/ConsultationsPage").then((m) => ({
-    default: m.ConsultationsPage,
-  })),
-);
-const ConsultationWorkspacePage = lazy(() =>
-  import("@/pages/consultations/ConsultationsPage").then((m) => ({
-    default: m.ConsultationWorkspacePage,
-  })),
-);
-const BillingPage = lazy(() =>
-  import("@/pages/billing/BillingPage").then((m) => ({
-    default: m.BillingPage,
-  })),
-);
-const UsersPage = lazy(() =>
-  import("@/pages/users/UsersPage").then((m) => ({ default: m.UsersPage })),
-);
-const UsersNewPage = lazy(() =>
-  import("@/pages/users/UsersNewPage").then((m) => ({
-    default: m.UsersNewPage,
-  })),
-);
-const RolesPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.RolesPage })),
-);
-const SettingsPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.SettingsPage })),
-);
-const NotFoundPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.NotFoundPage })),
-);
-const OpdExaminationRoom = lazy(() =>
-  import("@/pages/opd/Opd").then((m) => ({ default: m.OpdExaminationRoom })),
-);
-const MasterConfigurationPage = lazy(() =>
-  import("@/pages/masterConfiguration/MasterConfigurationPage").then((m) => ({
-    default: m.MasterConfigurationPage,
-  })),
-);
+   first visit ships the shell instead of all 21 screens (report §13). */
+const DashboardPage = page(() => import("@/pages/DashboardPage"), "DashboardPage");
+const PatientsPage = page(() => import("@/pages/patients/PatientsPage"), "PatientsPage");
+const PatientsFormPage = page(() => import("@/pages/patients/patientFormPage"), "PatientsFormPage");
+const PatientDetailPage = page(() => import("@/pages/patients/patientDetailPage"), "PatientDetailPage");
+const DoctorsPage = page(() => import("@/pages/doctors/DoctorsPage"), "DoctorsPage");
+const DoctorDetailPage = page(() => import("@/pages/doctors/DoctorsPage"), "DoctorDetailPage");
+const DepartmentsPage = page(() => import("@/pages/Departments/DepartmentsPage"), "DepartmentsPage");
+const SpecializationsPage = page(() => import("@/pages/Specializations/SpecializationPage"), "SpecializationsPage");
+const AppointmentsPage = page(() => import("@/pages/appointments/AppointmentsPage"), "AppointmentsPage");
+const ConsultationsPage = page(() => import("@/pages/consultations/ConsultationsPage"), "ConsultationsPage");
+const ConsultationWorkspacePage = page(() => import("@/pages/consultations/ConsultationsPage"), "ConsultationWorkspacePage");
+const BillingPage = page(() => import("@/pages/billing/BillingPage"), "BillingPage");
+const UsersPage = page(() => import("@/pages/users/UsersPage"), "UsersPage");
+const UsersNewPage = page(() => import("@/pages/users/UsersNewPage"), "UsersNewPage");
+const RolesPage = page(() => import("@/pages/admin/AdminPages"), "RolesPage");
+const SettingsPage = page(() => import("@/pages/admin/AdminPages"), "SettingsPage");
+const NotFoundPage = page(() => import("@/pages/admin/AdminPages"), "NotFoundPage");
+const OpdExaminationRoom = page(() => import("@/pages/opd/Opd"), "OpdExaminationRoom");
+const MasterConfigurationPage = page(() => import("@/pages/masterConfiguration/MasterConfigurationPage"), "MasterConfigurationPage");
 
 /* IPD module — ward board, admission census, admission form, patient chart and
    the discharge wizard. Pure additions: the pages live under
    `src/pages/ipd/` and touch no existing screen. */
-const IpdWardBoardPage = lazy(() =>
-  import("@/pages/ipd/IpdWardBoardPage").then((m) => ({
-    default: m.IpdWardBoardPage,
-  })),
-);
-const IpdAdmissionsPage = lazy(() =>
-  import("@/pages/ipd/IpdAdmissionsPage").then((m) => ({
-    default: m.IpdAdmissionsPage,
-  })),
-);
-const IpdAdmissionFormPage = lazy(() =>
-  import("@/pages/ipd/IpdAdmissionFormPage").then((m) => ({
-    default: m.IpdAdmissionFormPage,
-  })),
-);
-const IpdPatientChartPage = lazy(() =>
-  import("@/pages/ipd/IpdPatientChartPage").then((m) => ({
-    default: m.IpdPatientChartPage,
-  })),
-);
-const IpdDischargePage = lazy(() =>
-  import("@/pages/ipd/IpdDischargePage").then((m) => ({
-    default: m.IpdDischargePage,
-  })),
-);
+const IpdWardBoardPage = page(() => import("@/pages/ipd/IpdWardBoardPage"), "IpdWardBoardPage");
+const IpdAdmissionsPage = page(() => import("@/pages/ipd/IpdAdmissionsPage"), "IpdAdmissionsPage");
+const IpdAdmissionFormPage = page(() => import("@/pages/ipd/IpdAdmissionFormPage"), "IpdAdmissionFormPage");
+const IpdPatientChartPage = page(() => import("@/pages/ipd/IpdPatientChartPage"), "IpdPatientChartPage");
+const IpdDischargePage = page(() => import("@/pages/ipd/IpdDischargePage"), "IpdDischargePage");
 
 /**
  * Entitlement keys of the IPD module. The backend seeds the module as
@@ -224,6 +159,7 @@ export function AppRoutes() {
             element={
               <RequireAuth>
                 <RequireBootstrap>
+                  <PreloadPages />
                   <DashboardLayout />
                 </RequireBootstrap>
               </RequireAuth>
