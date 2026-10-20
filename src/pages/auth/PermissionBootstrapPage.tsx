@@ -53,6 +53,21 @@ import { Button } from "@/components/ui/primitives";
  */
 const POST_BOOTSTRAP_ROUTE = "/dashboard";
 
+/**
+ * Where the bootstrap is about to hand over. This stage is the last place the
+ * app is already waiting on the network (modules, then permissions), so the
+ * landing chunk is requested HERE: by the time the hand-over happens the
+ * dashboard's code is normally resolved, and the user never sees the route
+ * fallback at all.
+ */
+function prewarmTarget(target: string) {
+  if (target.startsWith("/dashboard")) {
+    // dynamic: stays out of the login screen's critical path, and deduped by
+    // the module loader against the router's own lazy import
+    void import("@/pages/DashboardPage").catch(() => {});
+  }
+}
+
 /** Only an in-app route may be restored — never an external URL, the bootstrap
  *  stage itself, an auth page, or the bare root (login → dashboard). */
 function sanitizeNext(next: string): string {
@@ -87,6 +102,8 @@ export function PermissionBootstrapPage() {
    */
   useEffect(() => {
     if (status === "idle") {
+      // start downloading the landing screen while the bootstrap runs
+      prewarmTarget(target);
       dispatch(fetchModules());
     } else if (status === "loading-permissions") {
       dispatch(loadUserPermissions());

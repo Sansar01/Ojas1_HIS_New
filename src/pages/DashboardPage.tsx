@@ -54,7 +54,7 @@ import {
   PanelHeader,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { Skeleton } from "@/components/ui/feedback";
+import { DashboardSkeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
 import { APPT_TYPE_COLORS } from "@/constants";
 import React from "react";
@@ -230,6 +230,21 @@ const FLOW_CHART_OPTIONS = {
   },
 };
 
+/**
+ * KPI icons, hoisted. `KpiCard` is memoized, and an inline `icon={ICON_PATIENTS}`
+ * at the call site is a NEW React element on every render of the dashboard —
+ * which alone was enough to re-render all eight cards whenever the page
+ * re-rendered. Stable elements keep the memo effective.
+ */
+const ICON_PATIENTS = <Users />;
+const ICON_DOCTORS = <Stethoscope />;
+const ICON_TODAY = <CalendarClock />;
+const ICON_TOTAL_APPOINTMENTS = <Archive />;
+const ICON_COMPLETED = <CheckCircle2 />;
+const ICON_PENDING = <ClipboardList />;
+const ICON_REVENUE = <Banknote />;
+const ICON_OUTSTANDING = <Clock />;
+
 const DOUGHNUT_COLORS = [
   "#a9eae0",
   "#0f8377",
@@ -277,74 +292,6 @@ const BAR_OPTIONS = {
     },
   },
 };
-
-/**
- * Dashboard skeleton — the same blocks, spacing and responsive columns as the
- * loaded dashboard (command banner → KPI grid → three panels), so the layout
- * does not jump when the data arrives.
- */
-function DashboardSkeleton() {
-  return (
-    <>
-      {/* command banner */}
-      <div className="rounded-2xl bg-ink-950 px-5 py-5 shadow-pop sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          {/* <div className="space-y-3">
-            <Skeleton className="h-3 w-40 bg-white/15" />
-            <Skeleton className="h-6 w-72 max-w-full bg-white/15" />
-            <Skeleton className="h-3 w-56 bg-white/10" />
-          </div> */}
-          {/* <div className="flex gap-2">
-            <Skeleton className="h-9 w-28 rounded-lg bg-white/15" />
-            <Skeleton className="h-9 w-32 rounded-lg bg-white/10" />
-          </div> */}
-        </div>
-      </div>
-
-      {/* KPI grid — two columns on small screens, four from xl */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <Skeleton className="h-2.5 w-20" />
-              <Skeleton className="size-8 rounded-lg" />
-            </div>
-            <Skeleton className="mt-3 h-6 w-16" />
-            <Skeleton className="mt-3 h-2.5 w-full" />
-          </div>
-        ))}
-      </div>
-
-      {/* three analytics panels */}
-      <div className="grid gap-4 xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
-          >
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-3.5 w-32" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-40 w-full rounded-lg" />
-            <div className="mt-4 space-y-2">
-              {Array.from({ length: 3 }).map((__, r) => (
-                <div key={r} className="flex items-center gap-3">
-                  <Skeleton className="size-7 rounded-lg" />
-                  <Skeleton className="h-2.5 flex-1" />
-                  <Skeleton className="h-2.5 w-10" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
 
 /**
  * Pure/presentational — wrapped in memo so the KPI grid doesn't re-render
@@ -725,6 +672,9 @@ export function DashboardPage() {
 
   // Loading owns the whole page: the skeleton stands in for the real blocks
   // (banner, KPI grid, three panels) and no card content is rendered with it.
+  // It is the SAME skeleton the route's Suspense boundary shows while this
+  // chunk downloads, so there is exactly one loading shape from navigation to
+  // first data — no "line skeleton, then card skeleton" hand-off.
   if (loading) {
     return (
       <div className="space-y-4" role="status" aria-label="Loading dashboard">
@@ -800,7 +750,7 @@ export function DashboardPage() {
           <KpiCard
             label="Total patients"
             value={patients.length}
-            icon={<Users />}
+            icon={ICON_PATIENTS}
             tone="brand"
             trend={12}
             hint="Registered in the facility directory"
@@ -811,7 +761,7 @@ export function DashboardPage() {
           <KpiCard
             label="Doctors"
             value={activeDoctorCount}
-            icon={<Stethoscope />}
+            icon={ICON_DOCTORS}
             tone="lagoon"
             trend={4}
             hint={`${doctors.length - activeDoctorCount} on leave / inactive`}
@@ -821,7 +771,7 @@ export function DashboardPage() {
         <KpiCard
           label="Today's appointments"
           value={todaysAppointments.length}
-          icon={<CalendarClock />}
+          icon={ICON_TODAY}
           tone="amber"
           hint={`${appointmentsStory.todayConfirmed} confirmed · ${appointmentsStory.todayCheckedIn} checked in`}
           trend={9}
@@ -829,7 +779,7 @@ export function DashboardPage() {
         <KpiCard
           label="Total appointments"
           value={appointments.length}
-          icon={<Archive />}
+          icon={ICON_TOTAL_APPOINTMENTS}
           tone="ink"
           hint="Last 25 days of scheduling"
           to="/app/appointments"
@@ -838,7 +788,7 @@ export function DashboardPage() {
           <KpiCard
             label="Completed consultations"
             value={consultationStats.completed}
-            icon={<CheckCircle2 />}
+            icon={ICON_COMPLETED}
             tone="mint"
             trend={18}
             hint="Signed off with prescription notes"
@@ -849,7 +799,7 @@ export function DashboardPage() {
           <KpiCard
             label="Pending consultations"
             value={consultationStats.pending}
-            icon={<ClipboardList />}
+            icon={ICON_PENDING}
             tone="coral"
             hint="Awaiting doctor closure"
             to="/app/consultations"
@@ -859,7 +809,7 @@ export function DashboardPage() {
           <KpiCard
             label="Total revenue"
             value={Math.round(totals.revenue)}
-            icon={<Banknote />}
+            icon={ICON_REVENUE}
             tone="brand"
             suffix="₹"
             hint={`${totals.invoiceCount} invoices raised`}
@@ -871,7 +821,7 @@ export function DashboardPage() {
           <KpiCard
             label="Pending payments"
             value={Math.round(totals.outstanding)}
-            icon={<Clock />}
+            icon={ICON_OUTSTANDING}
             tone="amber"
             suffix="₹"
             hint="Outstanding balance across payers"
@@ -1029,7 +979,7 @@ export function DashboardPage() {
           <PanelHeader
             title="Department load"
             subtitle="Appointments, last 30 days"
-            icon={<Users />}
+            icon={ICON_PATIENTS}
           />
           <div
             className="p-4"

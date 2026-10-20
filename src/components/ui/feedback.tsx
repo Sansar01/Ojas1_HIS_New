@@ -239,6 +239,81 @@ export function PageSkeleton({
   );
 }
 
+/**
+ * The dashboard's skeleton — banner, KPI grid, three panels.
+ *
+ * It lives here, with every other skeleton, because TWO owners need it:
+ *   • `DashboardPage` shows it while its six API calls settle;
+ *   • the shell shows it as the `<Suspense>` fallback while the (lazy)
+ *     dashboard chunk downloads.
+ * Keeping one definition means the chunk load and the data load paint the SAME
+ * shape — the page no longer flickers from a line skeleton to a card skeleton.
+ * It is deliberately dependency-free (no chart.js), so the shell can use it
+ * without pulling the dashboard chunk into the main bundle.
+ */
+export function DashboardSkeleton() {
+  return (
+    <>
+      {/* command banner */}
+      <div className="rounded-2xl bg-ink-950 px-5 py-5 shadow-pop sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="space-y-3">
+            <Skeleton className="h-3 w-40 bg-white/15" />
+            <Skeleton className="h-6 w-72 max-w-full bg-white/15" />
+            <Skeleton className="h-3 w-56 bg-white/10" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-28 rounded-lg bg-white/15" />
+            <Skeleton className="h-9 w-32 rounded-lg bg-white/10" />
+          </div>
+        </div>
+      </div>
+
+      {/* KPI grid — two columns on small screens, four from xl */}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <Skeleton className="h-2.5 w-20" />
+              <Skeleton className="size-8 rounded-lg" />
+            </div>
+            <Skeleton className="mt-3 h-6 w-16" />
+            <Skeleton className="mt-3 h-2.5 w-full" />
+          </div>
+        ))}
+      </div>
+
+      {/* three analytics panels */}
+      <div className="grid gap-4 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
+          >
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3.5 w-32" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="mt-4 h-40 w-full rounded-lg" />
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 3 }).map((__, r) => (
+                <div key={r} className="flex items-center gap-3">
+                  <Skeleton className="size-7 rounded-lg" />
+                  <Skeleton className="h-2.5 flex-1" />
+                  <Skeleton className="h-2.5 w-10" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ------------------------------ Empty / errors ------------------------------ */
 
 export function EmptyState({

@@ -9,6 +9,7 @@ import {
 } from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { Spinner } from "@/components/ui/feedback";
+import { TOKEN_KEY } from "@/api/axios";
 
 /* The sign-in path stays eager: it is the first screen and it is small. */
 import { LoginPage } from "@/pages/auth/LoginPage";
@@ -32,6 +33,24 @@ function page<K extends string>(
 }
 
 /**
+ * Chunk warm-up. `import()` is deduped by the module loader, so calling these
+ * repeatedly costs one request and a failure is irrelevant (the route still
+ * lazy-loads on demand).
+ */
+const warmDashboardChunk = () => {
+  void import("@/pages/DashboardPage").catch(() => {});
+};
+
+/**
+ * A returning user (session token in storage) lands straight on /dashboard, so
+ * the landing chunk is warmed at module load — while the shell and the
+ * bootstrap are still busy — and the dashboard never waits for its own code.
+ */
+if (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) {
+  warmDashboardChunk();
+}
+
+/**
  * Idle-time chunk warm-up, mounted only behind the login (see the shell route).
  *
  * The chunks are warmed ONE AT A TIME, on idle, instead of firing all 21
@@ -43,6 +62,9 @@ function page<K extends string>(
  */
 function PreloadPages() {
   useEffect(() => {
+    // the landing screen first, right away — it is the next navigation
+    warmDashboardChunk();
+
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let index = 0;
@@ -205,6 +227,8 @@ export function AppRoutes() {
               path="dashboard"
               element={
                 <ModuleRoute module="dashboard">
+                  {/* the shell's Suspense shows the dashboard's own skeleton on
+                      this route — see `isDashboard` in DashboardLayout */}
                   <DashboardPage />
                 </ModuleRoute>
               }

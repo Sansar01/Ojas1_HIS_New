@@ -6,7 +6,11 @@ import { useSidebarSync } from "@/hooks";
 import { setMobileNav, setSidebar } from "@/store/slices/uiSlice";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlobalSearch, Header } from "@/components/layout/Header";
-import { LoaderOverlay, PageSkeleton } from "@/components/ui/feedback";
+import {
+  DashboardSkeleton,
+  LoaderOverlay,
+  PageSkeleton,
+} from "@/components/ui/feedback";
 import { createPortal } from "react-dom";
 
 export function DashboardLayout() {
@@ -34,6 +38,14 @@ export function DashboardLayout() {
   // next page opens at the previous page's scroll offset.
   const mainRef = useRef<HTMLElement>(null);
   const { pathname } = useLocation();
+  /**
+   * The dashboard is a lazy chunk AND it loads its own data, so it has two
+   * loading moments. Both must show the same skeleton: if the Suspense
+   * fallback were the generic `PageSkeleton` (title line + list rows), the page
+   * would paint a line skeleton and then swap to its banner/KPI skeleton.
+   * Every other route keeps the generic fallback.
+   */
+  const isDashboard = pathname === "/dashboard";
   useEffect(() => {
     mainRef.current?.scrollTo(0, 0);
   }, [pathname]);
@@ -89,7 +101,21 @@ export function DashboardLayout() {
         >
           <div className="mx-auto w-full max-w-[1600px]">
             {/* a lazy page suspends here, so the sidebar and header stay put */}
-            <Suspense fallback={<PageSkeleton />}>
+            <Suspense
+              fallback={
+                isDashboard ? (
+                  <div
+                    className="space-y-4"
+                    role="status"
+                    aria-label="Loading dashboard"
+                  >
+                    <DashboardSkeleton />
+                  </div>
+                ) : (
+                  <PageSkeleton />
+                )
+              }
+            >
               <Outlet />
             </Suspense>
           </div>
