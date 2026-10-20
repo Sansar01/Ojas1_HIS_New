@@ -309,26 +309,35 @@ export function AppointmentFormModal({
     schema: appointmentSchema,
   });
 
-  const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+  /** doctor list + the selected doctor, resolved once per roster/selection */
+  const doctorById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const d of doctors as any[]) map.set(d.id, d);
+    return map;
+  }, [doctors]);
+
+  const doctor = doctorById.get(form.values.doctorId);
 
   /* ------- visit type options from the CONSULTATION_TYPE dropdown API ------ */
-  const [visitTypeOptions, setVisitTypeOptions] = useState<
-    { value: string; label: string }[]
-  >([]);
-
-  useEffect(() => {
-    if (!visitTypes.length) return;
-    const options = visitTypes
-      .map((item: any) => ({
-        value: item.value,
-        label: String(item.value)
-          .replace(/_/g, " ")
-          .toLowerCase()
-          .replace(/\b\w/g, (c) => c.toUpperCase()),
-      }))
-      .filter((o) => o.value);
-    if (options.length) setVisitTypeOptions(options);
-  }, [visitTypes]);
+  /**
+   * Derived from `visitTypes` during render (memoized) instead of being copied
+   * into state by an effect: the effect version rendered the dialog once with
+   * an empty list and again with the options, and kept a second copy of data
+   * that the page already had.
+   */
+  const visitTypeOptions = useMemo<{ value: string; label: string }[]>(
+    () =>
+      (visitTypes ?? [])
+        .map((item: any) => ({
+          value: item.value,
+          label: String(item.value)
+            .replace(/_/g, " ")
+            .toLowerCase()
+            .replace(/\b\w/g, (c) => c.toUpperCase()),
+        }))
+        .filter((o) => o.value),
+    [visitTypes],
+  );
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [, setEditLoading] = useState(false);

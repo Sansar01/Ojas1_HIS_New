@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Eye,
@@ -66,12 +66,20 @@ export function BillingPage() {
     totalPages: 1,
   });
 
+  /**
+   * Server filters. `search` is deliberately NOT in this object: it was, and
+   * because `fetchBills` lists `filters` in its dependency array, every single
+   * keystroke in the toolbar re-fetched the whole invoice page (and not even
+   * with the term — the endpoint takes no search). The box is now local state
+   * that filters the loaded rows below, while the effect only reacts to the
+   * status / date filters and to paging.
+   */
   const [filters, setFilters] = useState({
     paymentStatus: "all",
     fromDate: "",
     toDate: "",
-    search: "",
   });
+  const [search, setSearch] = useState("");
 
   const [editing, setEditing] = useState<boolean>(params.get("new") === "1");
   const [viewing, setViewing] = useState<any | null>(null);
@@ -171,8 +179,69 @@ export function BillingPage() {
   );
 
   /** Rows + table status of the invoice tab. */
-  const invoiceRows = bills;
   const invoiceStatus = loading ? "loading" : error ? "error" : "ready";
+
+  /**
+   * The search box only sorts through what is already on screen — one
+   * memoized pass over the current page of invoices, re-run when the term or
+   * the rows change and never on unrelated state (a dialog opening, a tab
+   * switch).
+   */
+  const invoiceRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return bills;
+    return (bills as any[]).filter((i) => {
+      const patientName =
+        i.patient?.fullName ||
+        (i.patient
+          ? `${i.patient.firstName ?? ""} ${i.patient.lastName ?? ""}`
+          : "");
+      return (
+        String(i.billNo ?? "").toLowerCase().includes(term) ||
+        patientName.toLowerCase().includes(term) ||
+        String(i.patient?.uhid ?? "").toLowerCase().includes(term) ||
+        String(i.doctor?.name ?? "").toLowerCase().includes(term)
+      );
+    });
+  }, [bills, search]);
+
+  /** KPI strip — static labels, values change only with the summary. */
+  const statItems = useMemo(
+    () => [
+      {
+        label: "Total Billed",
+        value: formatMoney(kpis.totalAmount),
+        tone: "text-ink-900",
+      },
+      {
+        label: "Collected",
+        value: formatMoney(kpis.totalCollected),
+        tone: "text-mint-600",
+      },
+      {
+        label: "Outstanding",
+        value: formatMoney(kpis.totalDue),
+        tone: "text-coral-600",
+      },
+      {
+        label: "Total Discount",
+        value: formatMoney(kpis.totalDiscount),
+        tone: "text-amberly-600",
+      },
+    ],
+    [kpis],
+  );
+
+  const tabItems = useMemo(
+    () => [
+      { value: "invoices", label: `Invoices (${pagination.total})` },
+      {
+        value: "payments",
+        label: `Payment History (${payPagination.total})`,
+      },
+    ],
+    [pagination.total, payPagination.total],
+  );
 
   // One effect per endpoint: paging or filtering the invoices must not also
   // refetch the payments and the daily summary (and vice versa). `reloadAll`
@@ -271,30 +340,7 @@ export function BillingPage() {
       />
 
       <div className="mb-4">
-        <StatStrip
-          items={[
-            {
-              label: "Total Billed",
-              value: formatMoney(kpis.totalAmount),
-              tone: "text-ink-900",
-            },
-            {
-              label: "Collected",
-              value: formatMoney(kpis.totalCollected),
-              tone: "text-mint-600",
-            },
-            {
-              label: "Outstanding",
-              value: formatMoney(kpis.totalDue),
-              tone: "text-coral-600",
-            },
-            {
-              label: "Total Discount",
-              value: formatMoney(kpis.totalDiscount),
-              tone: "text-amberly-600",
-            },
-          ]}
-        />
+        <StatStrip items={statItems} />
       </div>
 
       <Panel>
@@ -303,21 +349,15 @@ export function BillingPage() {
             value={tab}
             onValueChange={setTab}
             variant="pill"
-            tabs={[
-              { value: "invoices", label: `Invoices (${pagination.total})` },
-              {
-                value: "payments",
-                label: `Payment History (${payPagination.total})`,
-              },
-            ]}
+            tabs={tabItems}
           />
         </div>
 
         {tab === "invoices" ? (
           <>
             <TableToolbar
-              search={filters.search}
-              onSearch={(s) => setFilters((f) => ({ ...f, search: s }))}
+              search={search}
+              onSearch={setSearch}
               searchPlaceholder="Search invoice no, patient…"
               filters={
                 <>

@@ -915,13 +915,46 @@ export function DoctorsPage() {
     },
   });
 
-  const todaysCount = (id: string) =>
-    appointments.filter(
-      (a: any) =>
-        a.doctorId === id &&
-        a.date === toISODateString(new Date()) &&
-        !["Cancelled", "No Show"].includes(a.status),
-    ).length;
+  /**
+   * "Today" column + department names, both derived ONCE per data change.
+   *
+   * These used to run inside the table cells: every row filtered the entire
+   * appointment list for its own count and `.find()`-ed its department, so a
+   * render was O(rows × appointments) and O(rows × departments) — repeated on
+   * every keystroke in the search box. One pass each, keyed by id, instead.
+   */
+  const todaysByDoctor = useMemo(() => {
+    const today = toISODateString(new Date());
+    const counts = new Map<string, number>();
+    for (const a of appointments as any[]) {
+      if (a.date !== today) continue;
+      if (a.status === "Cancelled" || a.status === "No Show") continue;
+      counts.set(a.doctorId, (counts.get(a.doctorId) ?? 0) + 1);
+    }
+    return counts;
+  }, [appointments]);
+
+  const todaysCount = useCallback(
+    (id: string) => todaysByDoctor.get(id) ?? 0,
+    [todaysByDoctor],
+  );
+
+  /** id → department name, for the table's Department column. */
+  const departmentName = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const d of departments as any[]) names.set(d.id, d.name);
+    return names;
+  }, [departments]);
+
+  /** header badge — one pass, not a filter per render. */
+  const activeDoctorCount = useMemo(
+    () =>
+      (doctors as any[]).reduce(
+        (n, d) => (d.status === "active" ? n + 1 : n),
+        0,
+      ),
+    [doctors],
+  );
 
   if (authStatus !== "authenticated" || !authUser) {
     return (
@@ -957,8 +990,7 @@ export function DoctorsPage() {
         meta={
           <>
             <Badge tone="mint" dot>
-              {doctors.filter((d: any) => d.status === "active").length}{" "}
-              consulting
+              {activeDoctorCount} consulting
             </Badge>
             <Badge tone="neutral">{departments.length} departments</Badge>
           </>
@@ -1052,8 +1084,7 @@ export function DoctorsPage() {
               hideBelow: "lg",
               render: (d) => (
                 <span className="text-[12.5px] text-ink-600">
-                  {departments.find((dep: any) => dep.id === d.departmentId)
-                    ?.name ?? "—"}
+                  {departmentName.get(d.departmentId) ?? "—"}
                 </span>
               ),
             },
@@ -1364,6 +1395,31 @@ export function DoctorDetailPage() {
     });
   }, [doctor, date, appointments, activeLeavesForDate, isFullDayLeave]);
 
+  /**
+   * Slot tallies + the "Appointments" tab count, both derived once per slot /
+   * appointment change instead of being re-counted on every render of the
+   * profile (this screen re-renders on every tab switch and every note
+   * keystroke in the slots panel).
+   */
+  const slotCounts = useMemo(() => {
+    let booked = 0;
+    let available = 0;
+    for (const s of slots) {
+      if (s.state === "booked") booked++;
+      else if (s.state === "available") available++;
+    }
+    return { booked, available };
+  }, [slots]);
+
+  const doctorAppointmentCount = useMemo(
+    () =>
+      (appointments as any[]).reduce(
+        (n, a) => (a.doctorId === id ? n + 1 : n),
+        0,
+      ),
+    [appointments, id],
+  );
+
   const handleSaveLeave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !token) return;
@@ -1483,8 +1539,8 @@ export function DoctorDetailPage() {
     );
   if (!doctor || error) return <div>Profile unavailable</div>;
 
-  const bookedCount = slots.filter((s) => s.state === "booked").length;
-  const openCount = slots.filter((s) => s.state === "available").length;
+  const bookedCount = slotCounts.booked;
+  const openCount = slotCounts.available;
 
   return (
     <div className="space-y-4">
@@ -1607,7 +1663,7 @@ export function DoctorDetailPage() {
                   { value: "schedule", label: "Availability & slots" },
                   {
                     value: "appointments",
-                    label: `Appointments (${appointments.filter((a: any) => a.doctorId === id).length})`,
+                    label: `Appointments (${doctorAppointmentCount})`,
                   },
                   {
                     value: "leaves",

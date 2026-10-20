@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -15,7 +15,20 @@ export function DashboardLayout() {
   const mobileNavOpen = useAppSelector((s) => s.ui.mobileNavOpen);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  useSidebarSync((v) => dispatch(setSidebar(v)));
+  /**
+   * Stable handlers for the shell. The header is memoized (it renders a lot of
+   * small nodes and owns a 30s clock), so an inline arrow here would hand it a
+   * new prop on every layout render — a collapsed sidebar toggle would then
+   * re-render the whole top bar for nothing.
+   */
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  const syncSidebar = useCallback(
+    (v: boolean) => dispatch(setSidebar(v)),
+    [dispatch],
+  );
+
+  useSidebarSync(syncSidebar);
 
   // `main` is the one scroller and it outlives every page, so without this the
   // next page opens at the previous page's scroll offset.
@@ -61,7 +74,7 @@ export function DashboardLayout() {
         )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header onOpenSearch={() => setSearchOpen(true)} />
+        <Header onOpenSearch={openSearch} />
         <main
           id="main"
           ref={mainRef}
@@ -84,7 +97,7 @@ export function DashboardLayout() {
       </div>
 
       <LoaderOverlay />
-      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <GlobalSearch open={searchOpen} onClose={closeSearch} />
     </div>
   );
 }

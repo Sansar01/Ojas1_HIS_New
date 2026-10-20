@@ -5,16 +5,29 @@ import { APP_NAME, APP_SUBTITLE } from "@/constants";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMobileNav, toggleSidebar } from "@/store/slices/uiSlice";
 import { getModuleIconByCode } from "@/utils/moduleIcons";
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 
-export function Sidebar({ collapsed }: { collapsed: boolean }) {
+export const Sidebar = memo(function Sidebar({
+  collapsed,
+}: {
+  collapsed: boolean;
+}) {
   const dispatch = useAppDispatch();
-  const entitlements = useAppSelector((s) => s.modules);
+  /**
+   * Select the module LIST, not the whole slice: `s.modules` also carries
+   * `status`/`error`, so reading the object re-rendered the entire navigation
+   * (every icon and link) whenever an unrelated module request settled.
+   */
+  const availableModules = useAppSelector(
+    (s) => s.modules?.availableModules || EMPTY_MODULES,
+  );
 
   // API-driven modules — single runtime source per cleanup plan
-  // Filter by isActive if backend provides it
-  const allowedModules = (entitlements?.availableModules || []).filter(
-    (m: any) => m.isActive !== false,
+  // Filter by isActive if backend provides it. The filter only re-runs when the
+  // entitlement list itself changes, not on every hover-driven render.
+  const allowedModules = useMemo(
+    () => availableModules.filter((m: any) => m.isActive !== false),
+    [availableModules],
   );
 
   const [isHovered, setIsHovered] = useState(false);
@@ -138,4 +151,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
       </div>
     </aside>
   );
-}
+});
+
+/** Stable empty list so the selector does not allocate on every run. */
+const EMPTY_MODULES: any[] = [];

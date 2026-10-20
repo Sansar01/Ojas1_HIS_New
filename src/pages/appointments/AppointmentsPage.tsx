@@ -238,14 +238,14 @@ export function AppointmentsPage() {
    * Re-run the appointment list API (after a write, or from the Refresh
    * button). The list is page state, so this is a plain local reload.
    */
-  const refreshList = async (_force = true) => {
+  const refreshList = useCallback(async () => {
     setRefreshing(true);
     await loadAppointments();
     setRefreshing(false);
-  };
+  }, [loadAppointments]);
 
   const [cancelling, setCancelling] = useState(false);
-  const handleCancelAppointment = async () => {
+  const handleCancelAppointment = useCallback(async () => {
     if (!cancelTarget) return;
     setCancelling(true);
     try {
@@ -275,7 +275,7 @@ export function AppointmentsPage() {
     } finally {
       setCancelling(false);
     }
-  };
+  }, [cancelTarget, cancelReason, dispatch, refreshList]);
 
   /** doctors that actually appear in the loaded appointments — no roster call */
   const appointmentDoctors = useMemo(() => {
@@ -324,38 +324,82 @@ export function AppointmentsPage() {
   const detail =
     (appointments as Appointment[]).find((a) => a.id === detailId) ?? null;
 
-  const advance = async (a: Appointment, next: AppointmentStatus) => {
-    try {
-      // the row keeps the UI status ("Completed"), the DTO gets the enum
-      await appointmentService.updateAppointment(a.id, {
-        status: toApiAppointmentStatus(next),
-      });
-      setAppointments((rows) =>
-        rows.map((row) =>
-          row.id === a.id ? ({ ...row, status: next } as Appointment) : row,
-        ),
-      );
-      dispatch(toast.success(`${a.code} → ${next}`));
-    } catch (e: any) {
-      dispatch(toast.error("Update failed", e?.message));
+  /**
+   * The three header badges used to run three separate `.filter()` sweeps over
+   * the whole appointment list on every render (each keystroke in the search
+   * box included). One pass, memoized on the data, produces all three numbers.
+   */
+  const counts = useMemo(() => {
+    const today = addDays(new Date(), 0);
+    let openToday = 0;
+    let completed = 0;
+    let cancelled = 0;
+    for (const a of appointments as Appointment[]) {
+      if (a.status === "Completed") completed++;
+      if (a.status === "Cancelled" || a.status === "No Show") cancelled++;
+      if (a.date === today && a.status !== "Completed") openToday++;
     }
-  };
+    return { openToday, completed, cancelled };
+  }, [appointments]);
 
-  const todayBoard = (appointments as Appointment[]).filter(
-    (a) => a.date === boardDate && !["Cancelled", "No Show"].includes(a.status),
+  const advance = useCallback(
+    async (a: Appointment, next: AppointmentStatus) => {
+      try {
+        // the row keeps the UI status ("Completed"), the DTO gets the enum
+        await appointmentService.updateAppointment(a.id, {
+          status: toApiAppointmentStatus(next),
+        });
+        setAppointments((rows) =>
+          rows.map((row) =>
+            row.id === a.id ? ({ ...row, status: next } as Appointment) : row,
+          ),
+        );
+        dispatch(toast.success(`${a.code} → ${next}`));
+      } catch (e: any) {
+        dispatch(toast.error("Update failed", e?.message));
+      }
+    },
+    [dispatch],
   );
 
-  /** doctors with visits on the selected board date (derived, never fetched) */
-  const boardDoctors = useMemo(() => {
-    const seen = new Map<string, any>();
-    todayBoard.forEach((a: any) => {
-      if (!a?.doctorId || seen.has(a.doctorId)) return;
-      seen.set(a.doctorId, { id: a.doctorId, ...(a.doctor ?? {}) });
+  /**
+   * The day board's rows, grouped per doctor, in ONE memoized pass.
+   *
+   * Before: `todayBoard` was a fresh `.filter()` on every render, so the
+   * `boardDoctors` memo below it (which depended on that new array) recomputed
+   * every time too — and each doctor's card then re-filtered + re-sorted the
+   * whole list to find its own rows, and re-generated its slot grid. Switching
+   * to the board, or any unrelated state change, re-did all of that work.
+   */
+  const board = useMemo(() => {
+    const byDoctor = new Map<string, Appointment[]>();
+    const doctors = new Map<string, any>();
+    for (const a of appointments as Appointment[]) {
+      if (a.date !== boardDate) continue;
+      if (a.status === "Cancelled" || a.status === "No Show") continue;
+      const rows = byDoctor.get(a.doctorId);
+      if (rows) rows.push(a);
+      else byDoctor.set(a.doctorId, [a]);
+      if (!doctors.has(a.doctorId)) {
+        doctors.set(a.doctorId, { id: a.doctorId, ...((a as any).doctor ?? {}) });
+      }
+    }
+    const groups = [...byDoctor.entries()].map(([doctorId, rows]) => {
+      const doctor = doctors.get(doctorId);
+      return {
+        doctor,
+        rows: [...rows].sort((x, y) =>
+          String(x.time ?? "").localeCompare(String(y.time ?? "")),
+        ),
+        slots: generateSlots(doctor, boardDate, appointments as any),
+      };
     });
-    return [...seen.values()].sort((a, b) =>
-      fullName(a).localeCompare(fullName(b)),
-    );
-  }, [todayBoard]);
+    groups.sort((a, b) => fullName(a.doctor).localeCompare(fullName(b.doctor)));
+    return {
+      groups,
+      total: groups.reduce((n, g) => n + g.rows.length, 0),
+    };
+  }, [appointments, boardDate]);
 
   const clearParams = () => {
     if (params.get("new") || params.get("focus")) {
@@ -379,28 +423,10 @@ export function AppointmentsPage() {
         meta={
           <>
             <Badge tone="amber" dot>
-              {
-                appointments.filter(
-                  (a: any) =>
-                    a.date === addDays(new Date(), 0) &&
-                    a.status !== "Completed",
-                ).length
-              }{" "}
-              still open today
+              {counts.openToday} still open today
             </Badge>
-            <Badge tone="mint">
-              {appointments.filter((a: any) => a.status === "Completed").length}{" "}
-              completed
-            </Badge>
-            <Badge tone="coral">
-              {
-                appointments.filter(
-                  (a: any) =>
-                    a.status === "Cancelled" || a.status === "No Show",
-                ).length
-              }{" "}
-              cancelled / no-show
-            </Badge>
+            <Badge tone="mint">{counts.completed} completed</Badge>
+            <Badge tone="coral">{counts.cancelled} cancelled / no-show</Badge>
           </>
         }
         actions={
@@ -467,8 +493,7 @@ export function AppointmentsPage() {
               </Button>
             </div>
             <div className="flex items-center gap-2 text-[12px] text-ink-500">
-              <Timer className="size-4" /> {todayBoard.length} visits on the
-              floor ·{" "}
+              <Timer className="size-4" /> {board.total} visits on the floor ·{" "}
               {formatDate(boardDate, {
                 weekday: "long",
                 day: "2-digit",
@@ -477,11 +502,7 @@ export function AppointmentsPage() {
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(boardDoctors as any[]).map((doc) => {
-              const rows = todayBoard
-                .filter((a) => a.doctorId === doc.id)
-                .sort((a, b) => a.time.localeCompare(b.time));
-              const slots = generateSlots(doc, boardDate, appointments as any);
+            {board.groups.map(({ doctor: doc, rows, slots }) => {
               const open = slots.filter((s) => s.state === "available").length;
               return (
                 <div

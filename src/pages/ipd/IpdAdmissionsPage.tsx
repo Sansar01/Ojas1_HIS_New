@@ -121,6 +121,17 @@ export function IpdAdmissionsPage() {
     [rows, typeFilter],
   );
 
+  /** header badges — one pass over the loaded census, not one per render */
+  const statusCounts = useMemo(() => {
+    let admitted = 0;
+    let awaitingDischarge = 0;
+    for (const a of rows) {
+      if (a.status === "ADMITTED") admitted++;
+      else if (a.status === "DISCHARGE_ORDERED") awaitingDischarge++;
+    }
+    return { admitted, awaitingDischarge };
+  }, [rows]);
+
   const table = useTable<IpdAdmission>(filteredRows, {
     pageSize: pageSize,
     searchFields: [
@@ -206,11 +217,10 @@ export function IpdAdmissionsPage() {
             <>
               <Badge tone="neutral">{meta.total} total</Badge>
               <Badge tone="mint" dot>
-                {rows.filter((a) => a.status === "ADMITTED").length} admitted
+                {statusCounts.admitted} admitted
               </Badge>
               <Badge tone="amber">
-                {rows.filter((a) => a.status === "DISCHARGE_ORDERED").length}{" "}
-                awaiting discharge
+                {statusCounts.awaitingDischarge} awaiting discharge
               </Badge>
             </>
           )

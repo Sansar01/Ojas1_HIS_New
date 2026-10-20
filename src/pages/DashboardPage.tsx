@@ -289,15 +289,15 @@ function DashboardSkeleton() {
       {/* command banner */}
       <div className="rounded-2xl bg-ink-950 px-5 py-5 shadow-pop sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="space-y-3">
+          {/* <div className="space-y-3">
             <Skeleton className="h-3 w-40 bg-white/15" />
             <Skeleton className="h-6 w-72 max-w-full bg-white/15" />
             <Skeleton className="h-3 w-56 bg-white/10" />
-          </div>
-          <div className="flex gap-2">
+          </div> */}
+          {/* <div className="flex gap-2">
             <Skeleton className="h-9 w-28 rounded-lg bg-white/15" />
             <Skeleton className="h-9 w-32 rounded-lg bg-white/10" />
-          </div>
+          </div> */}
         </div>
       </div>
 
@@ -350,7 +350,8 @@ function DashboardSkeleton() {
  * Pure/presentational — wrapped in memo so the KPI grid doesn't re-render
  * eight cards every time the parent re-renders for an unrelated reason
  * (e.g. a sibling panel's state changing). All props are primitives except
- * `icon`, which is a stable element per call site.
+ * `icon`, which is a hoisted element constant (see `ICON_*` above) — an inline
+ * element would change identity on every dashboard render and cancel the memo.
  */
 const KpiCard = React.memo(function KpiCard({
   label,

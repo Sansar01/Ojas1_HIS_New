@@ -31,11 +31,46 @@ function page<K extends string>(
   return lazy(() => load().then((m) => ({ default: m[name] })));
 }
 
-/** Idle-time chunk warm-up, mounted only behind the login (see the shell route). */
+/**
+ * Idle-time chunk warm-up, mounted only behind the login (see the shell route).
+ *
+ * The chunks are warmed ONE AT A TIME, on idle, instead of firing all 21
+ * imports 1.5s after sign-in: a 21-way burst competes with the dashboard's own
+ * API calls for bandwidth and hands the main thread every route's JS to parse
+ * in one go — which is what made the first scroll and the first navigation feel
+ * sticky. Page components are still lazy; this only removes the network wait
+ * from the *second* visit to a module.
+ */
 function PreloadPages() {
   useEffect(() => {
-    const id = setTimeout(() => pageLoaders.forEach((load) => void load()), 1500);
-    return () => clearTimeout(id);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let index = 0;
+
+    const schedule = (cb: () => void) => {
+      const ric = (window as any).requestIdleCallback as
+        | ((fn: () => void, opts?: { timeout: number }) => number)
+        | undefined;
+      if (typeof ric === "function") {
+        ric(cb, { timeout: 2500 });
+        return;
+      }
+      timer = setTimeout(cb, 400);
+    };
+
+    const step = () => {
+      if (cancelled || index >= pageLoaders.length) return;
+      const load = pageLoaders[index++];
+      // a failed warm-up is irrelevant: the route still lazy-loads on demand
+      void load().catch(() => {});
+      schedule(step);
+    };
+
+    timer = setTimeout(step, 1500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
   return null;
 }

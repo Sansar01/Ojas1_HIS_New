@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CheckCheck,
@@ -335,12 +335,21 @@ export function ConsultationsPage() {
   const fetchSequence = useRef(0);
 
   const currentToken = queueData?.currentToken ?? null;
-  const waitingTokens =
-    queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.WAITING) ??
-    [];
-  const skippedTokens =
-    queueData?.queue?.filter((t: any) => t.status === TOKEN_STATUSES.SKIPPED) ??
-    [];
+
+  /**
+   * The live queue is split into waiting / skipped ONCE per queue payload.
+   * Two `.filter()` passes over every token ran on each render of the console
+   * (the vitals form alone re-renders it on every keystroke).
+   */
+  const { waitingTokens, skippedTokens } = useMemo(() => {
+    const waiting: any[] = [];
+    const skipped: any[] = [];
+    for (const t of (queueData?.queue ?? []) as any[]) {
+      if (t.status === TOKEN_STATUSES.WAITING) waiting.push(t);
+      else if (t.status === TOKEN_STATUSES.SKIPPED) skipped.push(t);
+    }
+    return { waitingTokens: waiting, skippedTokens: skipped };
+  }, [queueData]);
 
   const fetchConsultations = useCallback(async () => {
     /**
@@ -2040,13 +2049,23 @@ function PatientHistoryPanel({
     };
   }, [patientKey]);
 
-  const rows = history
-    .filter((c: any) => String(c.id) !== String(currentId))
-    .sort(
-      (a: any, b: any) =>
-        new Date(b.consultationDate || b.createdAt || 0).getTime() -
-        new Date(a.consultationDate || a.createdAt || 0).getTime(),
-    );
+  /**
+   * Previous visits, filtered/sorted once per history payload instead of on
+   * every render of the panel (expanding a visit re-renders it). The timestamp
+   * is parsed once per row rather than inside the comparator.
+   */
+  const rows = useMemo(
+    () =>
+      history
+        .filter((c: any) => String(c.id) !== String(currentId))
+        .map((c: any) => ({
+          row: c,
+          at: new Date(c.consultationDate || c.createdAt || 0).getTime(),
+        }))
+        .sort((a: any, b: any) => b.at - a.at)
+        .map((x: any) => x.row),
+    [history, currentId],
+  );
   const status = historyLoading ? "loading" : historyError ? "error" : "ready";
 
   if (status === "loading") {

@@ -21,7 +21,7 @@
  * Lives in the IPD feature folder (`src/pages/ipd/components/`).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Ban,
@@ -46,6 +46,7 @@ import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "@/pages/ipd/ipd.service";
+import { isOk } from "@/api/axios";
 import { THRESHOLD_STATUS_META } from "@/constants/ipd.constants";
 import {
   AddChargeDialog,
@@ -294,11 +295,21 @@ export function MedicationsPanel({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showStopped, setShowStopped] = useState(false);
 
-  const rows = (data ?? []).filter((m) =>
-    showStopped ? true : m.status === "ACTIVE",
-  );
-  const activeCount = (data ?? []).filter((m) => m.status === "ACTIVE").length;
-  const stoppedCount = (data ?? []).length - activeCount;
+  /**
+   * The drug chart is split and counted in ONE pass, memoized on the payload
+   * and on the "show stopped" toggle. It used to filter the chart three times
+   * per render — and this panel re-renders with every dialog keystroke.
+   */
+  const { rows, activeCount, stoppedCount } = useMemo(() => {
+    const list = data ?? [];
+    let active = 0;
+    for (const m of list) if (m.status === "ACTIVE") active++;
+    return {
+      rows: showStopped ? list : list.filter((m) => m.status === "ACTIVE"),
+      activeCount: active,
+      stoppedCount: list.length - active,
+    };
+  }, [data, showStopped]);
 
   const stop = (row: IpdMedicationRow) =>
     ask({
@@ -978,9 +989,17 @@ export function DietCard({
   );
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const rows = data ?? [];
-  const active = rows.find((d) => d.isActive) ?? null;
-  const history = rows.filter((d) => !d.isActive).slice(0, 3);
+  const { active, history } = useMemo(() => {
+    const list = data ?? [];
+    let current: (typeof list)[number] | null = null;
+    const past: typeof list = [];
+    for (const d of list) {
+      if (d.isActive) {
+        if (!current) current = d;
+      } else if (past.length < 3) past.push(d);
+    }
+    return { active: current, history: past };
+  }, [data]);
 
   const stop = () =>
     ask({

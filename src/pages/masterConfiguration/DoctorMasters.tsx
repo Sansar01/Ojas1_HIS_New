@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Edit2, Plus, Trash2, X } from "lucide-react";
 import { Dialog, Tabs } from "@/components/ui/overlays";
 import { Button, StatusBadge } from "@/components/ui/primitives";
@@ -449,11 +449,41 @@ export function DoctorMasters({
     }
   };
 
+  /**
+   * Lookup tables for the three masters. The tables below resolve a department,
+   * a specialization and a staff account for EVERY row, and each of those
+   * resolutions used to be a `.find()` over the full master list — so one
+   * render of the Doctors tab was O(rows × (departments + specializations +
+   * users)). The maps are rebuilt only when the master data changes.
+   */
+  const departmentById = useMemo(() => {
+    const map = new Map<string, ClinicalDepartmentItem>();
+    for (const d of departments) map.set(d.id, d);
+    return map;
+  }, [departments]);
+
+  const specializationById = useMemo(() => {
+    const map = new Map<string, SpecializationMasterItem>();
+    for (const s of specializations) map.set(s.id, s);
+    return map;
+  }, [specializations]);
+
+  const specializationByName = useMemo(() => {
+    const map = new Map<string, SpecializationMasterItem>();
+    for (const s of specializations) map.set(s.name.toLowerCase(), s);
+    return map;
+  }, [specializations]);
+
+  const userById = useMemo(() => {
+    const map = new Map<string, HospitalUserRow>();
+    for (const u of users) map.set(u.id, u);
+    return map;
+  }, [users]);
+
   const deptNameOf = (spec: SpecializationMasterItem) => {
     if (spec.clinicalDepartment?.name) return spec.clinicalDepartment.name;
     return (
-      departments.find((d) => d.id === spec.clinicalDepartmentId)?.name ??
-      "Unassigned"
+      departmentById.get(spec.clinicalDepartmentId)?.name ?? "Unassigned"
     );
   };
 
@@ -594,15 +624,16 @@ export function DoctorMasters({
     const rawId = specLabel(row.specializationId);
     const rawName =
       typeof row.specialization === "string" ? row.specialization : "";
-    return specializations.find(
-      (s) =>
-        s.id === rawId ||
-        (rawName !== "" && s.name.toLowerCase() === rawName.toLowerCase()),
+    return (
+      specializationById.get(rawId) ??
+      (rawName !== ""
+        ? specializationByName.get(rawName.toLowerCase())
+        : undefined)
     );
   };
 
   const userNameOf = (id?: string) => {
-    const user = users.find((u) => u.id === id);
+    const user = id ? userById.get(id) : undefined;
     if (!user) return null;
     return `${[user.firstName, user.lastName].filter(Boolean).join(" ")}${
       user.email ? ` · ${user.email}` : ""
@@ -631,9 +662,10 @@ export function DoctorMasters({
         // resolves transitively through the specialization master.
         const spec = resolveSpec(r);
         const dept =
-          departments.find(
-            (d) => d.id === (r.clinicalDepartmentId ?? r.departmentId),
-          ) ?? departments.find((d) => d.id === spec?.clinicalDepartmentId);
+          departmentById.get(r.clinicalDepartmentId ?? r.departmentId ?? "") ??
+          (spec?.clinicalDepartmentId
+            ? departmentById.get(spec.clinicalDepartmentId)
+            : undefined);
         return <span className="text-ink-600">{dept?.name ?? "—"}</span>;
       },
     },

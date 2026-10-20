@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ChangeEvent } from "react";
+import React, { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   Phone,
   AlertCircle,
@@ -161,8 +161,17 @@ export function OpdExaminationRoom() {
       ? (Number(vitals.weight) / (heightM * heightM)).toFixed(1)
       : "";
 
+  /**
+   * Newest-request-wins guard for the queue fetch. Switching date or tab starts
+   * a new request while the previous one may still be in flight; without this,
+   * a slow older answer could land last and repaint the list (and the selected
+   * patient) with the other tab's data.
+   */
+  const queueSeq = useRef(0);
+
   // Fetch Queue from backend
   const fetchQueue = async (quiet = false) => {
+    const seq = ++queueSeq.current;
     if (!quiet) setLoading(true);
     try {
       // Nurse-station queue lives in the consultation domain (Rule 23).
@@ -170,6 +179,7 @@ export function OpdExaminationRoom() {
         selectedDate,
         activeTab === "waiting" ? "waiting" : "done",
       );
+      if (seq !== queueSeq.current) return; // superseded by a newer request
       if (response.status !== 200)
         throw new Error(
           response.data?.message || "Server responded with status 401",
@@ -201,6 +211,7 @@ export function OpdExaminationRoom() {
         clearFormState();
       }
     } catch (err: any) {
+      if (seq !== queueSeq.current) return;
       console.error("Queue Fetch Error:", err);
       dispatch(
         toast.error(
@@ -209,12 +220,16 @@ export function OpdExaminationRoom() {
         ),
       );
     } finally {
-      setLoading(false);
+      // only the newest request owns the spinner
+      if (seq === queueSeq.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchQueue();
+    void fetchQueue();
+    // `fetchQueue` reads the date/tab it is given; re-running it is exactly
+    // what these two dependencies mean, and nothing else should retrigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, activeTab]);
 
   const handleVitalChange = (field: keyof typeof vitals, value: string) => {

@@ -61,25 +61,58 @@ export function usePermission() {
     [entitlements],
   );
 
-  return {
-    user,
-    can,
-    entitlements,
-    loading,
-    ready,
-    error,
-    status,
-    hasFeature: (moduleCode: string, featureCode: string) =>
+  // `can` is memoized above, so these stay referentially stable for as long as
+  // the entitlements do. They are handed to memoized children (toolbars, row
+  // actions) and read inside `useCallback`/`useMemo` dependency lists — a new
+  // function on every render would defeat both.
+  const canView = useCallback((m: string) => can(m, "view"), [can]);
+  const canCreate = useCallback((m: string) => can(m, "create"), [can]);
+  const canEdit = useCallback((m: string) => can(m, "edit"), [can]);
+  const canDelete = useCallback((m: string) => can(m, "delete"), [can]);
+  const hasFeatureFn = useCallback(
+    (moduleCode: string, featureCode: string) =>
       hasFeature(entitlements, moduleCode, featureCode),
-    canView: (m: string) => can(m, "view"),
-    canCreate: (m: string) => can(m, "create"),
-    canEdit: (m: string) => can(m, "edit"),
-    canDelete: (m: string) => can(m, "delete"),
-    isSuperAdmin: userType
-      ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
-      : false,
-    userType,
-  };
+    [entitlements],
+  );
+
+  const isSuperAdmin = userType
+    ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
+    : false;
+
+  return useMemo(
+    () => ({
+      user,
+      can,
+      entitlements,
+      loading,
+      ready,
+      error,
+      status,
+      hasFeature: hasFeatureFn,
+      canView,
+      canCreate,
+      canEdit,
+      canDelete,
+      isSuperAdmin,
+      userType,
+    }),
+    [
+      user,
+      can,
+      entitlements,
+      loading,
+      ready,
+      error,
+      status,
+      hasFeatureFn,
+      canView,
+      canCreate,
+      canEdit,
+      canDelete,
+      isSuperAdmin,
+      userType,
+    ],
+  );
 }
 
 /* ---------------------------- table interactions --------------------------- */
@@ -194,32 +227,82 @@ export function useTable<T extends Record<string, any>>(
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
   const page = Math.min(query.page, pageCount);
-  const paged = filtered.slice(
-    (page - 1) * query.pageSize,
-    page * query.pageSize,
+
+  // Only the current page is sliced out of the (already sorted) result set,
+  // and that slice keeps its identity until the raw rows, the filters or the
+  // paging actually change — so a re-render for an unrelated reason (a dialog
+  // opening, a toast) hands `DataTable` the same array it already rendered.
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * query.pageSize, page * query.pageSize),
+    [filtered, page, query.pageSize],
   );
 
-  return {
-    rows: paged,
-    allRows: filtered,
-    total,
-    page,
-    pageCount,
-    pageSize: query.pageSize,
-    query,
-    setSearch: (search: string) => setQuery((q) => ({ ...q, search, page: 1 })),
-    setPage: (p: number) => setQuery((q) => ({ ...q, page: Math.max(1, p) })),
-    setPageSize: (size: number) =>
-      setQuery((q) => ({ ...q, pageSize: size, page: 1 })),
-    toggleSort: (column: string) =>
+  const setSearch = useCallback(
+    (search: string) => setQuery((q) => (q.search === search ? q : { ...q, search, page: 1 })),
+    [],
+  );
+  const setPage = useCallback(
+    (p: number) =>
+      setQuery((q) => {
+        const next = Math.max(1, p);
+        return q.page === next ? q : { ...q, page: next };
+      }),
+    [],
+  );
+  const setPageSize = useCallback(
+    (size: number) =>
+      setQuery((q) =>
+        q.pageSize === size && q.page === 1 ? q : { ...q, pageSize: size, page: 1 },
+      ),
+    [],
+  );
+  const toggleSort = useCallback(
+    (column: string) =>
       setQuery((q) => ({
         ...q,
         sortBy: column,
         sortDir: q.sortBy === column && q.sortDir === "desc" ? "asc" : "desc",
         page: 1,
       })),
-    reset: () => setQuery((q) => ({ ...q, search: "", page: 1 })),
-  };
+    [],
+  );
+  const reset = useCallback(
+    () =>
+      setQuery((q) =>
+        q.search === "" && q.page === 1 ? q : { ...q, search: "", page: 1 },
+      ),
+    [],
+  );
+
+  return useMemo(
+    () => ({
+      rows: paged,
+      allRows: filtered,
+      total,
+      page,
+      pageCount,
+      pageSize: query.pageSize,
+      query,
+      setSearch,
+      setPage,
+      setPageSize,
+      toggleSort,
+      reset,
+    }),
+    [
+      paged,
+      filtered,
+      total,
+      page,
+      pageCount,
+      query,
+      setSearch,
+      setPage,
+      setPageSize,
+      toggleSort,
+      reset,
+    ],
+  );
 }
 
 /* -------------------------------- utilities -------------------------------- */

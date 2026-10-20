@@ -132,6 +132,32 @@ export function UsersPage() {
   const [editing, setEditing] = useState<Partial<User> | null>(null);
   const [detail, setDetail] = useState<User | null>(null);
 
+  /**
+   * The "Modules" cell renders up to four chips per row and each chip used to
+   * `.find()` the entitlement catalogue with three comparisons — O(rows × 4 ×
+   * modules) on every render. Resolve the catalogue to a lookup map once
+   * instead, keyed by every spelling a module can appear under (key, lower
+   * case code, upper case code).
+   */
+  const moduleByKey = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const m of entitlementModules as any[]) {
+      if (m?.key) map.set(m.key, m);
+      if (m?.code) {
+        map.set(m.code, m);
+        map.set(String(m.code).toLowerCase(), m);
+        map.set(String(m.code).toUpperCase(), m);
+      }
+    }
+    return map;
+  }, [entitlementModules]);
+
+  /** header badges — one pass over the roster, not two filters per render */
+  const activeCount = useMemo(
+    () => (users as User[]).reduce((n, u) => (u.status === "active" ? n + 1 : n), 0),
+    [users],
+  );
+
   const table = useTable<User>(users as User[], {
     pageSize: 8,
     filters,
@@ -220,13 +246,9 @@ export function UsersPage() {
         meta={
           <>
             <Badge tone="brand" dot>
-              {users.filter((u: any) => u.status === "active").length} active
+              {activeCount} active
             </Badge>
-            <Badge tone="neutral">
-              {users.length -
-                users.filter((u: any) => u.status === "active").length}{" "}
-              inactive
-            </Badge>
+            <Badge tone="neutral">{users.length - activeCount} inactive</Badge>
             <Badge tone="lagoon">{roles.length} roles defined</Badge>
           </>
         }
@@ -360,12 +382,10 @@ export function UsersPage() {
               render: (u) => (
                 <div className="flex items-center gap-1">
                   {u.modules.slice(0, 4).map((m: any) => {
-                    const def = entitlementModules.find(
-                      (x: any) =>
-                        x.key === m ||
-                        x.code?.toLowerCase() === m ||
-                        x.code === m.toUpperCase(),
-                    );
+                    const def =
+                      moduleByKey.get(m) ??
+                      moduleByKey.get(String(m).toLowerCase()) ??
+                      moduleByKey.get(String(m).toUpperCase());
                     return (
                       <Tooltip
                         key={m}

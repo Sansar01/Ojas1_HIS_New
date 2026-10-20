@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
@@ -37,7 +37,39 @@ function useClock() {
   return now;
 }
 
-export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
+/**
+ * The clock is the only thing in the top bar that changes on its own (every
+ * 30s). It lives in its own leaf component so that tick re-renders one small
+ * `<span>` instead of the breadcrumb, the search button, both dropdown menus
+ * and the account avatar.
+ */
+const HeaderClock = memo(function HeaderClock() {
+  const now = useClock();
+  return (
+    <div className="hidden items-center gap-2 xl:flex">
+      <Tooltip
+        content={`Server time · ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · data refreshed on sign-in`}
+      >
+        <span className="flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-ink-500">
+          <span className="relative flex size-2">
+            <span className="relative inline-flex size-2 rounded-full bg-mint-500" />
+          </span>
+          {now.toLocaleDateString("en-GB", {
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+          })}
+        </span>
+      </Tooltip>
+    </div>
+  );
+});
+
+export const Header = memo(function Header({
+  onOpenSearch,
+}: {
+  onOpenSearch: () => void;
+}) {
   const dispatch = useAppDispatch();
   const location = useLocation();
   const navigate = useNavigate();
@@ -53,14 +85,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
     typeof user?.role === "string"
       ? user.role
       : ((user?.role as any)?.name ?? (user?.role as any)?.slug ?? "");
-  /**
-   * Notification feed. The activity-log endpoint this used to read is not part
-   * of the backend build, so the feed renders its empty state instead of
-   * requesting an endpoint that does not exist.
-   */
-  const activities: any[] = [];
   const { isSuperAdmin } = usePermission();
-  const now = useClock();
 
   const entitlementModules = useAppSelector(
     (s: any) => s.modules.availableModules || [],
@@ -82,7 +107,10 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
   }, [location.pathname, entitlementModules]);
 
   const pageTitle = trail[trail.length - 1]?.label ?? "Dashboard";
-  const unread = activities.slice(0, 6);
+  // The activity-log endpoint this feed used to read is not part of the
+  // backend build, so the feed renders its empty state and nothing is
+  // requested. One shared constant, so the slice is not rebuilt per render.
+  const unread = NO_ACTIVITY;
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-ink-100 bg-white px-3 sm:px-5">
@@ -134,22 +162,7 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
         </kbd>
       </button>
 
-      <div className="hidden items-center gap-2 xl:flex">
-        <Tooltip
-          content={`Server time · ${now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · data refreshed on sign-in`}
-        >
-          <span className="flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-ink-500">
-            <span className="relative flex size-2">
-              <span className="relative inline-flex size-2 rounded-full bg-mint-500" />
-            </span>
-            {now.toLocaleDateString("en-GB", {
-              weekday: "short",
-              day: "2-digit",
-              month: "short",
-            })}
-          </span>
-        </Tooltip>
-      </div>
+      <HeaderClock />
 
       <DropdownMenu
         align="end"
@@ -273,7 +286,10 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
       <span className="sr-only">{APP_NAME}</span>
     </header>
   );
-}
+});
+
+/** Empty notification feed — a stable reference, not a new array per render. */
+const NO_ACTIVITY: any[] = [];
 
 const labelFromSegment = (seg: string) =>
   seg.length > 18
@@ -296,7 +312,6 @@ export function GlobalSearch({
   const dispatch = useAppDispatch();
   const [term, setTerm] = useState("");
   const navigate = useNavigate();
-  const [results, setResults] = useState<any[]>([]);
 
   /**
    * Server-side search, debounced (doc §24).
@@ -350,8 +365,15 @@ export function GlobalSearch({
     };
   }, [open, query]);
 
-  useEffect(() => {
-    if (query.length < 2) return setResults([]);
+  /**
+   * The palette rows are DERIVED from the settled responses and the settled
+   * term — they are computed during render (memoized) instead of being written
+   * into a third piece of state by an effect. That removes one render per
+   * keystroke-settle and keeps `results` from drifting out of sync with
+   * `found`.
+   */
+  const results = useMemo(() => {
+    if (query.length < 2) return [] as any[];
     const q = query.toLowerCase();
     const out: any[] = [];
     (found.patients ?? []).slice(0, 4).forEach((p: any) =>
@@ -381,7 +403,7 @@ export function GlobalSearch({
           to: `/billing?invoice=${i.id}`,
         }),
       );
-    setResults(out);
+    return out;
   }, [found, query]);
 
   useEffect(() => {

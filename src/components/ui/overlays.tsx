@@ -40,6 +40,15 @@ function firstSection(
   return null;
 }
 
+/** One step of a stepped record form (see the analysis memo inside `Dialog`). */
+type Step = {
+  index: number;
+  title?: string;
+  description?: string;
+  node?: React.ReactNode;
+  names: string[];
+};
+
 function collectNames(node: React.ReactNode, acc: string[] = []): string[] {
   React.Children.forEach(node, (child) => {
     if (!React.isValidElement(child)) return;
@@ -107,13 +116,7 @@ export function Dialog({
   const dispatch = useAppDispatch();
   const location = useLocation();
   const api = form ?? formRegistry.current;
-  const kids = React.Children.toArray(children).filter((k) =>
-    React.isValidElement(k),
-  );
   const isForm = Boolean(onSubmit || form);
-  const stepLike = kids.filter(containsSection);
-  const trailing = kids.filter((k) => !containsSection(k));
-  const multi = isForm && stepLike.length >= 2;
   const [step, setStep] = useState(0);
   const [doneSteps, setDoneSteps] = useState<number[]>([]);
 
@@ -127,39 +130,66 @@ export function Dialog({
     }
   }, [isForm, location.pathname, onOpenChange]);
 
-  const steps = multi
-    ? stepLike.map((el, i) => {
-        const meta = firstSection(el);
-        const isLast = i === stepLike.length - 1;
-        return {
-          index: i,
-          title: meta?.title ?? `Step ${i + 1}`,
-          description: meta?.description,
-          node:
-            isLast && trailing.length ? (
-              <>
-                {el}
-                {trailing}
-              </>
-            ) : (
-              el
-            ),
-          names: collectNames(
-            isLast && trailing.length ? [el, ...trailing] : el,
-          ),
-        };
-      })
-    : [
-        {
-          index: 0,
-          title: typeof title === "string" ? title : "Details",
-          description: undefined,
-          node: <>{kids}</>,
-          names: collectNames(children),
-        },
-      ];
+  /**
+   * The step engine's analysis — which child is a form section, each section's
+   * title, and the field names it owns — is a recursive walk of the ENTIRE
+   * children tree plus a name-collection pass per step. It used to run on every
+   * render of every `<Dialog>`, including while the dialog was closed (Radix
+   * unmounts the content, but this component still re-renders with its page,
+   * and pages mount several dialogs). A closed dialog now skips the walk
+   * entirely; an open one memoizes it on the props that can change it.
+   */
+  const analysis = React.useMemo(() => {
+    if (!open) return { steps: [] as Step[], multi: false };
 
-  const current = steps[Math.min(step, steps.length - 1)];
+    const kids = React.Children.toArray(children).filter((k) =>
+      React.isValidElement(k),
+    );
+    const stepLike = kids.filter(containsSection);
+    const trailing = kids.filter((k) => !containsSection(k));
+    const isMulti = isForm && stepLike.length >= 2;
+
+    const steps: Step[] = isMulti
+      ? stepLike.map((el, i) => {
+          const meta = firstSection(el);
+          const isLast = i === stepLike.length - 1;
+          return {
+            index: i,
+            title: meta?.title ?? `Step ${i + 1}`,
+            description: meta?.description,
+            node:
+              isLast && trailing.length ? (
+                <>
+                  {el}
+                  {trailing}
+                </>
+              ) : (
+                el
+              ),
+            names: collectNames(
+              isLast && trailing.length ? [el, ...trailing] : el,
+            ),
+          };
+        })
+      : [
+          {
+            index: 0,
+            title: typeof title === "string" ? title : "Details",
+            description: undefined,
+            node: <>{kids}</>,
+            names: collectNames(children),
+          },
+        ];
+
+    return { steps, multi: isMulti };
+  }, [open, children, title, isForm]);
+
+  const steps = analysis.steps;
+  const multi = analysis.multi;
+
+  const current =
+    steps[Math.min(step, Math.max(0, steps.length - 1))] ??
+    ({ index: 0, names: [] } as Step);
   const requiredIn = (names: string[]) =>
     api?.schema
       ? names.filter((n) =>
