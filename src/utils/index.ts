@@ -82,6 +82,16 @@ export const fullName = (
   p?: { firstName?: string; lastName?: string } | null,
 ) => (p ? `${p.firstName} ${p.lastName}`.trim() : "Unknown");
 
+/**
+ * "Rahul Sharma - UHID-00125": the label every patient dropdown shows, for a
+ * `Select` whose options carry the patient in `data`
+ * (`<Select getOptionLabel={patientOptionLabel} … />`).
+ */
+export const patientOptionLabel = (o: {
+  label: string;
+  data?: { uhid?: string | null; mrn?: string | null };
+}) => `${o.label} - ${o.data?.uhid ?? o.data?.mrn ?? "no UHID"}`;
+
 export const toCSV = (rows: Record<string, any>[]) => {
   if (!rows.length) return "";
   const headers = Object.keys(rows[0]);

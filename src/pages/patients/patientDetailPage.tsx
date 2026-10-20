@@ -446,7 +446,7 @@ export function PatientDetailPage() {
                   <button
                     key={a.id}
                     onClick={() => navigate(`/app/appointments?focus=${a.id}`)}
-                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:border-brand-200 hover:shadow-card"
+                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-colors hover:border-brand-200"
                   >
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                       {formatDate(a.date)}

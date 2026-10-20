@@ -296,7 +296,7 @@ export function ConsultationsPage() {
     null;
 
   const [consultations, setConsultations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [totalItems, setTotalItems] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(8);

@@ -57,7 +57,7 @@ export function PatientsPage() {
   /* ------------------------------ local data ------------------------------ */
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadPatients = useCallback(async () => {

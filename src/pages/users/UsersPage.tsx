@@ -1006,7 +1006,7 @@ function UserFormDialog({
                   type="button"
                   onClick={() => form.setValue("color", c)}
                   className={cn(
-                    "size-7 rounded-lg transition-transform hover:scale-110",
+                    "size-7 rounded-lg",
                     c,
                     form.values.color === c &&
                       "ring-2 ring-ink-900 ring-offset-2",

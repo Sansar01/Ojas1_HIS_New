@@ -140,7 +140,6 @@ export function Header({ onOpenSearch }: { onOpenSearch: () => void }) {
         >
           <span className="flex items-center gap-2 rounded-lg border border-ink-100 bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-ink-500">
             <span className="relative flex size-2">
-              <span className="absolute inline-flex size-2 animate-ping rounded-full bg-mint-500/70" />
               <span className="relative inline-flex size-2 rounded-full bg-mint-500" />
             </span>
             {now.toLocaleDateString("en-GB", {

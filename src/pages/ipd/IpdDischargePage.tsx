@@ -86,6 +86,16 @@ const STEPS = [
 
 export function IpdDischargePage() {
   const { id = "" } = useParams<{ id: string }>();
+  /* Live ledger of the stay — same loader + blocks the chart's billing tab uses.
+     Called here, above the early returns below (a hook after them runs a
+     different number of hooks once the admission arrives), and keyed by the
+     route id so the bill loads alongside the admission instead of after it. */
+  const {
+    data: bill,
+    loading: billLoading,
+    error: billError,
+    reload: reloadBill,
+  } = useProvisionalBill(id);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { canEdit } = usePermission();
@@ -224,14 +234,6 @@ export function IpdDischargePage() {
 
   const roomType = admission.bed?.room?.roomType;
   const isDaycare = roomType?.isDaycare;
-
-  /* Live ledger of the stay — same loader + blocks the chart's billing tab uses. */
-  const {
-    data: bill,
-    loading: billLoading,
-    error: billError,
-    reload: reloadBill,
-  } = useProvisionalBill(admission.id);
 
   const postDayCharges = async () => {
     if (accruing) return;

@@ -38,7 +38,7 @@ import { masterService } from "@/pages/masterConfiguration/master.service";
 import { ipdService } from "./ipd.service";
 import { BedPicker, PendingBackendNote } from "./components";
 import { ADMISSION_TYPE_OPTIONS } from "@/constants/ipd.constants";
-import { fullName } from "@/utils";
+import { fullName, patientOptionLabel } from "@/utils";
 
 export function IpdAdmissionFormPage() {
   const dispatch = useAppDispatch();
@@ -136,7 +136,8 @@ export function IpdAdmissionFormPage() {
       patients.map((p) => ({
         value: p.id,
         label: fullName(p),
-        description: [p.uhid ?? p.mrn, p.mobile].filter(Boolean).join(" · "),
+        description: p.mobile ?? undefined,
+        data: p,
       })),
     [patients],
   );
@@ -295,6 +296,7 @@ export function IpdAdmissionFormPage() {
                   loadingLabel="Loading patients…"
                   searchPlaceholder="Search name, UHID or mobile…"
                   options={patientOptions}
+                  getOptionLabel={patientOptionLabel}
                   placeholder="Search registered patients…"
                 />
                 <Select

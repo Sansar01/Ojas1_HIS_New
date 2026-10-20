@@ -32,7 +32,7 @@ export function SpecializationsPage() {
   /* ------------------------------- local data ----------------------------- */
 
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /** the specialization list this page renders */

@@ -70,7 +70,7 @@ export function IpdAdmissionsPage() {
 
   const [rows, setRows] = useState<IpdAdmission[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("all");

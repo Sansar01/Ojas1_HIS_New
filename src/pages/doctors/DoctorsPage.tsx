@@ -775,7 +775,7 @@ export function DoctorsPage() {
   // roster + counters of this page (a doctor sees only their own profile, so
   // the roster request is made only for the administrative roles)
   const [doctors, setDoctors] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);

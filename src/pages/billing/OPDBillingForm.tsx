@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Search,
@@ -239,6 +246,9 @@ interface BillingTotals {
   balance: number;
 }
 
+/** service-catalogue rows rendered at a time (grows by this much on "show more") */
+const SERVICE_PAGE = 50;
+
 export function OPDBillingForm({ onClose, onSuccess }: Props) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -297,6 +307,10 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
   /* -------------------------------- services ------------------------------ */
   const [activeCategory, setActiveCategory] = useState("All");
   const [serviceSearch, setServiceSearch] = useState("");
+  // The catalogue can hold thousands of services; the table renders a page of
+  // them and grows on demand, so the DOM (and every re-render of this large
+  // form) stays small. A new search / category starts over.
+  const [serviceLimit, setServiceLimit] = useState(SERVICE_PAGE);
   /** Spec state shape — see CartRow. */
   const [selectedServices, setSelectedServices] = useState<CartRow[]>([]);
   /** Rows to highlight after a line-level 400 (OPD_BIL_019 / validation). */
@@ -523,8 +537,10 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
     [allDoctors, doctorId],
   );
 
+  // typing stays instant; the catalogue re-filters at lower priority
+  const deferredServiceSearch = useDeferredValue(serviceSearch);
   const filteredServices = useMemo(() => {
-    const q = serviceSearch.trim().toLowerCase();
+    const q = deferredServiceSearch.trim().toLowerCase();
     return serviceCatalog.filter((s) => {
       const matchCat =
         activeCategory === "All" ||
@@ -535,7 +551,11 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
         String(s.serviceCode).toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [serviceCatalog, activeCategory, serviceSearch]);
+  }, [serviceCatalog, activeCategory, deferredServiceSearch]);
+
+  useEffect(() => {
+    setServiceLimit(SERVICE_PAGE);
+  }, [activeCategory, deferredServiceSearch]);
 
   /* -------------------------------- summary ------------------------------- */
 
@@ -1915,7 +1935,7 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
 
                   {!catalogLoading &&
                     !catalogError &&
-                    filteredServices.map((service) => {
+                    filteredServices.slice(0, serviceLimit).map((service) => {
                       const isSelected = selectedServices.some(
                         (row) => row.serviceId === String(service.id),
                       );
@@ -1949,6 +1969,24 @@ export function OPDBillingForm({ onClose, onSuccess }: Props) {
                         </tr>
                       );
                     })}
+
+                  {!catalogLoading &&
+                    !catalogError &&
+                    filteredServices.length > serviceLimit && (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-3 text-center">
+                          <button
+                            onClick={() =>
+                              setServiceLimit((n) => n + SERVICE_PAGE)
+                            }
+                            className="text-brand-600 text-xs font-medium hover:underline"
+                          >
+                            Showing {serviceLimit} of {filteredServices.length}{" "}
+                            · show more
+                          </button>
+                        </td>
+                      </tr>
+                    )}
                 </tbody>
               </table>
             </div>

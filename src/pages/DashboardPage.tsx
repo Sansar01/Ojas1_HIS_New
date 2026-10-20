@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Archive,
@@ -57,6 +57,8 @@ import {
 import { Skeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
 import { APPT_TYPE_COLORS } from "@/constants";
+
+const TIMELINE_ROWS = 8;
 
 ChartJS.register(
   CategoryScale,
@@ -250,24 +252,6 @@ function DashboardSkeleton() {
   );
 }
 
-function useCountUp(target: number, duration = 900) {
-  const [value, setValue] = useState(0);
-  const raf = useRef<number>(0);
-  useEffect(() => {
-    const start = performance.now();
-    const from = 0;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setValue(Math.round(from + (target - from) * eased));
-      if (p < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [target, duration]);
-  return value;
-}
-
 function KpiCard({
   label,
   value,
@@ -287,7 +271,6 @@ function KpiCard({
   to?: string;
   trend?: number;
 }) {
-  const animated = useCountUp(value);
   const tones = {
     brand: "from-brand-500/12 text-brand-600",
     mint: "from-mint-500/12 text-mint-600",
@@ -297,7 +280,7 @@ function KpiCard({
     ink: "from-ink-900/10 text-ink-700",
   }[tone];
   const body = (
-    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop">
+    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-colors hover:border-brand-200">
       <div
         className={cn(
           "absolute inset-x-0 -top-10 h-24 bg-gradient-to-b to-transparent opacity-70",
@@ -312,14 +295,13 @@ function KpiCard({
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-lg bg-ink-25 ring-1 ring-inset ring-ink-100 [&>svg]:size-4",
             tones.split(" ")[1],
-            "transition-transform duration-300 group-hover:scale-110",
           )}
         >
           {icon}
         </span>
       </div>
       <p className="num relative mt-3 text-[30px] font-bold leading-none text-ink-900">
-        {formatCompact(animated)}
+        {formatCompact(value)}
         {suffix && (
           <span className="ml-0.5 text-[15px] font-semibold text-ink-400">
             {suffix}
@@ -343,7 +325,7 @@ function KpiCard({
         )}
       </div>
       {to && (
-        <span className="absolute bottom-3 right-3 translate-y-1 text-[11px] font-semibold text-brand-600 opacity-0 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+        <span className="absolute bottom-3 right-3 text-[11px] font-semibold text-brand-600 opacity-0 group-hover:opacity-100">
           Open <ArrowUpRight className="inline size-3" />
         </span>
       )}
@@ -565,7 +547,7 @@ export function DashboardPage() {
         <div className="relative flex flex-wrap items-center justify-between gap-5">
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-200">
-              <HeartPulse className="size-3.5 animate-pulse-soft" /> Facility
+              <HeartPulse className="size-3.5" /> Facility
               overview ·{" "}
               {formatDate(today, {
                 weekday: "long",
@@ -586,7 +568,7 @@ export function DashboardPage() {
             {canCreate("appointments") && (
               <button
                 onClick={() => navigate("/app/appointments?new=1")}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:bg-brand-400 hover:shadow-[0_14px_28px_-16px_rgba(64,190,174,.95)]"
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-brand-400"
               >
                 <CalendarPlus className="size-4" /> Book appointment
               </button>
@@ -761,6 +743,7 @@ export function DashboardPage() {
                 ],
               }}
               options={{
+                animation: false,
                 responsive: true,
                 maintainAspectRatio: false,
                 interaction: { mode: "index", intersect: false },
@@ -832,6 +815,7 @@ export function DashboardPage() {
                   ],
                 }}
                 options={{
+                  animation: false,
                   cutout: "68%",
                   maintainAspectRatio: true,
                   plugins: {
@@ -909,9 +893,10 @@ export function DashboardPage() {
           {timeline.length === 0 ? (
             <MiniList rows={[]} emptyLabel="No appointments booked for today" />
           ) : (
-            <ol className="relative max-h-[19rem] overflow-y-auto px-4 py-3">
+            <>
+            <ol className="relative px-4 py-3">
               <span className="absolute bottom-3 left-[3.6rem] top-3 w-px bg-ink-100" />
-              {timeline.map((a: any) => {
+              {timeline.slice(0, TIMELINE_ROWS).map((a: any) => {
                 const [h, m] = a.time.split(":").map(Number);
                 const isNow =
                   Math.abs(h * 60 + m - nowMinutes) < 45 &&
@@ -936,9 +921,6 @@ export function DashboardPage() {
                               : "bg-brand-500",
                       )}
                     >
-                      {isNow && (
-                        <span className="absolute inline-flex size-3 animate-ping rounded-full bg-amberly-500/60" />
-                      )}
                     </span>
                     <div className="min-w-0 flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 transition-colors hover:border-brand-200">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -959,6 +941,15 @@ export function DashboardPage() {
                 );
               })}
             </ol>
+            {timeline.length > TIMELINE_ROWS && (
+              <Link
+                to="/app/appointments"
+                className="block border-t border-ink-100 px-4 py-2.5 text-center text-[12px] font-semibold text-brand-600 hover:underline"
+              >
+                +{timeline.length - TIMELINE_ROWS} more · Open scheduler
+              </Link>
+            )}
+            </>
           )}
         </SectionPanel>
 
@@ -987,6 +978,7 @@ export function DashboardPage() {
                 ],
               }}
               options={{
+                animation: false,
                 indexAxis: "y" as const,
                 maintainAspectRatio: false,
                 plugins: {

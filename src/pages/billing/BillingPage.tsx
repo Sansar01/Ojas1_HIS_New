@@ -174,9 +174,18 @@ export function BillingPage() {
   const invoiceRows = bills;
   const invoiceStatus = loading ? "loading" : error ? "error" : "ready";
 
+  // One effect per endpoint: paging or filtering the invoices must not also
+  // refetch the payments and the daily summary (and vice versa). `reloadAll`
+  // is for explicit refreshes after a payment / refund / cancellation.
   useEffect(() => {
-    reloadAll();
-  }, [reloadAll]);
+    fetchSummary();
+  }, [fetchSummary]);
+  useEffect(() => {
+    fetchBills();
+  }, [fetchBills]);
+  useEffect(() => {
+    fetchPayments();
+  }, [fetchPayments]);
 
   // --- Actions ---
   const exportCsv = () => {

@@ -1,5 +1,5 @@
-import { Suspense, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import { cn } from "@/utils/cn";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useSidebarSync } from "@/hooks";
@@ -16,6 +16,14 @@ export function DashboardLayout() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   useSidebarSync((v) => dispatch(setSidebar(v)));
+
+  // `main` is the one scroller and it outlives every page, so without this the
+  // next page opens at the previous page's scroll offset.
+  const mainRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [pathname]);
   // The shell owns no page data (API/Redux strategy): every page fetches what
   // it renders through its own feature service, when it renders. The header's
   // refresh action simply re-mounts/reloads the active page.
@@ -56,6 +64,7 @@ export function DashboardLayout() {
         <Header onOpenSearch={() => setSearchOpen(true)} />
         <main
           id="main"
+          ref={mainRef}
           className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
         >
           <div className="mx-auto w-full max-w-[1600px]">

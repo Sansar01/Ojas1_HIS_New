@@ -45,7 +45,7 @@ export function DepartmentsPage() {
   /* ------------------------------- local data ----------------------------- */
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /** departments + the collections the table columns render */

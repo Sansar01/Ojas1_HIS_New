@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { PageIntro } from "@/components/common";
+import { FormSkeleton, Skeleton } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/primitives";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
@@ -126,7 +127,9 @@ export function OpdExaminationRoom() {
     waitingCount: 0,
     vitalsDoneCount: 0,
   });
-  const [loading, setLoading] = useState<boolean>(false);
+  // true from the first render: the queue fetch starts on mount, so the first
+  // paint is the skeleton, never a flash of "No patients found"
+  const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -137,6 +140,8 @@ export function OpdExaminationRoom() {
   const [selectedPatient, setSelectedPatient] = useState<QueueItem | null>(
     null,
   );
+  /** nothing on screen yet: every block shows its skeleton instead of an empty state */
+  const initialLoading = loading && queue.length === 0 && !selectedPatient;
   const [painScore, setPainScore] = useState<number | null>(null);
   const [chiefComplaint, setChiefComplaint] = useState("");
 
@@ -390,7 +395,7 @@ export function OpdExaminationRoom() {
           </div>
 
           <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-sm font-medium">
-            <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-teal-500" />
             Assessment in Progress
           </span>
 
@@ -424,7 +429,7 @@ export function OpdExaminationRoom() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                Waiting ({summary.waitingCount})
+                Waiting ({initialLoading ? "–" : summary.waitingCount})
               </button>
               <button
                 type="button"
@@ -435,7 +440,7 @@ export function OpdExaminationRoom() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                Vitals Done ({summary.vitalsDoneCount})
+                Vitals Done ({initialLoading ? "–" : summary.vitalsDoneCount})
               </button>
             </div>
 
@@ -738,6 +743,10 @@ export function OpdExaminationRoom() {
                 </Button>
               </div>
             </div>
+          ) : loading ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <FormSkeleton fields={6} columns={2} />
+            </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
               <Users size={48} className="text-slate-300 mb-4" />
@@ -757,6 +766,13 @@ export function OpdExaminationRoom() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Risk & Alerts" />
             <div className="space-y-3">
+              {initialLoading ? (
+                <>
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </>
+              ) : (
+                <>
               {/* Dynamic Allergies */}
               {selectedPatient?.patient.allergies ? (
                 <div className="bg-red-50 border border-red-100 rounded-lg p-3">
@@ -813,13 +829,19 @@ export function OpdExaminationRoom() {
                     No immediate alerts flagged.
                   </div>
                 )}
+                </>
+              )}
             </div>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Previous Visits" />
             <div className="space-y-0">
-              {DUMMY_HISTORY.map((visit) => (
+              {initialLoading ? (
+                [0, 1].map((i) => (
+                  <Skeleton key={i} className="my-3 h-20 w-full" />
+                ))
+              ) : DUMMY_HISTORY.map((visit) => (
                 <div
                   key={visit.date}
                   className="py-3 border-b border-gray-100 last:border-0"

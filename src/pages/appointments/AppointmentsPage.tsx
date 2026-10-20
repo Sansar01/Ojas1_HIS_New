@@ -131,9 +131,9 @@ export function SlotPicker({
             disabled={s.state !== "available"}
             onClick={() => onChange(s.time)}
             className={cn(
-              "group rounded-lg border px-1.5 py-2 text-center transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
+              "group rounded-lg border px-1.5 py-2 text-center transition-colors duration-150",
               s.state === "available" &&
-                "border-ink-200 bg-white hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-card",
+                "border-ink-200 bg-white hover:border-brand-400",
               s.state === "booked" &&
                 "cursor-not-allowed border-ink-100 bg-ink-50 text-ink-300",
               s.state === "past" &&
@@ -165,7 +165,7 @@ export function AppointmentsPage() {
   /* ------------------------------- local data ----------------------------- */
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadAppointments = useCallback(async () => {

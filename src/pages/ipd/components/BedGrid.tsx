@@ -14,7 +14,7 @@
  * reuses the app-wide UI kit (`@/components/ui/*`) rather than its own.
  */
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { cn } from "@/utils/cn";
 import { Badge } from "@/components/ui/primitives";
 import { Skeleton } from "@/components/ui/feedback";
@@ -67,12 +67,18 @@ export const groupBedsByRoom = (beds: BedRow[]): RoomGroup[] => {
 
 /* ---------------------------------- tile ----------------------------------- */
 
-export function BedTile({
+/**
+ * Memoised: a ward holds hundreds of tiles and the board re-renders on every
+ * search keystroke / filter change, but only a few tiles actually change. The
+ * click handler is passed down as the board's single stable `onSelect` and
+ * called with the bed, so no tile gets a fresh inline function per render.
+ */
+export const BedTile = memo(function BedTile({
   bed,
   patientLabel,
   selected,
   disabledReason,
-  onClick,
+  onSelect,
   compact,
 }: {
   bed: BedRow;
@@ -81,17 +87,17 @@ export function BedTile({
   selected?: boolean;
   /** when set the tile is not clickable and shows the reason */
   disabledReason?: string | null;
-  onClick?: () => void;
+  onSelect?: (bed: BedRow) => void;
   compact?: boolean;
 }) {
   const status = statusOfBed(bed);
   const meta = bedStatusOf(status);
-  const clickable = Boolean(onClick) && !disabledReason;
+  const clickable = Boolean(onSelect) && !disabledReason;
 
   return (
     <button
       type="button"
-      onClick={clickable ? onClick : undefined}
+      onClick={clickable ? () => onSelect?.(bed) : undefined}
       disabled={!clickable}
       title={
         disabledReason
@@ -99,9 +105,9 @@ export function BedTile({
           : `${bed.bedIdentifier} — ${meta.label}`
       }
       className={cn(
-        "group relative flex flex-col items-start gap-1 rounded-xl border px-2.5 py-2 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150",
+        "group relative flex flex-col items-start gap-1 rounded-xl border px-2.5 py-2 text-left",
         meta.tile,
-        clickable && "cursor-pointer hover:-translate-y-0.5 hover:shadow-pop",
+        clickable && "cursor-pointer hover:ring-1 hover:ring-brand-300",
         !clickable && "cursor-not-allowed opacity-70",
         selected && "ring-2 ring-brand-500 ring-offset-1",
         compact ? "min-h-[68px]" : "min-h-[84px]",
@@ -134,7 +140,7 @@ export function BedTile({
       )}
     </button>
   );
-}
+});
 
 /* --------------------------------- grid ------------------------------------ */
 
@@ -245,7 +251,7 @@ export function WardBedGrid({
                     patientLabel={patientLabel}
                     selected={selectedBedId === bed.id}
                     disabledReason={disabledReason}
-                    onClick={onSelectBed ? () => onSelectBed(bed) : undefined}
+                    onSelect={onSelectBed}
                   />
                 );
               })}

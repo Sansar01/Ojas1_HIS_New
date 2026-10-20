@@ -95,10 +95,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
                         )}
                       />
                       <Icon
-                        className={cn(
-                          "size-4.5 shrink-0 transition-transform duration-200",
-                          !isActive && "group-hover:scale-110",
-                        )}
+                        className="size-4.5 shrink-0"
                       />
                       {!isSidebarCollapsed && (
                         <span className="truncate">{label}</span>

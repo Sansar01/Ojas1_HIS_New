@@ -10,7 +10,12 @@ import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
 import { appointmentSchema } from "@/pages/appointments/appointment.schema";
-import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
+import {
+  addDays,
+  formatDate,
+  patientOptionLabel,
+  type SlotOption,
+} from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
 import { SlotPicker } from "./AppointmentsPage";
 import { APPOINTMENT_TYPES, VISIT_TYPES } from "@/constants";
@@ -178,28 +183,48 @@ export function AppointmentFormModal({
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
 
-  /** patient Select options (ACTIVE only) recomputed only when the list changes */
+  /** patient Select options — rebuilt only when the list changes, not on every keystroke of the form */
   const patientOptions = useMemo(
     () =>
       patients
-        .filter((p: any) => p.status === "ACTIVE")
+        .filter((p: any) => Boolean(p.id))
         .map((p: any) => ({
           value: p.id,
-          label: fullName(p),
-          description: p.mrn,
+          label: `${p.firstName ?? ""} ${p.lastName || ""}`.trim() || "Patient",
+          description:
+            [
+              (p.gender ?? "").toLowerCase(),
+              p.mobile ?? p.mobilePhone,
+              p.age !== undefined && p.age !== null
+                ? `${p.age}${p.ageUnit ?? ""}`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
+          data: p,
         })),
     [patients],
   );
 
-  /** doctor Select options recomputed only when the list itself changes */
+  /** doctor Select options — rebuilt only when the list changes, not on every keystroke of the form */
   const doctorOptions = useMemo(
     () =>
-      doctors.map((d: any) => ({
-        value: d.id,
-        label: `Dr. ${fullName(d)}`,
-        description: d.specialization ?? undefined,
-        disabled: d.isActive !== true,
-      })),
+      doctors.map((d: any) => {
+        const name = [d.user?.firstName ?? d.firstName, d.user?.lastName ?? d.lastName]
+          .filter(Boolean)
+          .join(" ");
+        const dept =
+          d.clinicalDepartment?.name ?? d.specialization ?? undefined;
+        return {
+          value: d.id,
+          label: `Dr. ${name} - ${dept ?? "General"}`,
+          description:
+            Number(d.consultationFee) > 0
+              ? `₹${Number(d.consultationFee)} · ${Number(d.slotDurationMins ?? d.slotDuration ?? 15)}m slots`
+              : undefined,
+          disabled: d.isActive === false,
+        };
+      }),
     [doctors],
   );
   // slot-conflict source for the picker below — loaded lazily, only once the
@@ -641,28 +666,8 @@ export function AppointmentFormModal({
               placeholder="Search registered patients..."
               loading={patientsLoading}
               loadingLabel="Searching patients…"
-              options={patients
-                .map((p: any) => {
-                  const name =
-                    `${p.firstName ?? ""} ${p.lastName || ""}`.trim();
-                  const badge = p.uhid ?? p.mrn ?? "no UHID";
-                  const details = [
-                    (p.gender ?? "").toLowerCase(),
-                    p.mobile ?? p.mobilePhone,
-                    p.age !== undefined && p.age !== null
-                      ? `${p.age}${p.ageUnit ?? ""}`
-                      : undefined,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ");
-                  return {
-                    value: p.id,
-                    label: `${name || "Patient"} (${badge})`,
-                    description: details || undefined,
-                    disabled: !p.id,
-                  };
-                })
-                .filter((p: any) => Boolean(p.value))}
+              options={patientOptions}
+              getOptionLabel={patientOptionLabel}
             />
 
             <div>
@@ -681,29 +686,7 @@ export function AppointmentFormModal({
                 error={form.errors.doctorId}
                 loading={doctorsLoading}
                 loadingLabel="Loading doctors…"
-                options={doctors.map((d: any) => {
-                  const name = [
-                    d.user?.firstName ?? d.firstName,
-                    d.user?.lastName ?? d.lastName,
-                  ]
-                    .filter(Boolean)
-                    .join(" ");
-                  const dept =
-                    d.clinicalDepartment?.name ??
-                    d.specialization ??
-                    undefined;
-                  return {
-                    value: d.id,
-                    label: `Dr. ${name} - ${dept ?? "General"}`,
-                    description:
-                      Number(d.consultationFee) > 0
-                        ? `₹${Number(d.consultationFee)} · ${
-                            Number(d.slotDurationMins ?? d.slotDuration ?? 15)
-                          }m slots`
-                        : undefined,
-                    disabled: d.isActive === false,
-                  };
-                })}
+                options={doctorOptions}
               />
               {doctor && (
                 <p className="mt-1 text-[12px] text-ink-500">
