@@ -65,7 +65,14 @@ export function DashboardLayout() {
         <main
           id="main"
           ref={mainRef}
-          className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 sm:px-5 lg:px-6"
+          className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-12 pt-4 [overflow-anchor:auto] [scrollbar-gutter:stable] sm:px-5 lg:px-6"
+          style={
+            {
+              willChange: "transform",
+              transform: "translateZ(0)",
+              "-webkit-overflow-scrolling": "touch",
+            } as React.CSSProperties
+          }
         >
           <div className="mx-auto w-full max-w-[1600px]">
             {/* a lazy page suspends here, so the sidebar and header stay put */}

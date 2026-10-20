@@ -57,6 +57,7 @@ import {
 import { Skeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
 import { APPT_TYPE_COLORS } from "@/constants";
+import React from "react";
 
 const TIMELINE_ROWS = 8;
 
@@ -185,6 +186,99 @@ function useDashboardData() {
 }
 
 /**
+ * Static chart option objects — none of these depend on props/state, so
+ * they're hoisted out of the component instead of being re-literal'd on
+ * every render. Chart.js treats a new `options` reference the same as new
+ * `data` for diffing purposes, so this matters just as much as memoizing
+ * `data`.
+ */
+const FLOW_CHART_OPTIONS = {
+  animation: false as const,
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: "index" as const, intersect: false },
+  plugins: {
+    legend: {
+      position: "bottom" as const,
+      align: "end" as const,
+      labels: {
+        boxWidth: 8,
+        usePointStyle: true,
+        font: FONT,
+        color: "#4f6a71",
+        padding: 14,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: {
+        font: FONT,
+        color: "#93a8ad",
+        maxRotation: 0,
+        autoSkipPadding: 16,
+      },
+      border: GRID,
+    },
+    y: {
+      beginAtZero: true,
+      grid: GRID,
+      ticks: { font: FONT, color: "#93a8ad", precision: 0 },
+      border: { display: false },
+    },
+  },
+};
+
+const DOUGHNUT_COLORS = [
+  "#a9eae0",
+  "#0f8377",
+  "#e08600",
+  "#3d6fd1",
+  "#1f9d63",
+  "#d94a4a",
+  "#bccacd",
+];
+
+const DOUGHNUT_OPTIONS = {
+  animation: false as const,
+  cutout: "68%",
+  maintainAspectRatio: true,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      bodyFont: FONT,
+      callbacks: {
+        label: (c: any) => ` ${c.label}: ${c.parsed}`,
+      },
+    },
+  },
+};
+
+const BAR_OPTIONS = {
+  animation: false as const,
+  indexAxis: "y" as const,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { bodyFont: FONT },
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: GRID,
+      ticks: { font: FONT, color: "#93a8ad", precision: 0 },
+      border: { display: false },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { font: { ...FONT, size: 10.5 }, color: "#4f6a71" },
+      border: { display: false },
+    },
+  },
+};
+
+/**
  * Dashboard skeleton — the same blocks, spacing and responsive columns as the
  * loaded dashboard (command banner → KPI grid → three panels), so the layout
  * does not jump when the data arrives.
@@ -252,7 +346,13 @@ function DashboardSkeleton() {
   );
 }
 
-function KpiCard({
+/**
+ * Pure/presentational — wrapped in memo so the KPI grid doesn't re-render
+ * eight cards every time the parent re-renders for an unrelated reason
+ * (e.g. a sibling panel's state changing). All props are primitives except
+ * `icon`, which is a stable element per call site.
+ */
+const KpiCard = React.memo(function KpiCard({
   label,
   value,
   icon,
@@ -338,7 +438,7 @@ function KpiCard({
   ) : (
     body
   );
-}
+});
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -529,6 +629,99 @@ export function DashboardPage() {
 
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
 
+  /**
+   * Chart `data` objects — previously inline literals recreated on every
+   * render, which made react-chartjs-2 rebuild/redraw the chart even with
+   * `animation: false`, producing the visible "jump." Now they only change
+   * identity when their real inputs (`trendSeries`, `statusMix`, `deptLoad`,
+   * `appointments.length`) change.
+   */
+  const flowChartData = useMemo(
+    () => ({
+      labels: trendSeries.labels,
+      datasets: [
+        {
+          label: "Booked",
+          data: trendSeries.booked,
+          borderColor: "#0f8377",
+          backgroundColor: (ctx: any) => {
+            const chart = ctx.chart;
+            const { ctx: c, chartArea } = chart as any;
+            if (!chartArea) return "rgba(15,131,119,.16)";
+            const g = c.createLinearGradient(
+              0,
+              chartArea.top,
+              0,
+              chartArea.bottom,
+            );
+            g.addColorStop(0, "rgba(30,158,144,.32)");
+            g.addColorStop(1, "rgba(30,158,144,0)");
+            return g;
+          },
+          fill: true,
+          tension: 0.38,
+          borderWidth: 2.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: "#0f8377",
+        },
+        {
+          label: "Completed",
+          data: trendSeries.completed,
+          borderColor: "#3d6fd1",
+          backgroundColor: "rgba(61,111,209,.14)",
+          borderWidth: 2,
+          borderDash: [5, 4],
+          tension: 0.38,
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        },
+      ],
+    }),
+    [trendSeries],
+  );
+
+  const doughnutData = useMemo(
+    () => ({
+      labels: statusMix.labels,
+      datasets: [
+        {
+          data: statusMix.values,
+          backgroundColor: DOUGHNUT_COLORS,
+          borderWidth: 2,
+          borderColor: "#ffffff",
+          hoverOffset: 8,
+        },
+      ],
+    }),
+    [statusMix],
+  );
+
+  const barData = useMemo(
+    () => ({
+      labels: deptLoad.labels.map((l: string) =>
+        l.length > 14 ? `${l.slice(0, 13)}…` : l,
+      ),
+      datasets: [
+        {
+          label: "Visits",
+          data: deptLoad.values,
+          backgroundColor: "rgba(15,131,119,.75)",
+          hoverBackgroundColor: "#0d6961",
+          borderRadius: 6,
+          barThickness: 14,
+        },
+      ],
+    }),
+    [deptLoad],
+  );
+
+  const barHeight = useMemo(
+    () => Math.max(140, deptLoad.labels.length * 34),
+    [deptLoad.labels.length],
+  );
+
   // Loading owns the whole page: the skeleton stands in for the real blocks
   // (banner, KPI grid, three panels) and no card content is rendered with it.
   if (loading) {
@@ -547,8 +740,7 @@ export function DashboardPage() {
         <div className="relative flex flex-wrap items-center justify-between gap-5">
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-200">
-              <HeartPulse className="size-3.5" /> Facility
-              overview ·{" "}
+              <HeartPulse className="size-3.5" /> Facility overview ·{" "}
               {formatDate(today, {
                 weekday: "long",
                 day: "numeric",
@@ -695,92 +887,16 @@ export function DashboardPage() {
             subtitle="Bookings against completed visits — refreshed from the scheduling engine"
             icon={<TrendingUp />}
             action={
-              <Badge tone="brand">{appointmentsStory.validVisits} valid visits</Badge>
+              <Badge tone="brand">
+                {appointmentsStory.validVisits} valid visits
+              </Badge>
             }
           />
-          <div className="p-4">
-            <Line
-              data={{
-                labels: trendSeries.labels,
-                datasets: [
-                  {
-                    label: "Booked",
-                    data: trendSeries.booked,
-                    borderColor: "#0f8377",
-                    backgroundColor: (ctx) => {
-                      const chart = ctx.chart;
-                      const { ctx: c, chartArea } = chart as any;
-                      if (!chartArea) return "rgba(15,131,119,.16)";
-                      const g = c.createLinearGradient(
-                        0,
-                        chartArea.top,
-                        0,
-                        chartArea.bottom,
-                      );
-                      g.addColorStop(0, "rgba(30,158,144,.32)");
-                      g.addColorStop(1, "rgba(30,158,144,0)");
-                      return g;
-                    },
-                    fill: true,
-                    tension: 0.38,
-                    borderWidth: 2.4,
-                    pointRadius: 0,
-                    pointHoverRadius: 5,
-                    pointBackgroundColor: "#0f8377",
-                  },
-                  {
-                    label: "Completed",
-                    data: trendSeries.completed,
-                    borderColor: "#3d6fd1",
-                    backgroundColor: "rgba(61,111,209,.14)",
-                    borderWidth: 2,
-                    borderDash: [5, 4],
-                    tension: 0.38,
-                    fill: false,
-                    pointRadius: 0,
-                    pointHoverRadius: 5,
-                  },
-                ],
-              }}
-              options={{
-                animation: false,
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: "index", intersect: false },
-                plugins: {
-                  legend: {
-                    position: "bottom",
-                    align: "end",
-                    labels: {
-                      boxWidth: 8,
-                      usePointStyle: true,
-                      font: FONT,
-                      color: "#4f6a71",
-                      padding: 14,
-                    },
-                  },
-                },
-                scales: {
-                  x: {
-                    grid: { display: false },
-                    ticks: {
-                      font: FONT,
-                      color: "#93a8ad",
-                      maxRotation: 0,
-                      autoSkipPadding: 16,
-                    },
-                    border: GRID,
-                  },
-                  y: {
-                    beginAtZero: true,
-                    grid: GRID,
-                    ticks: { font: FONT, color: "#93a8ad", precision: 0 },
-                    border: { display: false },
-                  },
-                },
-              }}
-              height={210}
-            />
+          <div
+            className="p-4"
+            style={{ height: "230px", isolation: "isolate" }}
+          >
+            <Line data={flowChartData} options={FLOW_CHART_OPTIONS} />
           </div>
         </Panel>
 
@@ -793,42 +909,7 @@ export function DashboardPage() {
           />
           <div className="flex flex-col items-center gap-4 p-4">
             <div className="relative w-full max-w-[15rem]">
-              <Doughnut
-                data={{
-                  labels: statusMix.labels,
-                  datasets: [
-                    {
-                      data: statusMix.values,
-                      backgroundColor: [
-                        "#a9eae0",
-                        "#0f8377",
-                        "#e08600",
-                        "#3d6fd1",
-                        "#1f9d63",
-                        "#d94a4a",
-                        "#bccacd",
-                      ],
-                      borderWidth: 2,
-                      borderColor: "#ffffff",
-                      hoverOffset: 8,
-                    },
-                  ],
-                }}
-                options={{
-                  animation: false,
-                  cutout: "68%",
-                  maintainAspectRatio: true,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      bodyFont: FONT,
-                      callbacks: {
-                        label: (c: any) => ` ${c.label}: ${c.parsed}`,
-                      },
-                    },
-                  },
-                }}
-              />
+              <Doughnut data={doughnutData} options={DOUGHNUT_OPTIONS} />
               <div className="pointer-events-none absolute inset-0 grid place-items-center">
                 <div className="text-center">
                   <p className="num text-[22px] font-bold leading-none text-ink-900">
@@ -849,17 +930,7 @@ export function DashboardPage() {
                   <span className="flex min-w-0 items-center gap-1.5 text-ink-500">
                     <span
                       className="size-2 shrink-0 rounded-[3px]"
-                      style={{
-                        background: [
-                          "#a9eae0",
-                          "#0f8377",
-                          "#e08600",
-                          "#3d6fd1",
-                          "#1f9d63",
-                          "#d94a4a",
-                          "#bccacd",
-                        ][i],
-                      }}
+                      style={{ background: DOUGHNUT_COLORS[i] }}
                     />
                     <span className="truncate">{label}</span>
                   </span>
@@ -894,61 +965,60 @@ export function DashboardPage() {
             <MiniList rows={[]} emptyLabel="No appointments booked for today" />
           ) : (
             <>
-            <ol className="relative px-4 py-3">
-              <span className="absolute bottom-3 left-[3.6rem] top-3 w-px bg-ink-100" />
-              {timeline.slice(0, TIMELINE_ROWS).map((a: any) => {
-                const [h, m] = a.time.split(":").map(Number);
-                const isNow =
-                  Math.abs(h * 60 + m - nowMinutes) < 45 &&
-                  a.status !== "Completed";
-                return (
-                  <li
-                    key={a.id}
-                    className="relative flex items-start gap-3 py-1.5"
-                  >
-                    <span className="num w-12 shrink-0 pt-1 text-right text-[11.5px] font-semibold text-ink-500">
-                      {a.time}
-                    </span>
-                    <span
-                      className={cn(
-                        "relative z-10 mt-1.5 grid size-3 shrink-0 place-items-center rounded-full ring-4 ring-white",
-                        isNow
-                          ? "bg-amberly-500"
-                          : a.status === "Completed"
-                            ? "bg-mint-500"
-                            : ["Cancelled", "No Show"].includes(a.status)
-                              ? "bg-ink-200"
-                              : "bg-brand-500",
-                      )}
+              <ol className="relative px-4 py-3">
+                <span className="absolute bottom-3 left-[3.6rem] top-3 w-px bg-ink-100" />
+                {timeline.slice(0, TIMELINE_ROWS).map((a: any) => {
+                  const [h, m] = a.time.split(":").map(Number);
+                  const isNow =
+                    Math.abs(h * 60 + m - nowMinutes) < 45 &&
+                    a.status !== "Completed";
+                  return (
+                    <li
+                      key={a.id}
+                      className="relative flex items-start gap-3 py-1.5"
                     >
-                    </span>
-                    <div className="min-w-0 flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 transition-colors hover:border-brand-200">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[13px] font-semibold text-ink-900">
-                          {fullName(patientMap.get(a.patientId))}
-                          <span className="num ml-2 text-[11px] font-medium text-ink-400">
-                            {a.code}
-                          </span>
+                      <span className="num w-12 shrink-0 pt-1 text-right text-[11.5px] font-semibold text-ink-500">
+                        {a.time}
+                      </span>
+                      <span
+                        className={cn(
+                          "relative z-10 mt-1.5 grid size-3 shrink-0 place-items-center rounded-full ring-4 ring-white",
+                          isNow
+                            ? "bg-amberly-500"
+                            : a.status === "Completed"
+                              ? "bg-mint-500"
+                              : ["Cancelled", "No Show"].includes(a.status)
+                                ? "bg-ink-200"
+                                : "bg-brand-500",
+                        )}
+                      ></span>
+                      <div className="min-w-0 flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 transition-colors hover:border-brand-200">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[13px] font-semibold text-ink-900">
+                            {fullName(patientMap.get(a.patientId))}
+                            <span className="num ml-2 text-[11px] font-medium text-ink-400">
+                              {a.code}
+                            </span>
+                          </p>
+                          <StatusBadge status={a.status} />
+                        </div>
+                        <p className="mt-0.5 truncate text-[11.5px] text-ink-400">
+                          Dr. {fullName(doctorMap.get(a.doctorId))} · {a.type} ·{" "}
+                          {formatMoney(a.fee)}
                         </p>
-                        <StatusBadge status={a.status} />
                       </div>
-                      <p className="mt-0.5 truncate text-[11.5px] text-ink-400">
-                        Dr. {fullName(doctorMap.get(a.doctorId))} · {a.type} ·{" "}
-                        {formatMoney(a.fee)}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-            {timeline.length > TIMELINE_ROWS && (
-              <Link
-                to="/app/appointments"
-                className="block border-t border-ink-100 px-4 py-2.5 text-center text-[12px] font-semibold text-brand-600 hover:underline"
-              >
-                +{timeline.length - TIMELINE_ROWS} more · Open scheduler
-              </Link>
-            )}
+                    </li>
+                  );
+                })}
+              </ol>
+              {timeline.length > TIMELINE_ROWS && (
+                <Link
+                  to="/app/appointments"
+                  className="block border-t border-ink-100 px-4 py-2.5 text-center text-[12px] font-semibold text-brand-600 hover:underline"
+                >
+                  +{timeline.length - TIMELINE_ROWS} more · Open scheduler
+                </Link>
+              )}
             </>
           )}
         </SectionPanel>
@@ -960,47 +1030,11 @@ export function DashboardPage() {
             subtitle="Appointments, last 30 days"
             icon={<Users />}
           />
-          <div className="p-4">
-            <Bar
-              data={{
-                labels: deptLoad.labels.map((l: string) =>
-                  l.length > 14 ? `${l.slice(0, 13)}…` : l,
-                ),
-                datasets: [
-                  {
-                    label: "Visits",
-                    data: deptLoad.values,
-                    backgroundColor: "rgba(15,131,119,.75)",
-                    hoverBackgroundColor: "#0d6961",
-                    borderRadius: 6,
-                    barThickness: 14,
-                  },
-                ],
-              }}
-              options={{
-                animation: false,
-                indexAxis: "y" as const,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { display: false },
-                  tooltip: { bodyFont: FONT },
-                },
-                scales: {
-                  x: {
-                    beginAtZero: true,
-                    grid: GRID,
-                    ticks: { font: FONT, color: "#93a8ad", precision: 0 },
-                    border: { display: false },
-                  },
-                  y: {
-                    grid: { display: false },
-                    ticks: { font: { ...FONT, size: 10.5 }, color: "#4f6a71" },
-                    border: { display: false },
-                  },
-                },
-              }}
-              height={Math.max(140, deptLoad.labels.length * 34)}
-            />
+          <div
+            className="p-4"
+            style={{ height: `${barHeight}px`, isolation: "isolate" }}
+          >
+            <Bar data={barData} options={BAR_OPTIONS} />
           </div>
         </Panel>
       </div>
