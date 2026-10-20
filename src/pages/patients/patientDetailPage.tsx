@@ -35,7 +35,7 @@ import {
   Heart,
   Stethoscope,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 export function PatientDetailPage() {
@@ -167,29 +167,72 @@ export function PatientDetailPage() {
     };
   }, []);
 
-  const doctorMap = new Map(doctors.map((d: any) => [d.id, d]));
-  const myAppointments = appointments.filter((a: any) => a.patientId === id);
-  const myConsultations = consultations.filter((c: any) => c.patientId === id);
-  const myInvoices = invoices.filter((i: any) => i.patientId === id);
-  const outstanding = myInvoices.reduce(
-    (sum, i: any) =>
-      sum +
-      (i.items.reduce(
+  /**
+   * Everything this screen shows is sliced out of the loaded collections ONCE
+   * per data change. Before, these four filters plus the invoice maths (each
+   * invoice's line items were re-summed several times per row, in the row
+   * renderer as well) ran on every render — including every tab switch, which
+   * is the one interaction this page exists for.
+   */
+  const doctorMap = useMemo(
+    () => new Map(doctors.map((d: any) => [d.id, d])),
+    [doctors],
+  );
+
+  const mine = useMemo(
+    () => ({
+      appointments: appointments.filter((a: any) => a.patientId === id),
+      consultations: consultations.filter((c: any) => c.patientId === id),
+      invoices: invoices.filter((i: any) => i.patientId === id),
+    }),
+    [appointments, consultations, invoices, id],
+  );
+
+  const myAppointments = mine.appointments;
+  const myConsultations = mine.consultations;
+  const myInvoices = mine.invoices;
+
+  /**
+   * Invoice totals, computed once per invoice: `id → { total, paid }`. The
+   * line items are summed a single time instead of twice per cell (the total
+   * cell used to reduce the items, then reduce them again for the tax line).
+   */
+  const invoiceTotals = useMemo(() => {
+    const map = new Map<string, { total: number; paid: number }>();
+    for (const i of myInvoices as any[]) {
+      const base = (i.items ?? []).reduce(
         (s: number, it: any) => s + it.quantity * it.unitPrice,
         0,
-      ) -
-        i.discountValue +
-        Math.round(
-          ((i.items.reduce(
-            (s: number, it: any) => s + it.quantity * it.unitPrice,
-            0,
-          ) -
-            i.discountValue) *
-            i.taxRate) /
-            100,
-        ) -
-        i.payments.reduce((s: number, p: any) => s + p.amount, 0)),
-    0,
+      );
+      const net = base - i.discountValue;
+      const total = net + Math.round((net * i.taxRate) / 100);
+      const paid = (i.payments ?? []).reduce(
+        (s: number, p: any) => s + p.amount,
+        0,
+      );
+      map.set(i.id, { total, paid });
+    }
+    return map;
+  }, [myInvoices]);
+
+  const outstanding = useMemo(
+    () =>
+      (myInvoices as any[]).reduce(
+        (sum, i) =>
+          sum + ((invoiceTotals.get(i.id)?.total ?? 0) - (invoiceTotals.get(i.id)?.paid ?? 0)),
+        0,
+      ),
+    [myInvoices, invoiceTotals],
+  );
+
+  /** Prescription line count for the tab badge — one pass. */
+  const prescriptionCount = useMemo(
+    () =>
+      (myConsultations as any[]).reduce(
+        (n, c) => n + (c.prescriptions?.length ?? 0),
+        0,
+      ),
+    [myConsultations],
   );
 
   if (!patient && isLoadingPatient) {
@@ -232,28 +275,33 @@ export function PatientDetailPage() {
     );
   }
 
-  const tabs = [
-    { value: "overview", label: "Overview" },
-    {
-      value: "appointments",
-      label: "Appointments",
-      count: myAppointments.length,
-    },
-    {
-      value: "consultations",
-      label: "Consultations",
-      count: myConsultations.length,
-    },
-    {
-      value: "prescriptions",
-      label: "Prescriptions",
-      count: myConsultations.reduce(
-        (n: number, c: any) => n + (c.prescriptions?.length ?? 0),
-        0,
-      ),
-    },
-    { value: "billing", label: "Billing", count: myInvoices.length },
-  ];
+  const tabs = useMemo(
+    () => [
+      { value: "overview", label: "Overview" },
+      {
+        value: "appointments",
+        label: "Appointments",
+        count: myAppointments.length,
+      },
+      {
+        value: "consultations",
+        label: "Consultations",
+        count: myConsultations.length,
+      },
+      {
+        value: "prescriptions",
+        label: "Prescriptions",
+        count: prescriptionCount,
+      },
+      { value: "billing", label: "Billing", count: myInvoices.length },
+    ],
+    [
+      myAppointments.length,
+      myConsultations.length,
+      prescriptionCount,
+      myInvoices.length,
+    ],
+  );
 
   return (
     <div className="space-y-4">
@@ -446,7 +494,7 @@ export function PatientDetailPage() {
                   <button
                     key={a.id}
                     onClick={() => navigate(`/app/appointments?focus=${a.id}`)}
-                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:border-brand-200 hover:shadow-card"
+                    className="rounded-xl border border-ink-100 bg-white p-3 text-left transition-colors hover:border-brand-200"
                   >
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                       {formatDate(a.date)}
@@ -664,24 +712,7 @@ export function PatientDetailPage() {
                   align: "right",
                   render: (i: any) => (
                     <span className="num">
-                      {formatMoney(
-                        i.items.reduce(
-                          (s: number, it: any) =>
-                            s + it.quantity * it.unitPrice,
-                          0,
-                        ) -
-                          i.discountValue +
-                          Math.round(
-                            ((i.items.reduce(
-                              (s: number, it: any) =>
-                                s + it.quantity * it.unitPrice,
-                              0,
-                            ) -
-                              i.discountValue) *
-                              i.taxRate) /
-                              100,
-                          ),
-                      )}
+                      {formatMoney(invoiceTotals.get(i.id)?.total ?? 0)}
                     </span>
                   ),
                 },
@@ -691,12 +722,7 @@ export function PatientDetailPage() {
                   align: "right",
                   render: (i: any) => (
                     <span className="num">
-                      {formatMoney(
-                        i.payments.reduce(
-                          (s: number, p: any) => s + p.amount,
-                          0,
-                        ),
-                      )}
+                      {formatMoney(invoiceTotals.get(i.id)?.paid ?? 0)}
                     </span>
                   ),
                 },

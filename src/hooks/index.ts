@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useDeferredValue, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useAppSelector } from "@/store/hooks";
 import { selectUser } from "@/store/slices/authSlice";
 import type { Permission } from "@/types";
@@ -55,25 +61,58 @@ export function usePermission() {
     [entitlements],
   );
 
-  return {
-    user,
-    can,
-    entitlements,
-    loading,
-    ready,
-    error,
-    status,
-    hasFeature: (moduleCode: string, featureCode: string) =>
+  // `can` is memoized above, so these stay referentially stable for as long as
+  // the entitlements do. They are handed to memoized children (toolbars, row
+  // actions) and read inside `useCallback`/`useMemo` dependency lists — a new
+  // function on every render would defeat both.
+  const canView = useCallback((m: string) => can(m, "view"), [can]);
+  const canCreate = useCallback((m: string) => can(m, "create"), [can]);
+  const canEdit = useCallback((m: string) => can(m, "edit"), [can]);
+  const canDelete = useCallback((m: string) => can(m, "delete"), [can]);
+  const hasFeatureFn = useCallback(
+    (moduleCode: string, featureCode: string) =>
       hasFeature(entitlements, moduleCode, featureCode),
-    canView: (m: string) => can(m, "view"),
-    canCreate: (m: string) => can(m, "create"),
-    canEdit: (m: string) => can(m, "edit"),
-    canDelete: (m: string) => can(m, "delete"),
-    isSuperAdmin: userType
-      ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
-      : false,
-    userType,
-  };
+    [entitlements],
+  );
+
+  const isSuperAdmin = userType
+    ? userType.toUpperCase().replace(/[^A-Z0-9]/g, "") === "SUPERADMIN"
+    : false;
+
+  return useMemo(
+    () => ({
+      user,
+      can,
+      entitlements,
+      loading,
+      ready,
+      error,
+      status,
+      hasFeature: hasFeatureFn,
+      canView,
+      canCreate,
+      canEdit,
+      canDelete,
+      isSuperAdmin,
+      userType,
+    }),
+    [
+      user,
+      can,
+      entitlements,
+      loading,
+      ready,
+      error,
+      status,
+      hasFeatureFn,
+      canView,
+      canCreate,
+      canEdit,
+      canDelete,
+      isSuperAdmin,
+      userType,
+    ],
+  );
 }
 
 /* ---------------------------- table interactions --------------------------- */
@@ -103,17 +142,32 @@ export function useTable<T extends Record<string, any>>(
     sortDir: "desc",
   });
 
-  // Pages pass fresh inline option objects every render; keep the latest in a
-  // ref and re-run the filter/sort only when the data, search, sort or the
-  // filter *values* change.
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
-  const filtersKey = JSON.stringify(options.filters ?? {});
+  /**
+   * Pages hand this hook inline object literals (searchFields, filters,
+   * sortAccessors), so `options` changes identity on every render and the
+   * memoized filter/sort below would silently re-run each time — a full
+   * refilter of the table on any unrelated state change. `filtered` therefore
+   * keys off this compact canonical form instead of the object itself.
+   *
+   * Computed on every render (no memo): options is tiny — a few keys and,
+   * for `filters`, the page's current filter values, several call sites of
+   * which pass live state that MUST re-trigger filtering — and
+   * `JSON.stringify` costs microseconds. Only the resulting string is a
+   * dependency, so the expensive filter/sort still runs only when the
+   * effective configuration actually changes. Function-valued accessors
+   * serialize away; the accessors in this codebase read nothing but row
+   * fields, so a `rows` change already re-runs the memo for them.
+   */
+  const optionsKey = JSON.stringify([
+    options.pageSize,
+    options.searchFields,
+    options.filters ?? null,
+    options.sortAccessors,
+  ]);
   // typing stays instant; the filter over the rows runs at lower priority
   const deferredSearch = useDeferredValue(query.search);
 
   const filtered = useMemo(() => {
-    const options = optionsRef.current;
     const search = deferredSearch.trim().toLowerCase();
     let out = rows;
     if (search && options.searchFields?.length) {
@@ -149,51 +203,106 @@ export function useTable<T extends Record<string, any>>(
         options.sortAccessors?.[query.sortBy] ??
         ((row: T) => row[query.sortBy as keyof T]);
       const dir = query.sortDir === "asc" ? 1 : -1;
-      out = [...out].sort((a, b) => {
-        const av = accessor(a) as any;
-        const bv = accessor(b) as any;
-        if (av === bv) return 0;
-        if (typeof av === "number" && typeof bv === "number")
-          return (av - bv) * dir;
-        return (
-          String(av ?? "").localeCompare(String(bv ?? ""), undefined, {
-            numeric: true,
-          }) * dir
-        );
-      });
+      // Decorate-once: the accessor/string conversion ran inside the
+      // comparator before — O(n log n) conversions instead of one per row.
+      out = out
+        .map((row) => ({ row, key: accessor(row) as any }))
+        .sort((a, b) => {
+          const av = a.key;
+          const bv = b.key;
+          if (av === bv) return 0;
+          if (typeof av === "number" && typeof bv === "number")
+            return (av - bv) * dir;
+          return (
+            String(av ?? "").localeCompare(String(bv ?? ""), undefined, {
+              numeric: true,
+            }) * dir
+          );
+        })
+        .map((x) => x.row);
     }
     return out;
-  }, [rows, deferredSearch, query.sortBy, query.sortDir, filtersKey]);
+  }, [rows, deferredSearch, query.sortBy, query.sortDir, optionsKey]);
 
   const total = filtered.length;
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
   const page = Math.min(query.page, pageCount);
-  const paged = filtered.slice(
-    (page - 1) * query.pageSize,
-    page * query.pageSize,
+
+  // Only the current page is sliced out of the (already sorted) result set,
+  // and that slice keeps its identity until the raw rows, the filters or the
+  // paging actually change — so a re-render for an unrelated reason (a dialog
+  // opening, a toast) hands `DataTable` the same array it already rendered.
+  const paged = useMemo(
+    () => filtered.slice((page - 1) * query.pageSize, page * query.pageSize),
+    [filtered, page, query.pageSize],
   );
 
-  return {
-    rows: paged,
-    allRows: filtered,
-    total,
-    page,
-    pageCount,
-    pageSize: query.pageSize,
-    query,
-    setSearch: (search: string) => setQuery((q) => ({ ...q, search, page: 1 })),
-    setPage: (p: number) => setQuery((q) => ({ ...q, page: Math.max(1, p) })),
-    setPageSize: (size: number) =>
-      setQuery((q) => ({ ...q, pageSize: size, page: 1 })),
-    toggleSort: (column: string) =>
+  const setSearch = useCallback(
+    (search: string) => setQuery((q) => (q.search === search ? q : { ...q, search, page: 1 })),
+    [],
+  );
+  const setPage = useCallback(
+    (p: number) =>
+      setQuery((q) => {
+        const next = Math.max(1, p);
+        return q.page === next ? q : { ...q, page: next };
+      }),
+    [],
+  );
+  const setPageSize = useCallback(
+    (size: number) =>
+      setQuery((q) =>
+        q.pageSize === size && q.page === 1 ? q : { ...q, pageSize: size, page: 1 },
+      ),
+    [],
+  );
+  const toggleSort = useCallback(
+    (column: string) =>
       setQuery((q) => ({
         ...q,
         sortBy: column,
         sortDir: q.sortBy === column && q.sortDir === "desc" ? "asc" : "desc",
         page: 1,
       })),
-    reset: () => setQuery((q) => ({ ...q, search: "", page: 1 })),
-  };
+    [],
+  );
+  const reset = useCallback(
+    () =>
+      setQuery((q) =>
+        q.search === "" && q.page === 1 ? q : { ...q, search: "", page: 1 },
+      ),
+    [],
+  );
+
+  return useMemo(
+    () => ({
+      rows: paged,
+      allRows: filtered,
+      total,
+      page,
+      pageCount,
+      pageSize: query.pageSize,
+      query,
+      setSearch,
+      setPage,
+      setPageSize,
+      toggleSort,
+      reset,
+    }),
+    [
+      paged,
+      filtered,
+      total,
+      page,
+      pageCount,
+      query,
+      setSearch,
+      setPage,
+      setPageSize,
+      toggleSort,
+      reset,
+    ],
+  );
 }
 
 /* -------------------------------- utilities -------------------------------- */

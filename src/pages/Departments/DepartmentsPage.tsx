@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Eye,
   Layers,
@@ -45,7 +45,7 @@ export function DepartmentsPage() {
   /* ------------------------------- local data ----------------------------- */
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /** departments + the collections the table columns render */
@@ -137,10 +137,58 @@ export function DepartmentsPage() {
     sortAccessors: { name: (d) => d.name, status: (d) => d.status },
   });
 
-  const stats = (id: string) => ({
-    doctors: doctors.filter((d: any) => d.departmentId === id).length,
-    visits: appointments.filter((a: any) => a.departmentId === id).length,
-  });
+  /**
+   * Per-department counters, head-doctor lookup and the "doctors in this
+   * department" list — each derived ONCE per data change.
+   *
+   * These used to be computed inside the table cells and the detail drawer:
+   * a two-filter sweep of both collections for every department row (and
+   * again for the open drawer), plus a `.find()` per row for the head doctor.
+   * A render was O(departments × (doctors + appointments)).
+   */
+  const departmentStats = useMemo(() => {
+    const doctorsByDept = new Map<string, number>();
+    const visitsByDept = new Map<string, number>();
+    for (const d of doctors as any[]) {
+      doctorsByDept.set(d.departmentId, (doctorsByDept.get(d.departmentId) ?? 0) + 1);
+    }
+    for (const a of appointments as any[]) {
+      visitsByDept.set(a.departmentId, (visitsByDept.get(a.departmentId) ?? 0) + 1);
+    }
+    return { doctorsByDept, visitsByDept };
+  }, [doctors, appointments]);
+
+  const stats = useCallback(
+    (id: string) => ({
+      doctors: departmentStats.doctorsByDept.get(id) ?? 0,
+      visits: departmentStats.visitsByDept.get(id) ?? 0,
+    }),
+    [departmentStats],
+  );
+
+  /** id → doctor, for the head-of-department column and the drawer. */
+  const doctorById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const d of doctors as any[]) map.set(d.id, d);
+    return map;
+  }, [doctors]);
+
+  /** doctors grouped by department, for the detail drawer. */
+  const doctorsByDepartment = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const d of doctors as any[]) {
+      const list = map.get(d.departmentId);
+      if (list) list.push(d);
+      else map.set(d.departmentId, [d]);
+    }
+    return map;
+  }, [doctors]);
+
+  /** header badge — one pass instead of a filter per render */
+  const operationalCount = useMemo(
+    () => (departments as any[]).reduce((n, d) => (d.status === "active" ? n + 1 : n), 0),
+    [departments],
+  );
 
   return (
     <>
@@ -162,8 +210,7 @@ export function DepartmentsPage() {
         meta={
           <>
             <Badge tone="brand" dot>
-              {departments.filter((d: any) => d.status === "active").length}{" "}
-              operational
+              {operationalCount} operational
             </Badge>
             <Badge tone="lagoon">{doctors.length} doctors mapped</Badge>
           </>
@@ -244,7 +291,9 @@ export function DepartmentsPage() {
               header: "Head of department",
               hideBelow: "md",
               render: (d) => {
-                const doc = doctors.find((x: any) => x.id === d.headDoctorId);
+                const doc = d.headDoctorId
+                  ? doctorById.get(d.headDoctorId)
+                  : undefined;
                 return doc ? (
                   <span className="flex items-center gap-2 text-[12.5px]">
                     <Avatar name={fullName(doc)} size="xs" color="bg-ink-600" />
@@ -364,7 +413,9 @@ export function DepartmentsPage() {
                   label: "Head of department",
                   value:
                     fullName(
-                      doctors.find((x: any) => x.id === detail.headDoctorId),
+                      detail.headDoctorId
+                        ? doctorById.get(detail.headDoctorId)
+                        : undefined,
                     ) || "Vacant",
                 },
               ]}
@@ -378,9 +429,7 @@ export function DepartmentsPage() {
               bodyClass="p-0"
             >
               <ul className="divide-y divide-ink-100">
-                {doctors
-                  .filter((d: any) => d.departmentId === detail.id)
-                  .map((d: any) => (
+                {(doctorsByDepartment.get(detail.id) ?? []).map((d: any) => (
                     <li
                       key={d.id}
                       className="flex items-center justify-between gap-3 px-4 py-2.5"
@@ -405,8 +454,7 @@ export function DepartmentsPage() {
                       <StatusBadge status={d.status} />
                     </li>
                   ))}
-                {doctors.filter((d: any) => d.departmentId === detail.id)
-                  .length === 0 && (
+                {(doctorsByDepartment.get(detail.id) ?? []).length === 0 && (
                   <li className="px-4 py-6 text-center text-[12.5px] text-ink-400">
                     No doctors mapped yet.
                   </li>

@@ -308,15 +308,18 @@ export const NumberInput = ({
 
 /* ---------------------------------- Select --------------------------------- */
 
-export interface Option {
+export interface Option<T = unknown> {
+  /** the stable identifier — this is what `Select` reports through `onChange` */
   value: string;
   label: string;
   description?: string;
   disabled?: boolean;
   tone?: string;
+  /** the source record, for `getOptionLabel` to build a label from several fields */
+  data?: T;
 }
 
-export function Select({
+export function Select<T = unknown>({
   label,
   value,
   onChange,
@@ -335,11 +338,12 @@ export function Select({
   searchable = false,
   searchPlaceholder,
   tone = "error",
+  getOptionLabel,
 }: {
   label?: React.ReactNode;
   value: string;
   onChange: (v: string) => void;
-  options: Option[];
+  options: Option<T>[];
   placeholder?: string;
   error?: string;
   hint?: React.ReactNode;
@@ -367,12 +371,23 @@ export function Select({
   searchPlaceholder?: string;
   /** Error styling: red (default) or amber warning */
   tone?: "error" | "warning";
+  /**
+   * Builds the text shown for an option from its `label` / `data`, e.g.
+   * `(o) => `${o.data.name} - ${o.data.uhid}``. The same text is used in the
+   * list, in the closed trigger once an option is chosen, and by the search
+   * filter. The reported value stays `option.value` (the id). Omit it and the
+   * select behaves exactly as before.
+   */
+  getOptionLabel?: (option: Option<T>) => string;
 }) {
+  const labelOf = (o: Option<T>) => getOptionLabel?.(o) ?? o.label;
   // tracked for the guard above: Radix's hidden input can only echo a value
   // back while this list is closed
   const [listOpen, setListOpen] = useState(false);
   // live filter text (searchable lists) — cleared every time the list closes
   const [search, setSearch] = useState("");
+
+  const selected = options.find((o) => o.value === value);
 
   const query = search.trim().toLowerCase();
   // search-filter memoised so a 500-option COUNTRY/STATE list doesn't get
@@ -381,9 +396,11 @@ export function Select({
   const visibleOptions = useMemo(
     () =>
       query
-        ? options.filter((o) => o.label.toLowerCase().includes(query))
+        ? options.filter((o) =>
+            (getOptionLabel?.(o) ?? o.label).toLowerCase().includes(query),
+          )
         : options,
-    [options, query],
+    [options, query, getOptionLabel],
   );
 
   return (
@@ -439,7 +456,16 @@ export function Select({
                 "truncate",
                 value ? "font-medium text-ink-800" : "text-ink-400",
               )}
-            />
+            >
+              {/* Radix shows the chosen item's text here by default, which needs
+                  every item mounted even while closed. Given children it shows
+                  those instead, so the label is read from `options` and the
+                  items below are mounted only while the list is open — a 500
+                  option state/city list no longer costs anything per render.
+                  It also means a record that arrives late, or is filtered out
+                  of the search list, still shows its label. */}
+              {selected ? labelOf(selected) : undefined}
+            </SelectPrimitive.Value>
           )}
           <span className="flex items-center gap-1">
             {clearable && value && (
@@ -506,7 +532,7 @@ export function Select({
                         : `No match for “${search.trim()}”`}
                     </div>
                   )}
-                  {visibleOptions.map((opt) => (
+                  {listOpen && visibleOptions.map((opt) => (
                 <SelectPrimitive.Item
                   key={opt.value}
                   value={opt.value}
@@ -522,7 +548,7 @@ export function Select({
                   <span className="min-w-0 flex-1">
                     <SelectPrimitive.ItemText>
                       <span className="block truncate font-medium">
-                        {opt.label}
+                        {labelOf(opt)}
                       </span>
                     </SelectPrimitive.ItemText>
                     {opt.description && (

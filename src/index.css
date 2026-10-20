@@ -99,7 +99,6 @@
     color: var(--color-ink-800);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
   }
   h1, h2, h3, h4, .font-display { font-family: var(--font-display); letter-spacing: -0.021em; }
   :focus-visible { outline: 2px solid var(--color-brand-400); outline-offset: 2px; }
@@ -171,4 +170,30 @@
   }
   .prescription-document, .prescription-document * { color: #122026 !important; }
   .prescription-document * { background: transparent !important; border-color: #6b8389 !important; }
+
+  /* OPD counter receipt (OpdReceiptSheet) — printed from its <Dialog>, which
+     portals into <body> (sibling of #root, so `body > #root` hides the app). */
+  .opd-receipt {
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .opd-receipt *,
+  .opd-receipt *::before,
+  .opd-receipt *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* keep the item table + totals on one sheet when possible */
+  .opd-receipt table { break-inside: auto; }
+  .opd-receipt tr { break-inside: avoid; }
 }

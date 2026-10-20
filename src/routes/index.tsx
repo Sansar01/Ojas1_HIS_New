@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import {
   RequireAuth,
@@ -9,6 +9,7 @@ import {
 } from "@/routes/guards";
 import { DashboardLayout } from "@/layouts/DashboardLayout";
 import { Spinner } from "@/components/ui/feedback";
+import { TOKEN_KEY } from "@/api/axios";
 
 /* The sign-in path stays eager: it is the first screen and it is small. */
 import { LoginPage } from "@/pages/auth/LoginPage";
@@ -19,122 +20,113 @@ import {
 import ForcePasswordChange from "@/pages/auth/ForcePasswordChange";
 import { PermissionBootstrapPage } from "@/pages/auth/PermissionBootstrapPage";
 
+/* Each screen is its own chunk. `page` keeps the named exports the routes use
+   and records every loader so `PreloadPages` can warm the chunks in the
+   background — the first visit to a module then opens without a network wait. */
+const pageLoaders: Array<() => Promise<unknown>> = [];
+function page<K extends string>(
+  load: () => Promise<Record<K, ComponentType<any>>>,
+  name: K,
+) {
+  pageLoaders.push(load);
+  return lazy(() => load().then((m) => ({ default: m[name] })));
+}
+
+/**
+ * Chunk warm-up. `import()` is deduped by the module loader, so calling these
+ * repeatedly costs one request and a failure is irrelevant (the route still
+ * lazy-loads on demand).
+ */
+const warmDashboardChunk = () => {
+  void import("@/pages/DashboardPage").catch(() => {});
+};
+
+/**
+ * A returning user (session token in storage) lands straight on /dashboard, so
+ * the landing chunk is warmed at module load — while the shell and the
+ * bootstrap are still busy — and the dashboard never waits for its own code.
+ */
+if (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) {
+  warmDashboardChunk();
+}
+
+/**
+ * Idle-time chunk warm-up, mounted only behind the login (see the shell route).
+ *
+ * The chunks are warmed ONE AT A TIME, on idle, instead of firing all 21
+ * imports 1.5s after sign-in: a 21-way burst competes with the dashboard's own
+ * API calls for bandwidth and hands the main thread every route's JS to parse
+ * in one go — which is what made the first scroll and the first navigation feel
+ * sticky. Page components are still lazy; this only removes the network wait
+ * from the *second* visit to a module.
+ */
+function PreloadPages() {
+  useEffect(() => {
+    // the landing screen first, right away — it is the next navigation
+    warmDashboardChunk();
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let index = 0;
+
+    const schedule = (cb: () => void) => {
+      const ric = (window as any).requestIdleCallback as
+        | ((fn: () => void, opts?: { timeout: number }) => number)
+        | undefined;
+      if (typeof ric === "function") {
+        ric(cb, { timeout: 2500 });
+        return;
+      }
+      timer = setTimeout(cb, 400);
+    };
+
+    const step = () => {
+      if (cancelled || index >= pageLoaders.length) return;
+      const load = pageLoaders[index++];
+      // a failed warm-up is irrelevant: the route still lazy-loads on demand
+      void load().catch(() => {});
+      schedule(step);
+    };
+
+    timer = setTimeout(step, 1500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+  return null;
+}
+
 /* Everything behind the shell loads on demand — one chunk per screen, so a
-   first visit ships the shell instead of all 21 screens (report §13). The
-   `m.X` mapping merely keeps the named exports the routes below already use;
-   no call site or component changes. */
-const DashboardPage = lazy(() =>
-  import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
-);
-const PatientsPage = lazy(() =>
-  import("@/pages/patients/PatientsPage").then((m) => ({
-    default: m.PatientsPage,
-  })),
-);
-const PatientsFormPage = lazy(() =>
-  import("@/pages/patients/patientFormPage").then((m) => ({
-    default: m.PatientsFormPage,
-  })),
-);
-const PatientDetailPage = lazy(() =>
-  import("@/pages/patients/patientDetailPage").then((m) => ({
-    default: m.PatientDetailPage,
-  })),
-);
-const DoctorsPage = lazy(() =>
-  import("@/pages/doctors/DoctorsPage").then((m) => ({
-    default: m.DoctorsPage,
-  })),
-);
-const DoctorDetailPage = lazy(() =>
-  import("@/pages/doctors/DoctorsPage").then((m) => ({
-    default: m.DoctorDetailPage,
-  })),
-);
-const DepartmentsPage = lazy(() =>
-  import("@/pages/Departments/DepartmentsPage").then((m) => ({
-    default: m.DepartmentsPage,
-  })),
-);
-const SpecializationsPage = lazy(() =>
-  import("@/pages/Specializations/SpecializationPage").then((m) => ({
-    default: m.SpecializationsPage,
-  })),
-);
-const AppointmentsPage = lazy(() =>
-  import("@/pages/appointments/AppointmentsPage").then((m) => ({
-    default: m.AppointmentsPage,
-  })),
-);
-const ConsultationsPage = lazy(() =>
-  import("@/pages/consultations/ConsultationsPage").then((m) => ({
-    default: m.ConsultationsPage,
-  })),
-);
-const ConsultationWorkspacePage = lazy(() =>
-  import("@/pages/consultations/ConsultationsPage").then((m) => ({
-    default: m.ConsultationWorkspacePage,
-  })),
-);
-const BillingPage = lazy(() =>
-  import("@/pages/billing/BillingPage").then((m) => ({
-    default: m.BillingPage,
-  })),
-);
-const UsersPage = lazy(() =>
-  import("@/pages/users/UsersPage").then((m) => ({ default: m.UsersPage })),
-);
-const UsersNewPage = lazy(() =>
-  import("@/pages/users/UsersNewPage").then((m) => ({
-    default: m.UsersNewPage,
-  })),
-);
-const RolesPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.RolesPage })),
-);
-const SettingsPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.SettingsPage })),
-);
-const NotFoundPage = lazy(() =>
-  import("@/pages/admin/AdminPages").then((m) => ({ default: m.NotFoundPage })),
-);
-const OpdExaminationRoom = lazy(() =>
-  import("@/pages/opd/Opd").then((m) => ({ default: m.OpdExaminationRoom })),
-);
-const MasterConfigurationPage = lazy(() =>
-  import("@/pages/masterConfiguration/MasterConfigurationPage").then((m) => ({
-    default: m.MasterConfigurationPage,
-  })),
-);
+   first visit ships the shell instead of all 21 screens (report §13). */
+const DashboardPage = page(() => import("@/pages/DashboardPage"), "DashboardPage");
+const PatientsPage = page(() => import("@/pages/patients/PatientsPage"), "PatientsPage");
+const PatientsFormPage = page(() => import("@/pages/patients/patientFormPage"), "PatientsFormPage");
+const PatientDetailPage = page(() => import("@/pages/patients/patientDetailPage"), "PatientDetailPage");
+const DoctorsPage = page(() => import("@/pages/doctors/DoctorsPage"), "DoctorsPage");
+const DoctorDetailPage = page(() => import("@/pages/doctors/DoctorsPage"), "DoctorDetailPage");
+const DepartmentsPage = page(() => import("@/pages/Departments/DepartmentsPage"), "DepartmentsPage");
+const SpecializationsPage = page(() => import("@/pages/Specializations/SpecializationPage"), "SpecializationsPage");
+const AppointmentsPage = page(() => import("@/pages/appointments/AppointmentsPage"), "AppointmentsPage");
+const ConsultationsPage = page(() => import("@/pages/consultations/ConsultationsPage"), "ConsultationsPage");
+const ConsultationWorkspacePage = page(() => import("@/pages/consultations/ConsultationsPage"), "ConsultationWorkspacePage");
+const BillingPage = page(() => import("@/pages/billing/BillingPage"), "BillingPage");
+const UsersPage = page(() => import("@/pages/users/UsersPage"), "UsersPage");
+const UsersNewPage = page(() => import("@/pages/users/UsersNewPage"), "UsersNewPage");
+const RolesPage = page(() => import("@/pages/admin/AdminPages"), "RolesPage");
+const SettingsPage = page(() => import("@/pages/admin/AdminPages"), "SettingsPage");
+const NotFoundPage = page(() => import("@/pages/admin/AdminPages"), "NotFoundPage");
+const OpdExaminationRoom = page(() => import("@/pages/opd/Opd"), "OpdExaminationRoom");
+const MasterConfigurationPage = page(() => import("@/pages/masterConfiguration/MasterConfigurationPage"), "MasterConfigurationPage");
 
 /* IPD module — ward board, admission census, admission form, patient chart and
    the discharge wizard. Pure additions: the pages live under
    `src/pages/ipd/` and touch no existing screen. */
-const IpdWardBoardPage = lazy(() =>
-  import("@/pages/ipd/IpdWardBoardPage").then((m) => ({
-    default: m.IpdWardBoardPage,
-  })),
-);
-const IpdAdmissionsPage = lazy(() =>
-  import("@/pages/ipd/IpdAdmissionsPage").then((m) => ({
-    default: m.IpdAdmissionsPage,
-  })),
-);
-const IpdAdmissionFormPage = lazy(() =>
-  import("@/pages/ipd/IpdAdmissionFormPage").then((m) => ({
-    default: m.IpdAdmissionFormPage,
-  })),
-);
-const IpdPatientChartPage = lazy(() =>
-  import("@/pages/ipd/IpdPatientChartPage").then((m) => ({
-    default: m.IpdPatientChartPage,
-  })),
-);
-const IpdDischargePage = lazy(() =>
-  import("@/pages/ipd/IpdDischargePage").then((m) => ({
-    default: m.IpdDischargePage,
-  })),
-);
+const IpdWardBoardPage = page(() => import("@/pages/ipd/IpdWardBoardPage"), "IpdWardBoardPage");
+const IpdAdmissionsPage = page(() => import("@/pages/ipd/IpdAdmissionsPage"), "IpdAdmissionsPage");
+const IpdAdmissionFormPage = page(() => import("@/pages/ipd/IpdAdmissionFormPage"), "IpdAdmissionFormPage");
+const IpdPatientChartPage = page(() => import("@/pages/ipd/IpdPatientChartPage"), "IpdPatientChartPage");
+const IpdDischargePage = page(() => import("@/pages/ipd/IpdDischargePage"), "IpdDischargePage");
 
 /**
  * Entitlement keys of the IPD module. The backend seeds the module as
@@ -224,6 +216,7 @@ export function AppRoutes() {
             element={
               <RequireAuth>
                 <RequireBootstrap>
+                  <PreloadPages />
                   <DashboardLayout />
                 </RequireBootstrap>
               </RequireAuth>
@@ -234,6 +227,8 @@ export function AppRoutes() {
               path="dashboard"
               element={
                 <ModuleRoute module="dashboard">
+                  {/* the shell's Suspense shows the dashboard's own skeleton on
+                      this route — see `isDashboard` in DashboardLayout */}
                   <DashboardPage />
                 </ModuleRoute>
               }

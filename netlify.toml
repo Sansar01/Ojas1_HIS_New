@@ -9,3 +9,16 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# The build hashes every asset, so each /assets/… file is content-identical →
+# cache hard for a year. index.html must always be revalidated so a new deploy
+# is picked up immediately (its hashed asset links change with every build).
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

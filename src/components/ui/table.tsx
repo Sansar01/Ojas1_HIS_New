@@ -65,6 +65,9 @@ export interface DataTableProps<T> {
   clickRowHint?: boolean;
 }
 
+/** rows per page when `DataTable` pages a long list itself (no `footer` given) */
+const AUTO_PAGE_SIZE = 25;
+
 export function DataTable<T extends Record<string, any>>({
   columns,
   rows,
@@ -85,6 +88,20 @@ export function DataTable<T extends Record<string, any>>({
 }: DataTableProps<T>) {
   const loading = status === "loading" || status === "idle";
   const hasFilters = rows.length > 0;
+
+  // A table that is handed a long list and has no pager of its own (the master
+  // data screens) pages it here, so the DOM stays a page long instead of
+  // carrying every row. Pages that paginate pass their own `footer`.
+  const autoPaged = !footer && rows.length > AUTO_PAGE_SIZE;
+  const [autoPage, setAutoPage] = React.useState(1);
+  const [autoSize, setAutoSize] = React.useState(AUTO_PAGE_SIZE);
+  const autoCount = Math.max(1, Math.ceil(rows.length / autoSize));
+  const currentPage = Math.min(autoPage, autoCount);
+  const shownRows = autoPaged
+    ? rows.slice((currentPage - 1) * autoSize, currentPage * autoSize)
+    : rows;
+  // a search / filter that changes the result set starts over from page 1
+  React.useEffect(() => setAutoPage(1), [rows.length]);
 
   return (
     <div className="overflow-hidden rounded-xl border border-ink-100 bg-white shadow-card">
@@ -163,7 +180,7 @@ export function DataTable<T extends Record<string, any>>({
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {rows.map((row, index) => (
+              {shownRows.map((row, index) => (
                 <tr
                   key={rowKey ? rowKey(row, index) : String(row.id ?? index)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
@@ -208,6 +225,19 @@ export function DataTable<T extends Record<string, any>>({
       )}
       {footer && (
         <div className="border-t border-ink-100 bg-white">{footer}</div>
+      )}
+      {autoPaged && !loading && status !== "error" && (
+        <Pagination
+          page={currentPage}
+          pageCount={autoCount}
+          total={rows.length}
+          pageSize={autoSize}
+          onPage={setAutoPage}
+          onPageSize={(size) => {
+            setAutoSize(size);
+            setAutoPage(1);
+          }}
+        />
       )}
     </div>
   );

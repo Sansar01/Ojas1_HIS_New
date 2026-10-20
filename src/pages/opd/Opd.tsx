@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ChangeEvent } from "react";
+import React, { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   Phone,
   AlertCircle,
@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import { PageIntro } from "@/components/common";
+import { FormSkeleton, Skeleton } from "@/components/ui/feedback";
 import { Button } from "@/components/ui/primitives";
 import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
@@ -126,7 +127,9 @@ export function OpdExaminationRoom() {
     waitingCount: 0,
     vitalsDoneCount: 0,
   });
-  const [loading, setLoading] = useState<boolean>(false);
+  // true from the first render: the queue fetch starts on mount, so the first
+  // paint is the skeleton, never a flash of "No patients found"
+  const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -137,6 +140,8 @@ export function OpdExaminationRoom() {
   const [selectedPatient, setSelectedPatient] = useState<QueueItem | null>(
     null,
   );
+  /** nothing on screen yet: every block shows its skeleton instead of an empty state */
+  const initialLoading = loading && queue.length === 0 && !selectedPatient;
   const [painScore, setPainScore] = useState<number | null>(null);
   const [chiefComplaint, setChiefComplaint] = useState("");
 
@@ -156,8 +161,17 @@ export function OpdExaminationRoom() {
       ? (Number(vitals.weight) / (heightM * heightM)).toFixed(1)
       : "";
 
+  /**
+   * Newest-request-wins guard for the queue fetch. Switching date or tab starts
+   * a new request while the previous one may still be in flight; without this,
+   * a slow older answer could land last and repaint the list (and the selected
+   * patient) with the other tab's data.
+   */
+  const queueSeq = useRef(0);
+
   // Fetch Queue from backend
   const fetchQueue = async (quiet = false) => {
+    const seq = ++queueSeq.current;
     if (!quiet) setLoading(true);
     try {
       // Nurse-station queue lives in the consultation domain (Rule 23).
@@ -165,6 +179,7 @@ export function OpdExaminationRoom() {
         selectedDate,
         activeTab === "waiting" ? "waiting" : "done",
       );
+      if (seq !== queueSeq.current) return; // superseded by a newer request
       if (response.status !== 200)
         throw new Error(
           response.data?.message || "Server responded with status 401",
@@ -196,6 +211,7 @@ export function OpdExaminationRoom() {
         clearFormState();
       }
     } catch (err: any) {
+      if (seq !== queueSeq.current) return;
       console.error("Queue Fetch Error:", err);
       dispatch(
         toast.error(
@@ -204,12 +220,16 @@ export function OpdExaminationRoom() {
         ),
       );
     } finally {
-      setLoading(false);
+      // only the newest request owns the spinner
+      if (seq === queueSeq.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchQueue();
+    void fetchQueue();
+    // `fetchQueue` reads the date/tab it is given; re-running it is exactly
+    // what these two dependencies mean, and nothing else should retrigger it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, activeTab]);
 
   const handleVitalChange = (field: keyof typeof vitals, value: string) => {
@@ -316,7 +336,8 @@ export function OpdExaminationRoom() {
       };
 
       const vitalsOut = await consultationService.saveVitals(vitalsPayload);
-      if (vitalsOut.status !== 200)
+      // Successful creates return 201, so accept the whole 2xx range.
+      if (vitalsOut.status < 200 || vitalsOut.status >= 300)
         throw new Error(
           vitalsOut.data?.message || "Failed to save patient vitals.",
         );
@@ -389,7 +410,7 @@ export function OpdExaminationRoom() {
           </div>
 
           <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200 text-sm font-medium">
-            <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+            <div className="w-2 h-2 rounded-full bg-teal-500" />
             Assessment in Progress
           </span>
 
@@ -423,7 +444,7 @@ export function OpdExaminationRoom() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                Waiting ({summary.waitingCount})
+                Waiting ({initialLoading ? "–" : summary.waitingCount})
               </button>
               <button
                 type="button"
@@ -434,7 +455,7 @@ export function OpdExaminationRoom() {
                     : "text-gray-500 hover:text-gray-700"
                 }`}
               >
-                Vitals Done ({summary.vitalsDoneCount})
+                Vitals Done ({initialLoading ? "–" : summary.vitalsDoneCount})
               </button>
             </div>
 
@@ -737,6 +758,10 @@ export function OpdExaminationRoom() {
                 </Button>
               </div>
             </div>
+          ) : loading ? (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <FormSkeleton fields={6} columns={2} />
+            </div>
           ) : (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
               <Users size={48} className="text-slate-300 mb-4" />
@@ -756,6 +781,13 @@ export function OpdExaminationRoom() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Risk & Alerts" />
             <div className="space-y-3">
+              {initialLoading ? (
+                <>
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </>
+              ) : (
+                <>
               {/* Dynamic Allergies */}
               {selectedPatient?.patient.allergies ? (
                 <div className="bg-red-50 border border-red-100 rounded-lg p-3">
@@ -812,13 +844,19 @@ export function OpdExaminationRoom() {
                     No immediate alerts flagged.
                   </div>
                 )}
+                </>
+              )}
             </div>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <SectionHeader title="Previous Visits" />
             <div className="space-y-0">
-              {DUMMY_HISTORY.map((visit) => (
+              {initialLoading ? (
+                [0, 1].map((i) => (
+                  <Skeleton key={i} className="my-3 h-20 w-full" />
+                ))
+              ) : DUMMY_HISTORY.map((visit) => (
                 <div
                   key={visit.date}
                   className="py-3 border-b border-gray-100 last:border-0"

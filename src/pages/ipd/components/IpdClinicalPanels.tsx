@@ -12,14 +12,16 @@
  *                                              POST /api/ipd/admissions/:id/payments
  *   DietCard          live diet (overview)     GET/POST /api/ipd/diet-orders
  *
- * Every panel owns its own load (skeleton while in flight, ErrorState with
- * retry on failure) and calls `onChanged()` after a write so the page can
- * refresh the admission record (advancePaid, provisionalTotal…).
+ * Every panel owns its own load: skeleton on the first fetch only, then the
+ * rows stay on screen while a write refetches just that panel's endpoint
+ * (button spinner, ErrorState with retry if there is nothing to show yet).
+ * Only the billing panel calls `onChanged()` — a payment moves the
+ * admission's advancePaid, which the page header shows.
  *
  * Lives in the IPD feature folder (`src/pages/ipd/components/`).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Ban,
@@ -41,9 +43,10 @@ import {
 import { useConfirmDialog } from "@/components/ui/overlays";
 import { SectionPanel, StatStrip } from "@/components/common";
 import { useAppDispatch } from "@/store/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { formatDate, formatDateTime } from "@/utils";
 import { ipdService } from "@/pages/ipd/ipd.service";
+import { isOk } from "@/api/axios";
 import { THRESHOLD_STATUS_META } from "@/constants/ipd.constants";
 import {
   AddChargeDialog,
@@ -82,37 +85,54 @@ const inr = (value: unknown) =>
 
 const num = (value: unknown) => Number(value ?? 0);
 
-/** Load-once + manual reload, with the error copy of this module. */
+/**
+ * Load on mount + local reload. `loading` is the first fetch only (skeleton);
+ * `fetching` is any request in flight (button spinner). A reload keeps the
+ * rows on screen, drops a superseded response, and — if it fails while rows
+ * are showing — reports with a toast instead of replacing the table.
+ */
 function usePanelData<T>(
   key: string,
   load: () => Promise<{ status: number; data: T }>,
   fallbackError: string,
 ) {
+  const dispatch = useAppDispatch();
   const loadRef = useRef(load);
   loadRef.current = load;
+  const latest = useRef(0);
+  const hasData = useRef(false);
 
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    const mine = ++latest.current;
+    setFetching(true);
     setError(null);
     try {
       const res = await loadRef.current();
-      if (res.status === 200) setData(res.data);
+      if (mine === latest.current && res.status === 200) {
+        hasData.current = true;
+        setData(res.data);
+      }
     } catch (e: any) {
-      setError(clinicalErrorCopy(e, fallbackError));
+      if (mine !== latest.current) return;
+      const message = clinicalErrorCopy(e, fallbackError);
+      if (hasData.current) dispatch(toast.error(fallbackError, message));
+      else setError(message);
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setFetching(false);
     }
-  }, [fallbackError]);
+  }, [dispatch, fallbackError]);
 
   useEffect(() => {
+    hasData.current = false;
+    setData(null);
     void reload();
   }, [reload, key]);
 
-  return { data, loading, error, reload };
+  return { data, loading: fetching && data === null, fetching, error, reload };
 }
 
 const panelHeaderAction = (children: React.ReactNode) => children;
@@ -122,13 +142,11 @@ const panelHeaderAction = (children: React.ReactNode) => children;
 export function VitalsPanel({
   admissionId,
   canWrite,
-  onChanged,
 }: {
   admissionId: string;
   canWrite: boolean;
-  onChanged?: () => void;
 }) {
-  const { data, loading, error, reload } = usePanelData<IpdVitalRow[]>(
+  const { data, loading, fetching, error, reload } = usePanelData<IpdVitalRow[]>(
     admissionId,
     () => ipdService.fetchIpdVitals(admissionId, 100),
     "Could not load the vitals chart",
@@ -218,7 +236,7 @@ export function VitalsPanel({
             size="sm"
             variant="outline"
             icon={<RefreshCw />}
-            loading={loading}
+            loading={fetching}
             onClick={() => void reload()}
           >
             Refresh
@@ -252,10 +270,7 @@ export function VitalsPanel({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         admissionId={admissionId}
-        onDone={() => {
-          void reload();
-          onChanged?.();
-        }}
+        onDone={() => void reload()}
       />
     </SectionPanel>
   );
@@ -266,15 +281,13 @@ export function VitalsPanel({
 export function MedicationsPanel({
   admissionId,
   canWrite,
-  onChanged,
 }: {
   admissionId: string;
   canWrite: boolean;
-  onChanged?: () => void;
 }) {
   const dispatch = useAppDispatch();
   const { ask, confirmNode } = useConfirmDialog();
-  const { data, loading, error, reload } = usePanelData<IpdMedicationRow[]>(
+  const { data, loading, fetching, error, reload } = usePanelData<IpdMedicationRow[]>(
     admissionId,
     () => ipdService.fetchIpdMedications(admissionId),
     "Could not load the drug chart",
@@ -282,11 +295,21 @@ export function MedicationsPanel({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showStopped, setShowStopped] = useState(false);
 
-  const rows = (data ?? []).filter((m) =>
-    showStopped ? true : m.status === "ACTIVE",
-  );
-  const activeCount = (data ?? []).filter((m) => m.status === "ACTIVE").length;
-  const stoppedCount = (data ?? []).length - activeCount;
+  /**
+   * The drug chart is split and counted in ONE pass, memoized on the payload
+   * and on the "show stopped" toggle. It used to filter the chart three times
+   * per render — and this panel re-renders with every dialog keystroke.
+   */
+  const { rows, activeCount, stoppedCount } = useMemo(() => {
+    const list = data ?? [];
+    let active = 0;
+    for (const m of list) if (m.status === "ACTIVE") active++;
+    return {
+      rows: showStopped ? list : list.filter((m) => m.status === "ACTIVE"),
+      activeCount: active,
+      stoppedCount: list.length - active,
+    };
+  }, [data, showStopped]);
 
   const stop = (row: IpdMedicationRow) =>
     ask({
@@ -295,18 +318,14 @@ export function MedicationsPanel({
       confirmLabel: "Stop medication",
       tone: "warn",
       action: async () => {
-        dispatch(showLoader("Stopping medication"));
         try {
           const res = await ipdService.stopIpdMedication(row.id);
           if (isOk(res.status)) {
             dispatch(toast.success("Medication stopped", row.drugName));
             void reload();
-            onChanged?.();
           }
         } catch (e: any) {
           dispatch(toast.error("Could not stop the medication", e?.message));
-        } finally {
-          dispatch(hideLoader());
         }
       },
     });
@@ -380,7 +399,7 @@ export function MedicationsPanel({
             size="sm"
             variant="outline"
             icon={<RefreshCw />}
-            loading={loading}
+            loading={fetching}
             onClick={() => void reload()}
           >
             Refresh
@@ -446,10 +465,7 @@ export function MedicationsPanel({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         admissionId={admissionId}
-        onDone={() => {
-          void reload();
-          onChanged?.();
-        }}
+        onDone={() => void reload()}
       />
 
       {confirmNode}
@@ -462,13 +478,11 @@ export function MedicationsPanel({
 export function RoundsPanel({
   admissionId,
   canWrite,
-  onChanged,
 }: {
   admissionId: string;
   canWrite: boolean;
-  onChanged?: () => void;
 }) {
-  const { data, loading, error, reload } = usePanelData<IpdRoundRow[]>(
+  const { data, loading, fetching, error, reload } = usePanelData<IpdRoundRow[]>(
     admissionId,
     () => ipdService.fetchIpdRounds(admissionId, 100),
     "Could not load the round notes",
@@ -488,7 +502,7 @@ export function RoundsPanel({
             size="sm"
             variant="outline"
             icon={<RefreshCw />}
-            loading={loading}
+            loading={fetching}
             onClick={() => void reload()}
           >
             Refresh
@@ -568,10 +582,7 @@ export function RoundsPanel({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         admissionId={admissionId}
-        onDone={() => {
-          void reload();
-          onChanged?.();
-        }}
+        onDone={() => void reload()}
       />
     </SectionPanel>
   );
@@ -759,7 +770,13 @@ export function BillingPanel({
 }) {
   const dispatch = useAppDispatch();
   const { ask, confirmNode } = useConfirmDialog();
-  const { data: bill, loading, error, reload } = useProvisionalBill(admissionId);
+  const {
+    data: bill,
+    loading,
+    fetching,
+    error,
+    reload,
+  } = useProvisionalBill(admissionId);
 
   const [chargeOpen, setChargeOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -773,7 +790,6 @@ export function BillingPanel({
       confirmLabel: "Post day charges",
       tone: "brand",
       action: async () => {
-        dispatch(showLoader("Posting day charges"));
         try {
           const res = await ipdService.runIpdDailyAccrual({ admissionId });
           if (res.status === 200) {
@@ -789,8 +805,6 @@ export function BillingPanel({
           }
         } catch (e: any) {
           dispatch(toast.error("Could not post the day charges", e?.message));
-        } finally {
-          dispatch(hideLoader());
         }
       },
     });
@@ -842,7 +856,7 @@ export function BillingPanel({
               size="sm"
               variant="outline"
               icon={<RefreshCw />}
-              loading={loading}
+              loading={fetching}
               onClick={() => void reload()}
             >
               Refresh
@@ -962,11 +976,9 @@ export function BillingPanel({
 export function DietCard({
   admissionId,
   canWrite,
-  onChanged,
 }: {
   admissionId: string;
   canWrite: boolean;
-  onChanged?: () => void;
 }) {
   const dispatch = useAppDispatch();
   const { ask, confirmNode } = useConfirmDialog();
@@ -977,9 +989,17 @@ export function DietCard({
   );
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const rows = data ?? [];
-  const active = rows.find((d) => d.isActive) ?? null;
-  const history = rows.filter((d) => !d.isActive).slice(0, 3);
+  const { active, history } = useMemo(() => {
+    const list = data ?? [];
+    let current: (typeof list)[number] | null = null;
+    const past: typeof list = [];
+    for (const d of list) {
+      if (d.isActive) {
+        if (!current) current = d;
+      } else if (past.length < 3) past.push(d);
+    }
+    return { active: current, history: past };
+  }, [data]);
 
   const stop = () =>
     ask({
@@ -990,18 +1010,14 @@ export function DietCard({
       tone: "warn",
       action: async () => {
         if (!active) return;
-        dispatch(showLoader("Stopping the diet"));
         try {
           const res = await ipdService.stopIpdDiet(active.id);
           if (isOk(res.status)) {
             dispatch(toast.success("Diet stopped", "The kitchen sees no live diet now"));
             void reload();
-            onChanged?.();
           }
         } catch (e: any) {
           dispatch(toast.error("Could not stop the diet", e?.message));
-        } finally {
-          dispatch(hideLoader());
         }
       },
     });
@@ -1079,10 +1095,7 @@ export function DietCard({
         onOpenChange={setDialogOpen}
         admissionId={admissionId}
         currentType={active?.dietType}
-        onDone={() => {
-          void reload();
-          onChanged?.();
-        }}
+        onDone={() => void reload()}
       />
 
       {confirmNode}

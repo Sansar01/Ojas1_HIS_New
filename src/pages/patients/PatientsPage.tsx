@@ -57,7 +57,7 @@ export function PatientsPage() {
   /* ------------------------------ local data ------------------------------ */
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadPatients = useCallback(async () => {
@@ -128,6 +128,21 @@ export function PatientsPage() {
     return map;
   }, [appointments]);
 
+  /**
+   * The two header numbers are derived in one memoized pass. They used to be
+   * two independent `.filter()` sweeps (one of them rebuilt an ISO date for
+   * every row) executed on every render — i.e. on every keystroke typed into
+   * the search box.
+   */
+  const headerCounts = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    let active = 0;
+    for (const p of patients as any[]) if (p?.status === "active") active++;
+    let visitsToday = 0;
+    for (const a of appointments) if (a.date === today) visitsToday++;
+    return { active, visitsToday };
+  }, [patients, appointments]);
+
   /* ------------------------------ mutations ------------------------------- */
 
   const toggle = useCallback(
@@ -196,16 +211,10 @@ export function PatientsPage() {
         meta={
           <>
             <Badge tone="brand" dot>
-              {patients.filter((p: any) => p?.status === "active").length}{" "}
-              active
+              {headerCounts.active} active
             </Badge>
             <Badge tone="lagoon">
-              {
-                appointments.filter(
-                  (a: any) => a.date === new Date().toISOString().slice(0, 10),
-                ).length
-              }{" "}
-              visits today
+              {headerCounts.visitsToday} visits today
             </Badge>
             <Badge tone="neutral">{patients.length} registered</Badge>
           </>

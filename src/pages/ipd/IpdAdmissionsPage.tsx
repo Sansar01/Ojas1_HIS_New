@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { usePermission, useTable } from "@/hooks";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Avatar, Badge, Button, Panel } from "@/components/ui/primitives";
 import { Select } from "@/components/ui/fields";
 import {
@@ -70,10 +70,8 @@ export function IpdAdmissionsPage() {
 
   const [rows, setRows] = useState<IpdAdmission[]>([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /** false until the census has answered once — marks the blocking first paint */
-  const [initialised, setInitialised] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -106,26 +104,12 @@ export function IpdAdmissionsPage() {
       dispatch(toast.error("Could not load admissions", e?.message));
     } finally {
       setLoading(false);
-      setInitialised(true);
     }
   }, [dispatch, statusFilter, dateFilter, page, pageSize]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  /**
-   * Blocking first paint: the census has nothing to show until the list
-   * answers, so it runs under the app-wide loader (the table keeps its own
-   * skeleton underneath as the fallback). Paging and filtering afterwards are
-   * silent — they repaint the table without a full-screen loader.
-   */
-  const initialLoading = loading && !initialised;
-  useEffect(() => {
-    if (!initialLoading) return;
-
-    return () => {};
-  }, [initialLoading, dispatch]);
 
   /* ------------------------------ client table ----------------------------- */
 
@@ -136,6 +120,17 @@ export function IpdAdmissionsPage() {
       ),
     [rows, typeFilter],
   );
+
+  /** header badges — one pass over the loaded census, not one per render */
+  const statusCounts = useMemo(() => {
+    let admitted = 0;
+    let awaitingDischarge = 0;
+    for (const a of rows) {
+      if (a.status === "ADMITTED") admitted++;
+      else if (a.status === "DISCHARGE_ORDERED") awaitingDischarge++;
+    }
+    return { admitted, awaitingDischarge };
+  }, [rows]);
 
   const table = useTable<IpdAdmission>(filteredRows, {
     pageSize: pageSize,
@@ -162,8 +157,6 @@ export function IpdAdmissionsPage() {
 
   const completeDischarge = useCallback(
     async (admission: IpdAdmission) => {
-      // leaving the census moves the bed too → blocking write, global loader
-      dispatch(showLoader("Completing discharge"));
       try {
         await ipdService.completeDischarge(admission.id);
         dispatch(
@@ -175,8 +168,6 @@ export function IpdAdmissionsPage() {
         void load();
       } catch (e: any) {
         dispatch(toast.error("Could not complete discharge", e?.message));
-      } finally {
-        dispatch(hideLoader());
       }
     },
     [dispatch, load],
@@ -226,11 +217,10 @@ export function IpdAdmissionsPage() {
             <>
               <Badge tone="neutral">{meta.total} total</Badge>
               <Badge tone="mint" dot>
-                {rows.filter((a) => a.status === "ADMITTED").length} admitted
+                {statusCounts.admitted} admitted
               </Badge>
               <Badge tone="amber">
-                {rows.filter((a) => a.status === "DISCHARGE_ORDERED").length}{" "}
-                awaiting discharge
+                {statusCounts.awaitingDischarge} awaiting discharge
               </Badge>
             </>
           )

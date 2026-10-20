@@ -14,7 +14,13 @@
  *   MAINTENANCE              → "mark available"
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BedDouble,
@@ -76,7 +82,7 @@ export function IpdWardBoardPage() {
   );
   const [roomTypes, setRoomTypes] = useState<RoomTypeRow[]>([]);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [typeFilter, setTypeFilter] = useState("all");
@@ -151,8 +157,10 @@ export function IpdWardBoardPage() {
     [admissions],
   );
 
+  // typing stays instant; the bed grid re-filters at lower priority
+  const deferredSearch = useDeferredValue(search);
   const visibleBeds = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = deferredSearch.trim().toLowerCase();
     return beds
       .filter((bed) =>
         typeFilter === "all" ? true : bed.room.roomType?.id === typeFilter,
@@ -170,7 +178,7 @@ export function IpdWardBoardPage() {
           (bed.room.roomType?.name ?? "").toLowerCase().includes(q)
         );
       });
-  }, [beds, typeFilter, genderFilter, search]);
+  }, [beds, typeFilter, genderFilter, deferredSearch]);
 
   /* ------------------------------- actions -------------------------------- */
 

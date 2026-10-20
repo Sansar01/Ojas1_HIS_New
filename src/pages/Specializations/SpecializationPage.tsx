@@ -32,7 +32,7 @@ export function SpecializationsPage() {
   /* ------------------------------- local data ----------------------------- */
 
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   /** the specialization list this page renders */
@@ -145,8 +145,22 @@ export function SpecializationsPage() {
     sortAccessors: { name: (s) => s.name, status: (s) => s.status },
   });
 
-  const doctorCount = (id: string) =>
-    doctors.filter((d: any) => d.specializationId === id).length;
+  /**
+   * Doctors per specialization, counted once per roster change. The table cell
+   * used to filter the whole doctor list for every row it rendered.
+   */
+  const doctorsBySpecialization = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of doctors as any[]) {
+      map.set(d.specializationId, (map.get(d.specializationId) ?? 0) + 1);
+    }
+    return map;
+  }, [doctors]);
+
+  const doctorCount = useCallback(
+    (id: string) => doctorsBySpecialization.get(id) ?? 0,
+    [doctorsBySpecialization],
+  );
   const deptName = useMemo(
     () => new Map(departments.map((d: any) => [d.id, d.name])),
     [departments],

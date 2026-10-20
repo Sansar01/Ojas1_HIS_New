@@ -1,0 +1,1 @@
+import{R as s}from"./index-B7xuIo7R.js";const r="/api/hospital/users",t=e=>`${r}/${e}`,c={fetchUsers:e=>s.get(r,{params:e}),fetchUserById:e=>s.get(t(e)),createUser:e=>s.post(r,e),updateUser:(e,a)=>s.patch(t(e),a),deleteUser:e=>s.delete(t(e))};export{c as u};

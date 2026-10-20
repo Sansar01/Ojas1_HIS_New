@@ -19,6 +19,7 @@ export * from "./hospitalTypes";
 export * from "./departmentTypes";
 export * from "./specializationTypes";
 export * from "./doctorTypes";
+export * from "./specializationTypes";
 export * from "./patientTypes";
 export * from "./appointmentTypes";
 export * from "./consultationTypes";

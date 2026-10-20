@@ -409,7 +409,7 @@ export function Kpi({
         className={cn(
           "flex flex-col items-start rounded-xl border border-ink-100 bg-white p-5 text-left shadow-card",
           onClick &&
-            "cursor-pointer transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-150 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
+            "cursor-pointer transition-colors duration-150 hover:border-brand-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/25",
           active && "border-brand-500 ring-1 ring-brand-500",
           className,
         )}

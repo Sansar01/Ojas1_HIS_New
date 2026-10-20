@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Archive,
@@ -54,9 +54,12 @@ import {
   PanelHeader,
   StatusBadge,
 } from "@/components/ui/primitives";
-import { Skeleton } from "@/components/ui/feedback";
+import { DashboardSkeleton } from "@/components/ui/feedback";
 import { MiniList, SectionPanel } from "@/components/common";
 import { APPT_TYPE_COLORS } from "@/constants";
+import React from "react";
+
+const TIMELINE_ROWS = 8;
 
 ChartJS.register(
   CategoryScale,
@@ -72,6 +75,17 @@ ChartJS.register(
 
 const GRID = { color: "rgba(45,78,86,.08)", drawBorder: false } as const;
 const FONT = { family: "'IBM Plex Sans', sans-serif", size: 11 } as const;
+
+/** Fixed status order for the mix chart — index must match the colour list. */
+const STATUS_BUCKETS: string[] = [
+  "Scheduled",
+  "Confirmed",
+  "Checked In",
+  "In Progress",
+  "Completed",
+  "Cancelled",
+  "No Show",
+];
 
 /**
  * The Dashboard's data layer: the seven collections this page renders, each
@@ -172,92 +186,121 @@ function useDashboardData() {
 }
 
 /**
- * Dashboard skeleton — the same blocks, spacing and responsive columns as the
- * loaded dashboard (command banner → KPI grid → three panels), so the layout
- * does not jump when the data arrives.
+ * Static chart option objects — none of these depend on props/state, so
+ * they're hoisted out of the component instead of being re-literal'd on
+ * every render. Chart.js treats a new `options` reference the same as new
+ * `data` for diffing purposes, so this matters just as much as memoizing
+ * `data`.
  */
-function DashboardSkeleton() {
-  return (
-    <>
-      {/* command banner */}
-      <div className="rounded-2xl bg-ink-950 px-5 py-5 shadow-pop sm:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="space-y-3">
-            <Skeleton className="h-3 w-40 bg-white/15" />
-            <Skeleton className="h-6 w-72 max-w-full bg-white/15" />
-            <Skeleton className="h-3 w-56 bg-white/10" />
-          </div>
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-28 rounded-lg bg-white/15" />
-            <Skeleton className="h-9 w-32 rounded-lg bg-white/10" />
-          </div>
-        </div>
-      </div>
+const FLOW_CHART_OPTIONS = {
+  animation: false as const,
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: "index" as const, intersect: false },
+  plugins: {
+    legend: {
+      position: "bottom" as const,
+      align: "end" as const,
+      labels: {
+        boxWidth: 8,
+        usePointStyle: true,
+        font: FONT,
+        color: "#4f6a71",
+        padding: 14,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: {
+        font: FONT,
+        color: "#93a8ad",
+        maxRotation: 0,
+        autoSkipPadding: 16,
+      },
+      border: GRID,
+    },
+    y: {
+      beginAtZero: true,
+      grid: GRID,
+      ticks: { font: FONT, color: "#93a8ad", precision: 0 },
+      border: { display: false },
+    },
+  },
+};
 
-      {/* KPI grid — two columns on small screens, four from xl */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <Skeleton className="h-2.5 w-20" />
-              <Skeleton className="size-8 rounded-lg" />
-            </div>
-            <Skeleton className="mt-3 h-6 w-16" />
-            <Skeleton className="mt-3 h-2.5 w-full" />
-          </div>
-        ))}
-      </div>
+/**
+ * KPI icons, hoisted. `KpiCard` is memoized, and an inline `icon={ICON_PATIENTS}`
+ * at the call site is a NEW React element on every render of the dashboard —
+ * which alone was enough to re-render all eight cards whenever the page
+ * re-rendered. Stable elements keep the memo effective.
+ */
+const ICON_PATIENTS = <Users />;
+const ICON_DOCTORS = <Stethoscope />;
+const ICON_TODAY = <CalendarClock />;
+const ICON_TOTAL_APPOINTMENTS = <Archive />;
+const ICON_COMPLETED = <CheckCircle2 />;
+const ICON_PENDING = <ClipboardList />;
+const ICON_REVENUE = <Banknote />;
+const ICON_OUTSTANDING = <Clock />;
 
-      {/* three analytics panels */}
-      <div className="grid gap-4 xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-ink-100 bg-white p-4 shadow-card"
-          >
-            <div className="flex items-center justify-between">
-              <Skeleton className="h-3.5 w-32" />
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </div>
-            <Skeleton className="mt-4 h-40 w-full rounded-lg" />
-            <div className="mt-4 space-y-2">
-              {Array.from({ length: 3 }).map((__, r) => (
-                <div key={r} className="flex items-center gap-3">
-                  <Skeleton className="size-7 rounded-lg" />
-                  <Skeleton className="h-2.5 flex-1" />
-                  <Skeleton className="h-2.5 w-10" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+const DOUGHNUT_COLORS = [
+  "#a9eae0",
+  "#0f8377",
+  "#e08600",
+  "#3d6fd1",
+  "#1f9d63",
+  "#d94a4a",
+  "#bccacd",
+];
 
-function useCountUp(target: number, duration = 900) {
-  const [value, setValue] = useState(0);
-  const raf = useRef<number>(0);
-  useEffect(() => {
-    const start = performance.now();
-    const from = 0;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setValue(Math.round(from + (target - from) * eased));
-      if (p < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [target, duration]);
-  return value;
-}
+const DOUGHNUT_OPTIONS = {
+  animation: false as const,
+  cutout: "68%",
+  maintainAspectRatio: true,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      bodyFont: FONT,
+      callbacks: {
+        label: (c: any) => ` ${c.label}: ${c.parsed}`,
+      },
+    },
+  },
+};
 
-function KpiCard({
+const BAR_OPTIONS = {
+  animation: false as const,
+  indexAxis: "y" as const,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: { bodyFont: FONT },
+  },
+  scales: {
+    x: {
+      beginAtZero: true,
+      grid: GRID,
+      ticks: { font: FONT, color: "#93a8ad", precision: 0 },
+      border: { display: false },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { font: { ...FONT, size: 10.5 }, color: "#4f6a71" },
+      border: { display: false },
+    },
+  },
+};
+
+/**
+ * Pure/presentational — wrapped in memo so the KPI grid doesn't re-render
+ * eight cards every time the parent re-renders for an unrelated reason
+ * (e.g. a sibling panel's state changing). All props are primitives except
+ * `icon`, which is a hoisted element constant (see `ICON_*` above) — an inline
+ * element would change identity on every dashboard render and cancel the memo.
+ */
+const KpiCard = React.memo(function KpiCard({
   label,
   value,
   icon,
@@ -276,7 +319,6 @@ function KpiCard({
   to?: string;
   trend?: number;
 }) {
-  const animated = useCountUp(value);
   const tones = {
     brand: "from-brand-500/12 text-brand-600",
     mint: "from-mint-500/12 text-mint-600",
@@ -286,7 +328,7 @@ function KpiCard({
     ink: "from-ink-900/10 text-ink-700",
   }[tone];
   const body = (
-    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-pop">
+    <div className="group relative h-full overflow-hidden rounded-xl border border-ink-100 bg-white p-4 shadow-card transition-colors hover:border-brand-200">
       <div
         className={cn(
           "absolute inset-x-0 -top-10 h-24 bg-gradient-to-b to-transparent opacity-70",
@@ -301,14 +343,13 @@ function KpiCard({
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-lg bg-ink-25 ring-1 ring-inset ring-ink-100 [&>svg]:size-4",
             tones.split(" ")[1],
-            "transition-transform duration-300 group-hover:scale-110",
           )}
         >
           {icon}
         </span>
       </div>
       <p className="num relative mt-3 text-[30px] font-bold leading-none text-ink-900">
-        {formatCompact(animated)}
+        {formatCompact(value)}
         {suffix && (
           <span className="ml-0.5 text-[15px] font-semibold text-ink-400">
             {suffix}
@@ -332,7 +373,7 @@ function KpiCard({
         )}
       </div>
       {to && (
-        <span className="absolute bottom-3 right-3 translate-y-1 text-[11px] font-semibold text-brand-600 opacity-0 transition-[color,background-color,border-color,box-shadow,transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+        <span className="absolute bottom-3 right-3 text-[11px] font-semibold text-brand-600 opacity-0 group-hover:opacity-100">
           Open <ArrowUpRight className="inline size-3" />
         </span>
       )}
@@ -345,7 +386,7 @@ function KpiCard({
   ) : (
     body
   );
-}
+});
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -360,6 +401,7 @@ export function DashboardPage() {
   const loading = dashboard.loading;
 
   const today = addDays(new Date(), 0);
+
   const patientMap = useMemo(
     () => new Map(patients.map((p: any) => [p.id, p])),
     [patients],
@@ -369,11 +411,110 @@ export function DashboardPage() {
     [doctors],
   );
 
-  const todaysAppointments = appointments.filter((a: any) => a.date === today);
-  const completed = consultations.filter((c: any) => c.status === "Completed");
-  const pendingConsultations = consultations.filter(
-    (c: any) => c.status !== "Completed",
-  );
+  /**
+   * Every scheduled-visit number this page shows is derived from
+   * `appointments` in ONE pass. Previously the tiles ran their own filters
+   * over the same array during every render (and each chart swept it again),
+   * so a single re-render re-scanned the rows a dozen-plus times. `today`
+   * and the cutoff are ISO date strings — stable within the day — so this
+   * memo only recomputes when new appointment data actually lands.
+   */
+  const appointmentsStory = useMemo(() => {
+    const dayBuckets = new Map<string, { booked: number; completed: number }>();
+    const statusCounts = new Map<string, number>();
+    const deptCounts = new Map<string, number>();
+    const cutoff = addDays(new Date(), -30);
+
+    const todays: any[] = [];
+    const upcomingRaw: any[] = [];
+    let todayConfirmed = 0;
+    let todayCheckedIn = 0;
+    let inMotionToday = 0;
+    let validVisits = 0;
+
+    for (const a of appointments) {
+      const day = dayBuckets.get(a.date) ?? { booked: 0, completed: 0 };
+      if (a.status === "Completed") day.completed++;
+      if (a.status !== "Cancelled" && a.status !== "No Show") {
+        day.booked++;
+        validVisits++;
+      }
+      dayBuckets.set(a.date, day);
+      statusCounts.set(a.status, (statusCounts.get(a.status) ?? 0) + 1);
+
+      if (a.departmentId && a.date >= cutoff) {
+        deptCounts.set(
+          a.departmentId,
+          (deptCounts.get(a.departmentId) ?? 0) + 1,
+        );
+      }
+
+      if (a.date === today) {
+        todays.push(a);
+        if (a.status === "Confirmed") todayConfirmed++;
+        if (a.status === "Checked In") todayCheckedIn++;
+        if (
+          a.status === "Completed" ||
+          a.status === "In Progress" ||
+          a.status === "Checked In"
+        ) {
+          inMotionToday++;
+        }
+      } else if (
+        a.date > today &&
+        (a.status === "Scheduled" || a.status === "Confirmed")
+      ) {
+        upcomingRaw.push(a);
+      }
+    }
+
+    // Today's floor timeline — one small sort per data change, not per render.
+    todays.sort((a, b) => a.time.localeCompare(b.time));
+
+    // last 14 days, oldest → newest
+    const labels: string[] = [];
+    const booked: number[] = [];
+    const completedOnDay: number[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const day = addDays(new Date(), -i);
+      const bucket = dayBuckets.get(day);
+      labels.push(
+        new Date(day).toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+        }),
+      );
+      booked.push(bucket?.booked ?? 0);
+      completedOnDay.push(bucket?.completed ?? 0);
+    }
+
+    // upcoming — sort the (few) still-open future bookings exactly once
+    const upcoming = [...upcomingRaw]
+      .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
+      .slice(0, 6);
+
+    return {
+      validVisits,
+      todays,
+      todayConfirmed,
+      todayCheckedIn,
+      inMotionToday,
+      upcoming,
+      trendSeries: {
+        labels,
+        booked,
+        completed: completedOnDay,
+      },
+      statusCounts,
+      deptCounts,
+    };
+  }, [appointments, today]);
+
+  /** The dashboard's own per-render aliases over the memoized story. */
+  const todaysAppointments = appointmentsStory.todays;
+  const timeline = appointmentsStory.todays;
+  const upcoming = appointmentsStory.upcoming;
+  const trendSeries = appointmentsStory.trendSeries;
 
   const totals = useMemo(() => {
     const sums = invoices.map((inv: any) => ({ inv, t: invoiceTotals(inv) }));
@@ -388,94 +529,152 @@ export function DashboardPage() {
     return { revenue, outstanding, invoiceCount: sums.length };
   }, [invoices]);
 
-  const trendSeries = useMemo(() => {
-    const days = Array.from({ length: 14 }, (_, i) =>
-      addDays(new Date(), i - 13),
-    );
-    return {
-      labels: days.map((d) =>
-        new Date(d).toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-        }),
+  const statusMix = useMemo(
+    () => ({
+      labels: STATUS_BUCKETS,
+      values: STATUS_BUCKETS.map(
+        (b) => appointmentsStory.statusCounts.get(b) ?? 0,
       ),
-      booked: days.map(
-        (d) =>
-          appointments.filter(
-            (a: any) =>
-              a.date === d && !["Cancelled", "No Show"].includes(a.status),
-          ).length,
-      ),
-      completed: days.map(
-        (d) =>
-          appointments.filter(
-            (a: any) => a.date === d && a.status === "Completed",
-          ).length,
-      ),
-    };
-  }, [appointments]);
-
-  const statusMix = useMemo(() => {
-    const buckets = [
-      "Scheduled",
-      "Confirmed",
-      "Checked In",
-      "In Progress",
-      "Completed",
-      "Cancelled",
-      "No Show",
-    ];
-    return {
-      labels: buckets,
-      values: buckets.map(
-        (b) => appointments.filter((a: any) => a.status === b).length,
-      ),
-    };
-  }, [appointments]);
+    }),
+    [appointmentsStory],
+  );
 
   const deptLoad = useMemo(() => {
     const rows = departments
       .filter((d: any) => d.status === "active")
       .map((d: any) => ({
         label: d.name,
-        value: appointments.filter(
-          (a: any) =>
-            a.departmentId === d.id && a.date >= addDays(new Date(), -30),
-        ).length,
+        value: appointmentsStory.deptCounts.get(d.id) ?? 0,
       }));
     return {
       labels: rows.map((r) => r.label),
       values: rows.map((r) => r.value),
     };
-  }, [departments, appointments]);
+  }, [departments, appointmentsStory]);
+
+  /** Closed vs still open — two whole-array filters before, one scan now. */
+  const consultationStats = useMemo(() => {
+    let completed = 0;
+    for (const c of consultations) {
+      if (c.status === "Completed") completed++;
+    }
+    return { completed, pending: consultations.length - completed };
+  }, [consultations]);
+
+  const activeDoctorCount = useMemo(() => {
+    let active = 0;
+    for (const d of doctors) {
+      if (d.status === "active") active++;
+    }
+    return active;
+  }, [doctors]);
 
   const occupancy = todaysAppointments.length
     ? Math.round(
-        (todaysAppointments.filter((a: any) =>
-          ["Completed", "In Progress", "Checked In"].includes(a.status),
-        ).length /
-          todaysAppointments.length) *
-          100,
+        (appointmentsStory.inMotionToday / todaysAppointments.length) * 100,
       )
     : 0;
 
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-  const timeline = [...todaysAppointments].sort((a: any, b: any) =>
-    a.time.localeCompare(b.time),
+
+  /**
+   * Chart `data` objects — previously inline literals recreated on every
+   * render, which made react-chartjs-2 rebuild/redraw the chart even with
+   * `animation: false`, producing the visible "jump." Now they only change
+   * identity when their real inputs (`trendSeries`, `statusMix`, `deptLoad`,
+   * `appointments.length`) change.
+   */
+  const flowChartData = useMemo(
+    () => ({
+      labels: trendSeries.labels,
+      datasets: [
+        {
+          label: "Booked",
+          data: trendSeries.booked,
+          borderColor: "#0f8377",
+          backgroundColor: (ctx: any) => {
+            const chart = ctx.chart;
+            const { ctx: c, chartArea } = chart as any;
+            if (!chartArea) return "rgba(15,131,119,.16)";
+            const g = c.createLinearGradient(
+              0,
+              chartArea.top,
+              0,
+              chartArea.bottom,
+            );
+            g.addColorStop(0, "rgba(30,158,144,.32)");
+            g.addColorStop(1, "rgba(30,158,144,0)");
+            return g;
+          },
+          fill: true,
+          tension: 0.38,
+          borderWidth: 2.4,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: "#0f8377",
+        },
+        {
+          label: "Completed",
+          data: trendSeries.completed,
+          borderColor: "#3d6fd1",
+          backgroundColor: "rgba(61,111,209,.14)",
+          borderWidth: 2,
+          borderDash: [5, 4],
+          tension: 0.38,
+          fill: false,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+        },
+      ],
+    }),
+    [trendSeries],
   );
 
-  const upcoming = appointments
-    .filter(
-      (a: any) =>
-        a.date > today && ["Scheduled", "Confirmed"].includes(a.status),
-    )
-    .sort((a: any, b: any) =>
-      `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`),
-    )
-    .slice(0, 6);
+  const doughnutData = useMemo(
+    () => ({
+      labels: statusMix.labels,
+      datasets: [
+        {
+          data: statusMix.values,
+          backgroundColor: DOUGHNUT_COLORS,
+          borderWidth: 2,
+          borderColor: "#ffffff",
+          hoverOffset: 8,
+        },
+      ],
+    }),
+    [statusMix],
+  );
+
+  const barData = useMemo(
+    () => ({
+      labels: deptLoad.labels.map((l: string) =>
+        l.length > 14 ? `${l.slice(0, 13)}…` : l,
+      ),
+      datasets: [
+        {
+          label: "Visits",
+          data: deptLoad.values,
+          backgroundColor: "rgba(15,131,119,.75)",
+          hoverBackgroundColor: "#0d6961",
+          borderRadius: 6,
+          barThickness: 14,
+        },
+      ],
+    }),
+    [deptLoad],
+  );
+
+  const barHeight = useMemo(
+    () => Math.max(140, deptLoad.labels.length * 34),
+    [deptLoad.labels.length],
+  );
 
   // Loading owns the whole page: the skeleton stands in for the real blocks
   // (banner, KPI grid, three panels) and no card content is rendered with it.
+  // It is the SAME skeleton the route's Suspense boundary shows while this
+  // chunk downloads, so there is exactly one loading shape from navigation to
+  // first data — no "line skeleton, then card skeleton" hand-off.
   if (loading) {
     return (
       <div className="space-y-4" role="status" aria-label="Loading dashboard">
@@ -492,8 +691,7 @@ export function DashboardPage() {
         <div className="relative flex flex-wrap items-center justify-between gap-5">
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-200">
-              <HeartPulse className="size-3.5 animate-pulse-soft" /> Facility
-              overview ·{" "}
+              <HeartPulse className="size-3.5" /> Facility overview ·{" "}
               {formatDate(today, {
                 weekday: "long",
                 day: "numeric",
@@ -505,7 +703,7 @@ export function DashboardPage() {
             </h2>
             <p className="mt-1.5 max-w-xl text-[13px] leading-relaxed text-white/55">
               {occupancy}% of today's schedule is already in motion ·{" "}
-              {pendingConsultations.length} consultations awaiting closure ·{" "}
+              {consultationStats.pending} consultations awaiting closure ·{" "}
               {formatMoney(totals.outstanding)} awaiting settlement.
             </p>
           </div>
@@ -513,7 +711,7 @@ export function DashboardPage() {
             {canCreate("appointments") && (
               <button
                 onClick={() => navigate("/app/appointments?new=1")}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-[color,background-color,border-color,box-shadow,transform,opacity] hover:bg-brand-400 hover:shadow-[0_14px_28px_-16px_rgba(64,190,174,.95)]"
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-500 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-brand-400"
               >
                 <CalendarPlus className="size-4" /> Book appointment
               </button>
@@ -552,7 +750,7 @@ export function DashboardPage() {
           <KpiCard
             label="Total patients"
             value={patients.length}
-            icon={<Users />}
+            icon={ICON_PATIENTS}
             tone="brand"
             trend={12}
             hint="Registered in the facility directory"
@@ -562,26 +760,26 @@ export function DashboardPage() {
         {can("doctors", "view") && (
           <KpiCard
             label="Doctors"
-            value={doctors.filter((d: any) => d.status === "active").length}
-            icon={<Stethoscope />}
+            value={activeDoctorCount}
+            icon={ICON_DOCTORS}
             tone="lagoon"
             trend={4}
-            hint={`${doctors.length - doctors.filter((d: any) => d.status === "active").length} on leave / inactive`}
+            hint={`${doctors.length - activeDoctorCount} on leave / inactive`}
             to="/app/doctors"
           />
         )}
         <KpiCard
           label="Today's appointments"
           value={todaysAppointments.length}
-          icon={<CalendarClock />}
+          icon={ICON_TODAY}
           tone="amber"
-          hint={`${todaysAppointments.filter((a: any) => a.status === "Confirmed").length} confirmed · ${todaysAppointments.filter((a: any) => a.status === "Checked In").length} checked in`}
+          hint={`${appointmentsStory.todayConfirmed} confirmed · ${appointmentsStory.todayCheckedIn} checked in`}
           trend={9}
         />
         <KpiCard
           label="Total appointments"
           value={appointments.length}
-          icon={<Archive />}
+          icon={ICON_TOTAL_APPOINTMENTS}
           tone="ink"
           hint="Last 25 days of scheduling"
           to="/app/appointments"
@@ -589,8 +787,8 @@ export function DashboardPage() {
         {can("consultations", "view") && (
           <KpiCard
             label="Completed consultations"
-            value={completed.length}
-            icon={<CheckCircle2 />}
+            value={consultationStats.completed}
+            icon={ICON_COMPLETED}
             tone="mint"
             trend={18}
             hint="Signed off with prescription notes"
@@ -600,8 +798,8 @@ export function DashboardPage() {
         {can("consultations", "view") && (
           <KpiCard
             label="Pending consultations"
-            value={pendingConsultations.length}
-            icon={<ClipboardList />}
+            value={consultationStats.pending}
+            icon={ICON_PENDING}
             tone="coral"
             hint="Awaiting doctor closure"
             to="/app/consultations"
@@ -611,7 +809,7 @@ export function DashboardPage() {
           <KpiCard
             label="Total revenue"
             value={Math.round(totals.revenue)}
-            icon={<Banknote />}
+            icon={ICON_REVENUE}
             tone="brand"
             suffix="₹"
             hint={`${totals.invoiceCount} invoices raised`}
@@ -623,7 +821,7 @@ export function DashboardPage() {
           <KpiCard
             label="Pending payments"
             value={Math.round(totals.outstanding)}
-            icon={<Clock />}
+            icon={ICON_OUTSTANDING}
             tone="amber"
             suffix="₹"
             hint="Outstanding balance across payers"
@@ -641,97 +839,15 @@ export function DashboardPage() {
             icon={<TrendingUp />}
             action={
               <Badge tone="brand">
-                {
-                  appointments.filter(
-                    (a: any) => !["Cancelled", "No Show"].includes(a.status),
-                  ).length
-                }{" "}
-                valid visits
+                {appointmentsStory.validVisits} valid visits
               </Badge>
             }
           />
-          <div className="p-4">
-            <Line
-              data={{
-                labels: trendSeries.labels,
-                datasets: [
-                  {
-                    label: "Booked",
-                    data: trendSeries.booked,
-                    borderColor: "#0f8377",
-                    backgroundColor: (ctx) => {
-                      const chart = ctx.chart;
-                      const { ctx: c, chartArea } = chart as any;
-                      if (!chartArea) return "rgba(15,131,119,.16)";
-                      const g = c.createLinearGradient(
-                        0,
-                        chartArea.top,
-                        0,
-                        chartArea.bottom,
-                      );
-                      g.addColorStop(0, "rgba(30,158,144,.32)");
-                      g.addColorStop(1, "rgba(30,158,144,0)");
-                      return g;
-                    },
-                    fill: true,
-                    tension: 0.38,
-                    borderWidth: 2.4,
-                    pointRadius: 0,
-                    pointHoverRadius: 5,
-                    pointBackgroundColor: "#0f8377",
-                  },
-                  {
-                    label: "Completed",
-                    data: trendSeries.completed,
-                    borderColor: "#3d6fd1",
-                    backgroundColor: "rgba(61,111,209,.14)",
-                    borderWidth: 2,
-                    borderDash: [5, 4],
-                    tension: 0.38,
-                    fill: false,
-                    pointRadius: 0,
-                    pointHoverRadius: 5,
-                  },
-                ],
-              }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: "index", intersect: false },
-                plugins: {
-                  legend: {
-                    position: "bottom",
-                    align: "end",
-                    labels: {
-                      boxWidth: 8,
-                      usePointStyle: true,
-                      font: FONT,
-                      color: "#4f6a71",
-                      padding: 14,
-                    },
-                  },
-                },
-                scales: {
-                  x: {
-                    grid: { display: false },
-                    ticks: {
-                      font: FONT,
-                      color: "#93a8ad",
-                      maxRotation: 0,
-                      autoSkipPadding: 16,
-                    },
-                    border: GRID,
-                  },
-                  y: {
-                    beginAtZero: true,
-                    grid: GRID,
-                    ticks: { font: FONT, color: "#93a8ad", precision: 0 },
-                    border: { display: false },
-                  },
-                },
-              }}
-              height={210}
-            />
+          <div
+            className="p-4"
+            style={{ height: "230px", isolation: "isolate" }}
+          >
+            <Line data={flowChartData} options={FLOW_CHART_OPTIONS} />
           </div>
         </Panel>
 
@@ -744,41 +860,7 @@ export function DashboardPage() {
           />
           <div className="flex flex-col items-center gap-4 p-4">
             <div className="relative w-full max-w-[15rem]">
-              <Doughnut
-                data={{
-                  labels: statusMix.labels,
-                  datasets: [
-                    {
-                      data: statusMix.values,
-                      backgroundColor: [
-                        "#a9eae0",
-                        "#0f8377",
-                        "#e08600",
-                        "#3d6fd1",
-                        "#1f9d63",
-                        "#d94a4a",
-                        "#bccacd",
-                      ],
-                      borderWidth: 2,
-                      borderColor: "#ffffff",
-                      hoverOffset: 8,
-                    },
-                  ],
-                }}
-                options={{
-                  cutout: "68%",
-                  maintainAspectRatio: true,
-                  plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                      bodyFont: FONT,
-                      callbacks: {
-                        label: (c: any) => ` ${c.label}: ${c.parsed}`,
-                      },
-                    },
-                  },
-                }}
-              />
+              <Doughnut data={doughnutData} options={DOUGHNUT_OPTIONS} />
               <div className="pointer-events-none absolute inset-0 grid place-items-center">
                 <div className="text-center">
                   <p className="num text-[22px] font-bold leading-none text-ink-900">
@@ -799,17 +881,7 @@ export function DashboardPage() {
                   <span className="flex min-w-0 items-center gap-1.5 text-ink-500">
                     <span
                       className="size-2 shrink-0 rounded-[3px]"
-                      style={{
-                        background: [
-                          "#a9eae0",
-                          "#0f8377",
-                          "#e08600",
-                          "#3d6fd1",
-                          "#1f9d63",
-                          "#d94a4a",
-                          "#bccacd",
-                        ][i],
-                      }}
+                      style={{ background: DOUGHNUT_COLORS[i] }}
                     />
                     <span className="truncate">{label}</span>
                   </span>
@@ -843,56 +915,62 @@ export function DashboardPage() {
           {timeline.length === 0 ? (
             <MiniList rows={[]} emptyLabel="No appointments booked for today" />
           ) : (
-            <ol className="relative max-h-[19rem] overflow-y-auto px-4 py-3">
-              <span className="absolute bottom-3 left-[3.6rem] top-3 w-px bg-ink-100" />
-              {timeline.map((a: any) => {
-                const [h, m] = a.time.split(":").map(Number);
-                const isNow =
-                  Math.abs(h * 60 + m - nowMinutes) < 45 &&
-                  a.status !== "Completed";
-                return (
-                  <li
-                    key={a.id}
-                    className="relative flex items-start gap-3 py-1.5"
-                  >
-                    <span className="num w-12 shrink-0 pt-1 text-right text-[11.5px] font-semibold text-ink-500">
-                      {a.time}
-                    </span>
-                    <span
-                      className={cn(
-                        "relative z-10 mt-1.5 grid size-3 shrink-0 place-items-center rounded-full ring-4 ring-white",
-                        isNow
-                          ? "bg-amberly-500"
-                          : a.status === "Completed"
-                            ? "bg-mint-500"
-                            : ["Cancelled", "No Show"].includes(a.status)
-                              ? "bg-ink-200"
-                              : "bg-brand-500",
-                      )}
+            <>
+              <ol className="relative px-4 py-3">
+                <span className="absolute bottom-3 left-[3.6rem] top-3 w-px bg-ink-100" />
+                {timeline.slice(0, TIMELINE_ROWS).map((a: any) => {
+                  const [h, m] = a.time.split(":").map(Number);
+                  const isNow =
+                    Math.abs(h * 60 + m - nowMinutes) < 45 &&
+                    a.status !== "Completed";
+                  return (
+                    <li
+                      key={a.id}
+                      className="relative flex items-start gap-3 py-1.5"
                     >
-                      {isNow && (
-                        <span className="absolute inline-flex size-3 animate-ping rounded-full bg-amberly-500/60" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 transition-colors hover:border-brand-200">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[13px] font-semibold text-ink-900">
-                          {fullName(patientMap.get(a.patientId))}
-                          <span className="num ml-2 text-[11px] font-medium text-ink-400">
-                            {a.code}
-                          </span>
+                      <span className="num w-12 shrink-0 pt-1 text-right text-[11.5px] font-semibold text-ink-500">
+                        {a.time}
+                      </span>
+                      <span
+                        className={cn(
+                          "relative z-10 mt-1.5 grid size-3 shrink-0 place-items-center rounded-full ring-4 ring-white",
+                          isNow
+                            ? "bg-amberly-500"
+                            : a.status === "Completed"
+                              ? "bg-mint-500"
+                              : ["Cancelled", "No Show"].includes(a.status)
+                                ? "bg-ink-200"
+                                : "bg-brand-500",
+                        )}
+                      ></span>
+                      <div className="min-w-0 flex-1 rounded-lg border border-ink-100 bg-white px-3 py-2 transition-colors hover:border-brand-200">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[13px] font-semibold text-ink-900">
+                            {fullName(patientMap.get(a.patientId))}
+                            <span className="num ml-2 text-[11px] font-medium text-ink-400">
+                              {a.code}
+                            </span>
+                          </p>
+                          <StatusBadge status={a.status} />
+                        </div>
+                        <p className="mt-0.5 truncate text-[11.5px] text-ink-400">
+                          Dr. {fullName(doctorMap.get(a.doctorId))} · {a.type} ·{" "}
+                          {formatMoney(a.fee)}
                         </p>
-                        <StatusBadge status={a.status} />
                       </div>
-                      <p className="mt-0.5 truncate text-[11.5px] text-ink-400">
-                        Dr. {fullName(doctorMap.get(a.doctorId))} · {a.type} ·{" "}
-                        {formatMoney(a.fee)}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+                    </li>
+                  );
+                })}
+              </ol>
+              {timeline.length > TIMELINE_ROWS && (
+                <Link
+                  to="/app/appointments"
+                  className="block border-t border-ink-100 px-4 py-2.5 text-center text-[12px] font-semibold text-brand-600 hover:underline"
+                >
+                  +{timeline.length - TIMELINE_ROWS} more · Open scheduler
+                </Link>
+              )}
+            </>
           )}
         </SectionPanel>
 
@@ -901,48 +979,13 @@ export function DashboardPage() {
           <PanelHeader
             title="Department load"
             subtitle="Appointments, last 30 days"
-            icon={<Users />}
+            icon={ICON_PATIENTS}
           />
-          <div className="p-4">
-            <Bar
-              data={{
-                labels: deptLoad.labels.map((l: string) =>
-                  l.length > 14 ? `${l.slice(0, 13)}…` : l,
-                ),
-                datasets: [
-                  {
-                    label: "Visits",
-                    data: deptLoad.values,
-                    backgroundColor: "rgba(15,131,119,.75)",
-                    hoverBackgroundColor: "#0d6961",
-                    borderRadius: 6,
-                    barThickness: 14,
-                  },
-                ],
-              }}
-              options={{
-                indexAxis: "y" as const,
-                maintainAspectRatio: false,
-                plugins: {
-                  legend: { display: false },
-                  tooltip: { bodyFont: FONT },
-                },
-                scales: {
-                  x: {
-                    beginAtZero: true,
-                    grid: GRID,
-                    ticks: { font: FONT, color: "#93a8ad", precision: 0 },
-                    border: { display: false },
-                  },
-                  y: {
-                    grid: { display: false },
-                    ticks: { font: { ...FONT, size: 10.5 }, color: "#4f6a71" },
-                    border: { display: false },
-                  },
-                },
-              }}
-              height={Math.max(140, deptLoad.labels.length * 34)}
-            />
+          <div
+            className="p-4"
+            style={{ height: `${barHeight}px`, isolation: "isolate" }}
+          >
+            <Bar data={barData} options={BAR_OPTIONS} />
           </div>
         </Panel>
       </div>

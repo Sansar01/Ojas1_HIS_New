@@ -10,10 +10,15 @@ import { useAppDispatch } from "@/store/hooks";
 import { toast } from "@/store/slices/uiSlice";
 import { useForm } from "@/hooks/useForm";
 import { appointmentSchema } from "@/pages/appointments/appointment.schema";
-import { addDays, fullName, formatDate, type SlotOption } from "@/utils";
+import {
+  addDays,
+  formatDate,
+  patientOptionLabel,
+  type SlotOption,
+} from "@/utils";
 import { Dialog } from "@/components/ui/overlays";
 import { SlotPicker } from "./AppointmentsPage";
-import { APPOINTMENT_TYPES, VISIT_TYPES, PRIORITY_OPTIONS } from "@/constants";
+import { APPOINTMENT_TYPES, VISIT_TYPES } from "@/constants";
 
 /** "HH:mm" → minutes since midnight */
 const toMinutes = (t: string) => {
@@ -93,8 +98,61 @@ function normalizeSlots(
   return slots;
 }
 
-interface AppointmentFormModalProps {
-  open: boolean;
+/**
+ * Fallback slot grid — when the doctor availability endpoint cannot serve a
+ * usable schedule (unavailable, empty or no clinic hours), generate an OPEN
+ * 09:00 → 17:00 grid at the doctor's slot duration (default 15 min). The
+ * normalizer is reused so booked-conflict / elapsed-slot logic stays identical.
+ */
+const toFallbackSlots = (
+  date: string,
+  durationMins: number,
+  appointments: any[] = [],
+  doctorId?: string,
+): SlotOption[] =>
+  normalizeSlots(
+    {
+      // synthetic clinic day: 09:00 → 17:00, no break
+      schedule: [
+        {
+          dayOfWeek: new Date(`${date}T00:00:00`).getDay(),
+          isActive: true,
+          startTime: "09:00",
+          endTime: "17:00",
+        },
+      ],
+      slotDurationMins: Math.min(120, Math.max(5, Number(durationMins) || 15)),
+    },
+    date,
+    appointments,
+    doctorId,
+  ) ?? [];
+
+/** Booking DTO priority values — strings ("ROUTINE" | "URGENT" | "EMERGENCY"). */
+export const PRIORITY_SELECT = [
+  { value: "ROUTINE", label: "Routine" },
+  { value: "URGENT", label: "Urgent" },
+  { value: "EMERGENCY", label: "Emergency" },
+] as const;
+
+/** Legacy numeric/labelled priorities → booking DTO strings (edit mode). */
+const normalizePriority = (raw: unknown): string => {
+  const map: Record<string, string> = {
+    "0": "ROUTINE",
+    "1": "URGENT",
+    "2": "EMERGENCY",
+    ROUTINE: "ROUTINE",
+    URGENT: "URGENT",
+    EMERGENCY: "EMERGENCY",
+    ROUTINE_: "ROUTINE",
+  };
+  const str = String(raw ?? "").toUpperCase();
+  return ["ROUTINE", "URGENT", "EMERGENCY"].includes(str)
+    ? str
+    : (map[str] ?? "ROUTINE");
+};
+
+interface AppointmentFormModalProps {  open: boolean;
   onOpenChange: (open: boolean) => void;
   /** when set, the modal loads the record via appointments getById and saves edits instead of creating */
   editing?: any;
@@ -125,28 +183,48 @@ export function AppointmentFormModal({
   const [doctors, setDoctors] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
 
-  /** patient Select options (ACTIVE only) recomputed only when the list changes */
+  /** patient Select options — rebuilt only when the list changes, not on every keystroke of the form */
   const patientOptions = useMemo(
     () =>
       patients
-        .filter((p: any) => p.status === "ACTIVE")
+        .filter((p: any) => Boolean(p.id))
         .map((p: any) => ({
           value: p.id,
-          label: fullName(p),
-          description: p.mrn,
+          label: `${p.firstName ?? ""} ${p.lastName || ""}`.trim() || "Patient",
+          description:
+            [
+              (p.gender ?? "").toLowerCase(),
+              p.mobile ?? p.mobilePhone,
+              p.age !== undefined && p.age !== null
+                ? `${p.age}${p.ageUnit ?? ""}`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
+          data: p,
         })),
     [patients],
   );
 
-  /** doctor Select options recomputed only when the list itself changes */
+  /** doctor Select options — rebuilt only when the list changes, not on every keystroke of the form */
   const doctorOptions = useMemo(
     () =>
-      doctors.map((d: any) => ({
-        value: d.id,
-        label: `Dr. ${fullName(d)}`,
-        description: d.specialization ?? undefined,
-        disabled: d.isActive !== true,
-      })),
+      doctors.map((d: any) => {
+        const name = [d.user?.firstName ?? d.firstName, d.user?.lastName ?? d.lastName]
+          .filter(Boolean)
+          .join(" ");
+        const dept =
+          d.clinicalDepartment?.name ?? d.specialization ?? undefined;
+        return {
+          value: d.id,
+          label: `Dr. ${name} - ${dept ?? "General"}`,
+          description:
+            Number(d.consultationFee) > 0
+              ? `₹${Number(d.consultationFee)} · ${Number(d.slotDurationMins ?? d.slotDuration ?? 15)}m slots`
+              : undefined,
+          disabled: d.isActive === false,
+        };
+      }),
     [doctors],
   );
   // slot-conflict source for the picker below — loaded lazily, only once the
@@ -220,7 +298,7 @@ export function AppointmentFormModal({
       time: "",
       type: "",
       visitType: "",
-      priority: "0",
+      priority: "ROUTINE",
       fee: 0,
       reasonForVisit: "",
       referredByDoctorName: "",
@@ -231,26 +309,35 @@ export function AppointmentFormModal({
     schema: appointmentSchema,
   });
 
-  const doctor = doctors.find((d: any) => d.id === form.values.doctorId);
+  /** doctor list + the selected doctor, resolved once per roster/selection */
+  const doctorById = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const d of doctors as any[]) map.set(d.id, d);
+    return map;
+  }, [doctors]);
+
+  const doctor = doctorById.get(form.values.doctorId);
 
   /* ------- visit type options from the CONSULTATION_TYPE dropdown API ------ */
-  const [visitTypeOptions, setVisitTypeOptions] = useState<
-    { value: string; label: string }[]
-  >([]);
-
-  useEffect(() => {
-    if (!visitTypes.length) return;
-    const options = visitTypes
-      .map((item: any) => ({
-        value: item.value,
-        label: String(item.value)
-          .replace(/_/g, " ")
-          .toLowerCase()
-          .replace(/\b\w/g, (c) => c.toUpperCase()),
-      }))
-      .filter((o) => o.value);
-    if (options.length) setVisitTypeOptions(options);
-  }, [visitTypes]);
+  /**
+   * Derived from `visitTypes` during render (memoized) instead of being copied
+   * into state by an effect: the effect version rendered the dialog once with
+   * an empty list and again with the options, and kept a second copy of data
+   * that the page already had.
+   */
+  const visitTypeOptions = useMemo<{ value: string; label: string }[]>(
+    () =>
+      (visitTypes ?? [])
+        .map((item: any) => ({
+          value: item.value,
+          label: String(item.value)
+            .replace(/_/g, " ")
+            .toLowerCase()
+            .replace(/\b\w/g, (c) => c.toUpperCase()),
+        }))
+        .filter((o) => o.value),
+    [visitTypes],
+  );
 
   /* --------------------- edit mode: load record by id --------------------- */
   const [, setEditLoading] = useState(false);
@@ -277,8 +364,8 @@ export function AppointmentFormModal({
           time: record.time ?? "",
           type: record.raw?.appointmentType ?? record.type ?? "",
           visitType: record.raw?.visitType ?? record.visitType ?? "",
-          priority: String(
-            record.raw?.priority ?? (record.priority === "Urgent" ? 1 : 0),
+          priority: normalizePriority(
+            record.raw?.priority ?? record.priority,
           ),
           fee: Number(record.fee ?? 0),
           reasonForVisit: record.reasonForVisit ?? "",
@@ -352,6 +439,13 @@ export function AppointmentFormModal({
     setSlotLoading(true);
     setRemoteSlots(null);
     (async () => {
+      // Reference data for the fallback: the selected doctor's slot length.
+      const selectedDoctor: any = doctors.find(
+        (d: any) => d.id === form.values.doctorId,
+      );
+      const duration = Number(
+        selectedDoctor?.slotDurationMins ?? selectedDoctor?.slotDuration ?? 15,
+      );
       try {
         const response = await doctorService.fetchDoctorSlots(
           form.values.doctorId,
@@ -361,22 +455,36 @@ export function AppointmentFormModal({
         // { schedule, slotDurationMins, bufferTimeMins } — so unwrap `data`
         // only when the response really is wrapped
         const body: any = response.data ?? {};
-        if (!cancelled && response.status === 200) {
-          setRemoteSlots(
-            normalizeSlots(
-              body.data ?? body,
+        const normalized = normalizeSlots(
+          body.data ?? body,
+          form.values.date,
+          existingAppointments as any[],
+          form.values.doctorId,
+        );
+        if (!cancelled) {
+          // a usable schedule (an active clinic day) → live slots; anything
+          // else (endpoint unavailable / closed / no shape) → fallback grid
+          setRemoteSlots(normalized && normalized.length ? normalized : null);
+          if (!normalized || !normalized.length)
+            setRemoteSlots(toFallbackSlots(
               form.values.date,
+              duration,
+              existingAppointments as any[],
+              form.values.doctorId,
+            ));
+        }
+      } catch (e: any) {
+        // availability endpoint unreachable → spec: generate an OPEN 09:00–17:00
+        // grid from the doctor's slot duration; booking must stay possible
+        if (!cancelled)
+          setRemoteSlots(
+            toFallbackSlots(
+              form.values.date,
+              duration,
               existingAppointments as any[],
               form.values.doctorId,
             ),
           );
-        }
-      } catch (e: any) {
-        // fall back to schedule-generated slots on failure
-        if (!cancelled) {
-          setRemoteSlots(null);
-          dispatch(toast.error("Could not load available slots", e?.message));
-        }
       } finally {
         if (!cancelled) setSlotLoading(false);
       }
@@ -388,28 +496,48 @@ export function AppointmentFormModal({
   }, [form.values.doctorId, form.values.date]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
-    const doctorData = doctors.find((d: any) => d.id === values.doctorId);
-
-    /* payload mirrors CreateAppointmentDto exactly */
+    /* Booking payload — mirrors CreateAppointmentDto exactly (strict whitelist):
+       • the doctor travels as `doctorProfileId` (the doctor-profile UUID)
+       • `slotStartTime` carries the chosen slot ("09:15", HH:MM 24h)
+       • priority is an integer (0 Normal | 1 Urgent | 2 Emergency)
+       • `consultationFee` is NOT accepted here — the fee belongs to billing;
+         the referrer text travels as `referredByDoctorName` / `referralNote`. */
+    const selectedDoctorProfile: any = doctors.find(
+      (d: any) => d.id === values.doctorId,
+    );
+    const numericDeptId = Number(selectedDoctorProfile?.departmentId);
     const payload = {
       patientId: values.patientId,
       doctorProfileId: values.doctorId,
-      departmentId: doctorData?.departmentId
-        ? Number(doctorData.departmentId)
-        : undefined,
-      appointmentDate: values.date, // "2025-06-10" (ISO date)
-      slotStartTime: values.time, // "10:30" (HH:MM 24h)
-      appointmentType: values.type,
-      visitType: values.visitType,
-      priority: Number(values.priority) || 0, // 0 Normal | 1 Urgent | 2 Emergency
+      departmentId:
+        selectedDoctorProfile?.departmentId && Number.isFinite(numericDeptId)
+          ? numericDeptId
+          : undefined,
+      appointmentDate: String(values.date).slice(0, 10), // "2026-10-17" (ISO date)
+      slotStartTime: values.time, // "09:15" (HH:MM 24h)
+      appointmentType: values.type || "WALK_IN",
+      visitType: values.visitType || "NEW_VISIT",
+      priority:
+        values.priority === "EMERGENCY"
+          ? 2
+          : values.priority === "URGENT"
+            ? 1
+            : 0,
       referredByDoctorName: values.referredByDoctorName?.trim() || undefined,
       referralNote: values.referralNote?.trim() || undefined,
       reasonForVisit: values.reasonForVisit?.trim() || undefined,
       notes: values.notes?.trim() || undefined,
     };
-
     try {
       let appointmentId: string | undefined;
+      let savedToken: string | number | undefined;
+
+      /** "Token #12" style suffix for the success toast. */
+      const pickToken = (saved: any) =>
+        saved?.tokenNumber ??
+        saved?.token?.tokenNumber ??
+        saved?.appointmentNumber ??
+        saved?.code;
 
       // 1. Create or Update Appointment
       if (isEdit) {
@@ -425,38 +553,49 @@ export function AppointmentFormModal({
         const result = await appointmentService.createAppointment(payload);
         const body: any = result.data ?? {};
         const saved: any = body.data ?? body;
-        dispatch(toast.success("Appointment booked successfully"));
         appointmentId = saved?.id;
+        savedToken = pickToken(saved);
+        dispatch(
+          toast.success(
+            `Appointment Booked Successfully!${savedToken ? ` token${savedToken}` : ""}`,
+            "The visit now appears in the appointment list.",
+          ),
+        );
       }
 
-      // 2. Post-Booking Chain: Trigger Auto-Token Generation if "Walk-In"
+      // 2. Post-Booking Chain — auto-token for walk-ins the API did not
+      //    already enqueue on booking
       const isWalkIn =
         String(values.visitType).toUpperCase() === "WALK_IN" ||
         String(values.type).toUpperCase() === "WALK_IN";
 
-      if (isWalkIn && appointmentId) {
+      if (isWalkIn && appointmentId && !savedToken) {
         const tokenResponse =
           await consultationService.generateOpdToken(appointmentId);
         if (tokenResponse.status === 200) {
           const tokenBody: any = tokenResponse.data ?? {};
           const tokenNumber =
-            tokenBody?.tokenNumber ?? tokenBody?.data?.tokenNumber;
+            tokenBody?.tokenNumber ?? tokenBody?.data?.tokenNumber ?? savedToken;
+          if (tokenNumber) savedToken = tokenNumber;
           dispatch(
             toast.success(
               "Token Generated Successfully",
-              tokenNumber ? `Queue Token: ${tokenNumber}` : undefined,
+              tokenNumber ? `Token #${tokenNumber}` : undefined,
             ),
           );
         }
       }
-    } catch (err: any) {
-      dispatch(toast.error("Booking failed", err?.message));
-    }
 
-    // 3. Close the form and let the page refresh its own list
-    onSaved?.();
-    form.reset();
-    onOpenChange(false);
+      // 3. Success → close the form and let the page refresh its own list
+      onSaved?.();
+      form.reset();
+      onOpenChange(false);
+    } catch (err: any) {
+      // graceful failure: keep the modal open so the user can correct & retry
+      const message = err?.message ?? "Please try again";
+      dispatch(toast.error(isEdit ? "Update failed" : "Booking failed", message));
+      setSubmitError(message);
+    }
   });
 
   return (
@@ -537,6 +676,7 @@ export function AppointmentFormModal({
               loading={patientsLoading}
               loadingLabel="Searching patients…"
               options={patientOptions}
+              getOptionLabel={patientOptionLabel}
             />
 
             <div>
@@ -545,7 +685,13 @@ export function AppointmentFormModal({
                 label="Doctor"
                 required
                 value={form.values.doctorId}
-                onChange={(v) => form.setValue("doctorId", v)}
+                onChange={(v) => {
+                  form.setValue("doctorId", v);
+                  // Spec: selecting a doctor auto-populates the fee
+                  const selected: any = doctors.find((d: any) => d.id === v);
+                  const fee = Number(selected?.consultationFee ?? 0);
+                  if (fee > 0) form.setValue("fee", fee);
+                }}
                 error={form.errors.doctorId}
                 loading={doctorsLoading}
                 loadingLabel="Loading doctors…"
@@ -553,12 +699,14 @@ export function AppointmentFormModal({
               />
               {doctor && (
                 <p className="mt-1 text-[12px] text-ink-500">
-                  {
+                  {doctor.clinicalDepartment?.name ??
                     departments.find(
                       (dep: any) => dep.id === doctor.departmentId,
-                    )?.name
-                  }{" "}
-                  · {doctor.slotDuration}m slots
+                    )?.name ??
+                    "—"}{" "}
+                  ·{" "}
+                  {Number(doctor.slotDurationMins ?? doctor.slotDuration ?? 15)}
+                  m slots · fee ₹{Number(doctor.consultationFee ?? 0)}
                 </p>
               )}
             </div>
@@ -610,9 +758,13 @@ export function AppointmentFormModal({
               <Select
                 name="priority"
                 label="Priority"
-                value={form.values.priority}
+                value={
+                  PRIORITY_SELECT.some((p) => p.value === form.values.priority)
+                    ? form.values.priority
+                    : "ROUTINE"
+                }
                 onChange={(v) => form.setValue("priority", v)}
-                options={PRIORITY_OPTIONS.map((p) => ({ ...p }))}
+                options={PRIORITY_SELECT.map((p) => ({ ...p }))}
               />
               <Input
                 name="fee"

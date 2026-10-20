@@ -37,7 +37,7 @@ import { useAppDispatch } from "@/store/hooks";
 import { usePermission } from "@/hooks";
 import { useForm } from "@/hooks/useForm";
 import { DISCHARGE_LABELS, dischargeSchema } from "@/pages/ipd/ipd.schema";
-import { hideLoader, showLoader, toast } from "@/store/slices/uiSlice";
+import { toast } from "@/store/slices/uiSlice";
 import { Button, Badge } from "@/components/ui/primitives";
 import { Select, Textarea } from "@/components/ui/fields";
 import { Stepper } from "@/components/ui/Stepper";
@@ -86,6 +86,16 @@ const STEPS = [
 
 export function IpdDischargePage() {
   const { id = "" } = useParams<{ id: string }>();
+  /* Live ledger of the stay — same loader + blocks the chart's billing tab uses.
+     Called here, above the early returns below (a hook after them runs a
+     different number of hooks once the admission arrives), and keyed by the
+     route id so the bill loads alongside the admission instead of after it. */
+  const {
+    data: bill,
+    loading: billLoading,
+    error: billError,
+    reload: reloadBill,
+  } = useProvisionalBill(id);
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { canEdit } = usePermission();
@@ -120,20 +130,8 @@ export function IpdDischargePage() {
     void load();
   }, [load]);
 
-  /**
-   * The wizard is derived from the admission, so nothing can be shown before
-   * it loads: the first paint is a blocking initialization and runs under the
-   * app-wide loader with the shared page skeleton underneath.
-   */
+  /** The wizard is derived from the admission, so the page skeleton covers the first load only. */
   const initialLoading = loading && !admission;
-  useEffect(() => {
-    if (!initialLoading) return;
-    dispatch(showLoader("Loading discharge workflow"));
-    return () => {
-      dispatch(hideLoader());
-    };
-  }, [initialLoading, dispatch]);
-
   const status = admission?.status ?? "ADMITTED";
   const ordered = status === "DISCHARGE_ORDERED";
   const discharged = status === "DISCHARGED";
@@ -182,7 +180,6 @@ export function IpdDischargePage() {
 
   const submitOrder = form.handleSubmit(async (values) => {
     if (!admission) return;
-    dispatch(showLoader("Ordering discharge"));
     try {
       await ipdService.initiateDischarge(admission.id, {
         dischargeType: values.dischargeType as IpdDischargeType,
@@ -201,7 +198,6 @@ export function IpdDischargePage() {
     } catch (e: any) {
       dispatch(toast.error("Could not order discharge", e?.message));
     } finally {
-      dispatch(hideLoader());
     }
   });
 
@@ -210,7 +206,6 @@ export function IpdDischargePage() {
   const completeDischarge = useCallback(async () => {
     if (!admission) return;
     setCompleting(true);
-    dispatch(showLoader("Completing discharge"));
     try {
       await ipdService.completeDischarge(admission.id);
       dispatch(
@@ -224,7 +219,6 @@ export function IpdDischargePage() {
       dispatch(toast.error("Could not complete discharge", e?.message));
     } finally {
       setCompleting(false);
-      dispatch(hideLoader());
     }
   }, [admission, dispatch, load]);
 
@@ -241,18 +235,9 @@ export function IpdDischargePage() {
   const roomType = admission.bed?.room?.roomType;
   const isDaycare = roomType?.isDaycare;
 
-  /* Live ledger of the stay — same loader + blocks the chart's billing tab uses. */
-  const {
-    data: bill,
-    loading: billLoading,
-    error: billError,
-    reload: reloadBill,
-  } = useProvisionalBill(admission.id);
-
   const postDayCharges = async () => {
     if (accruing) return;
     setAccruing(true);
-    dispatch(showLoader("Posting day charges"));
     try {
       const res = await ipdService.runIpdDailyAccrual({ admissionId: admission.id });
       if (res.status === 200) {
@@ -280,7 +265,6 @@ export function IpdDischargePage() {
       dispatch(toast.error("Could not post the day charges", e?.message));
     } finally {
       setAccruing(false);
-      dispatch(hideLoader());
     }
   };
   const bedStatusNow = discharged ? "HOUSEKEEPING" : ordered ? "DISCHARGE_PENDING" : "OCCUPIED";

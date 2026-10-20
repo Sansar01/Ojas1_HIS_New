@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Eye,
@@ -8,13 +8,14 @@ import {
   Banknote,
   Printer,
   Receipt,
-  Trash2,
+  Undo2,
+  Ban,
 } from "lucide-react";
 import { todayISO } from "@/utils";
 import { usePermission } from "@/hooks";
 import { downloadText, formatDate, formatMoney, toCSV } from "@/utils";
 import { cn } from "@/utils/cn";
-import { Avatar, Button, Panel, StatusBadge } from "@/components/ui/primitives";
+import { Avatar, Button, Panel } from "@/components/ui/primitives";
 import { Select, DatePicker } from "@/components/ui/fields";
 import {
   DataTable,
@@ -30,6 +31,10 @@ import { toast } from "@/store/slices/uiSlice";
 import { OPDBillingForm } from "@/pages/billing/OPDBillingForm";
 import { PaymentDialog } from "@/pages/billing/PaymentDialog";
 import { InvoiceSheet } from "@/pages/billing/InvoiceSheet";
+import { OpdReceiptSheet } from "@/pages/billing/OpdReceiptSheet";
+import { BillStatusBadge } from "@/pages/billing/BillStatusBadge";
+import { RefundDialog, refundableOf } from "@/pages/billing/RefundDialog";
+import { CancelBillDialog } from "@/pages/billing/CancelBillDialog";
 
 export function BillingPage() {
   const dispatch = useAppDispatch();
@@ -61,22 +66,36 @@ export function BillingPage() {
     totalPages: 1,
   });
 
+  /**
+   * Server filters. `search` is deliberately NOT in this object: it was, and
+   * because `fetchBills` lists `filters` in its dependency array, every single
+   * keystroke in the toolbar re-fetched the whole invoice page (and not even
+   * with the term — the endpoint takes no search). The box is now local state
+   * that filters the loaded rows below, while the effect only reacts to the
+   * status / date filters and to paging.
+   */
   const [filters, setFilters] = useState({
     paymentStatus: "all",
-    date: "",
-    search: "",
+    fromDate: "",
+    toDate: "",
   });
+  const [search, setSearch] = useState("");
 
   const [editing, setEditing] = useState<boolean>(params.get("new") === "1");
   const [viewing, setViewing] = useState<any | null>(null);
   const [paying, setPaying] = useState<any | null>(null);
+  /** Bill currently shown in the printable receipt modal */
+  const [receiptBill, setReceiptBill] = useState<any | null>(null);
+  const [receiptData, setReceiptData] = useState<any | null>(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  /** Bill targeted by the refund / cancel confirmation dialogs */
+  const [refunding, setRefunding] = useState<any | null>(null);
+  const [cancelling, setCancelling] = useState<any | null>(null);
 
   // --- API Calls ---
   const fetchSummary = useCallback(async () => {
     try {
-      const body: any =
-        (await billingService.fetchDailySummary(filters.date || undefined))
-          ?.data ?? {};
+      const body: any = (await billingService.fetchDailySummary())?.data ?? {};
       const summary: any = body.data ?? body;
       setKpis({
         totalAmount: summary.totalAmount || 0,
@@ -88,7 +107,7 @@ export function BillingPage() {
       console.error("Summary error", e);
       dispatch(toast.error("Could not load billing summary", e?.message));
     }
-  }, [filters.date]);
+  }, [dispatch]);
 
   /**
    * Invoice list of this page: always fetched here through `billing.service`
@@ -104,7 +123,8 @@ export function BillingPage() {
           page: pagination.page,
           limit: pagination.limit,
           paymentStatus: filters.paymentStatus,
-          date: filters.date,
+          fromDate: filters.fromDate,
+          toDate: filters.toDate,
         });
         const body: any = res.data ?? {};
         setBills(body.data || []);
@@ -159,12 +179,82 @@ export function BillingPage() {
   );
 
   /** Rows + table status of the invoice tab. */
-  const invoiceRows = bills;
   const invoiceStatus = loading ? "loading" : error ? "error" : "ready";
 
+  /**
+   * The search box only sorts through what is already on screen — one
+   * memoized pass over the current page of invoices, re-run when the term or
+   * the rows change and never on unrelated state (a dialog opening, a tab
+   * switch).
+   */
+  const invoiceRows = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return bills;
+    return (bills as any[]).filter((i) => {
+      const patientName =
+        i.patient?.fullName ||
+        (i.patient
+          ? `${i.patient.firstName ?? ""} ${i.patient.lastName ?? ""}`
+          : "");
+      return (
+        String(i.billNo ?? "").toLowerCase().includes(term) ||
+        patientName.toLowerCase().includes(term) ||
+        String(i.patient?.uhid ?? "").toLowerCase().includes(term) ||
+        String(i.doctor?.name ?? "").toLowerCase().includes(term)
+      );
+    });
+  }, [bills, search]);
+
+  /** KPI strip — static labels, values change only with the summary. */
+  const statItems = useMemo(
+    () => [
+      {
+        label: "Total Billed",
+        value: formatMoney(kpis.totalAmount),
+        tone: "text-ink-900",
+      },
+      {
+        label: "Collected",
+        value: formatMoney(kpis.totalCollected),
+        tone: "text-mint-600",
+      },
+      {
+        label: "Outstanding",
+        value: formatMoney(kpis.totalDue),
+        tone: "text-coral-600",
+      },
+      {
+        label: "Total Discount",
+        value: formatMoney(kpis.totalDiscount),
+        tone: "text-amberly-600",
+      },
+    ],
+    [kpis],
+  );
+
+  const tabItems = useMemo(
+    () => [
+      { value: "invoices", label: `Invoices (${pagination.total})` },
+      {
+        value: "payments",
+        label: `Payment History (${payPagination.total})`,
+      },
+    ],
+    [pagination.total, payPagination.total],
+  );
+
+  // One effect per endpoint: paging or filtering the invoices must not also
+  // refetch the payments and the daily summary (and vice versa). `reloadAll`
+  // is for explicit refreshes after a payment / refund / cancellation.
   useEffect(() => {
-    reloadAll();
-  }, [reloadAll]);
+    fetchSummary();
+  }, [fetchSummary]);
+  useEffect(() => {
+    fetchBills();
+  }, [fetchBills]);
+  useEffect(() => {
+    fetchPayments();
+  }, [fetchPayments]);
 
   // --- Actions ---
   const exportCsv = () => {
@@ -173,29 +263,38 @@ export function BillingPage() {
       toCSV(
         invoiceRows.map((i) => ({
           Invoice: i.billNo,
-          Patient: i.patient
-            ? `${i.patient.firstName} ${i.patient.lastName || ""}`
-            : "—",
+          Patient: i.patient?.fullName ||
+            (i.patient ? `${i.patient.firstName} ${i.patient.lastName || ""}` : ""),
           Date: formatDate(i.billedAt),
-          Total: i.totalAmount,
+          Doctor: i.doctor?.name ? `Dr. ${i.doctor.name}` : "",
+          "Net amount": i.netAmount ?? i.totalAmount,
           Paid: i.paidAmount,
-          Balance: i.dueAmount,
-          Status: i.paymentStatus,
+          Due: i.dueAmount,
+          "Bill status": i.billStatus,
+          "Payment status": i.paymentStatus,
         })),
       ),
     );
   };
 
-  const handleCancelBill = async (bill: any) => {
-    const reason = prompt(`Enter reason for cancelling bill ${bill.billNo}:`);
-    if (!reason) return;
+  /** GET /api/opd/billing/:billId/receipt → printable receipt modal. */
+  const openReceipt = async (bill: any) => {
+    setReceiptBill(bill);
+    setReceiptData(null);
+    setReceiptLoading(true);
     try {
-      await billingService.cancelInvoice(bill.id, reason);
-      reloadAll(true);
+      const res: any = await billingService.fetchReceipt(bill.id);
+      setReceiptData(res?.data ?? null);
     } catch (e: any) {
       dispatch(
-        toast.error("Could not cancel bill", e?.message || "Please try again."),
+        toast.error(
+          "Could not load receipt",
+          e?.data?.message || e?.message || "Please try again.",
+        ),
       );
+      setReceiptBill(null);
+    } finally {
+      setReceiptLoading(false);
     }
   };
 
@@ -241,30 +340,7 @@ export function BillingPage() {
       />
 
       <div className="mb-4">
-        <StatStrip
-          items={[
-            {
-              label: "Total Billed",
-              value: formatMoney(kpis.totalAmount),
-              tone: "text-ink-900",
-            },
-            {
-              label: "Collected",
-              value: formatMoney(kpis.totalCollected),
-              tone: "text-mint-600",
-            },
-            {
-              label: "Outstanding",
-              value: formatMoney(kpis.totalDue),
-              tone: "text-coral-600",
-            },
-            {
-              label: "Total Discount",
-              value: formatMoney(kpis.totalDiscount),
-              tone: "text-amberly-600",
-            },
-          ]}
-        />
+        <StatStrip items={statItems} />
       </div>
 
       <Panel>
@@ -273,21 +349,15 @@ export function BillingPage() {
             value={tab}
             onValueChange={setTab}
             variant="pill"
-            tabs={[
-              { value: "invoices", label: `Invoices (${pagination.total})` },
-              {
-                value: "payments",
-                label: `Payment History (${payPagination.total})`,
-              },
-            ]}
+            tabs={tabItems}
           />
         </div>
 
         {tab === "invoices" ? (
           <>
             <TableToolbar
-              search={filters.search}
-              onSearch={(s) => setFilters((f) => ({ ...f, search: s }))}
+              search={search}
+              onSearch={setSearch}
               searchPlaceholder="Search invoice no, patient…"
               filters={
                 <>
@@ -309,9 +379,15 @@ export function BillingPage() {
                   />
                   <DatePicker
                     label=""
-                    value={filters.date}
-                    onChange={(v) => setFilters((f) => ({ ...f, date: v }))}
-                    placeholder="Filter Date"
+                    value={filters.fromDate}
+                    onChange={(v) => setFilters((f) => ({ ...f, fromDate: v }))}
+                    placeholder="From date"
+                  />
+                  <DatePicker
+                    label=""
+                    value={filters.toDate}
+                    onChange={(v) => setFilters((f) => ({ ...f, toDate: v }))}
+                    placeholder="To date"
                   />
                 </>
               }
@@ -321,7 +397,7 @@ export function BillingPage() {
               columns={[
                 {
                   key: "billNo",
-                  header: "Invoice",
+                  header: "Bill No",
                   render: (i) => (
                     <span className="num text-[13px] font-bold text-ink-900">
                       {i.billNo}
@@ -332,9 +408,11 @@ export function BillingPage() {
                   key: "patient",
                   header: "Patient",
                   render: (i) => {
-                    const name = i.patient
-                      ? `${i.patient.firstName} ${i.patient.lastName || ""}`
-                      : "Walk-in Patient";
+                    const name =
+                      i.patient?.fullName ||
+                      (i.patient
+                        ? `${i.patient.firstName} ${i.patient.lastName || ""}`
+                        : "Walk-in Patient");
                     return (
                       <div className="flex items-center gap-2.5">
                         <Avatar name={name} size="xs" color="bg-lagoon-500" />
@@ -352,7 +430,7 @@ export function BillingPage() {
                 },
                 {
                   key: "billedAt",
-                  header: "Billed",
+                  header: "Date",
                   render: (i) => (
                     <span className="text-[12.5px] text-ink-600">
                       {formatDate(i.billedAt)}
@@ -360,18 +438,37 @@ export function BillingPage() {
                   ),
                 },
                 {
-                  key: "totalAmount",
-                  header: "Total",
+                  key: "doctor",
+                  header: "Doctor",
+                  render: (i) => (
+                    <span className="text-[12.5px] text-ink-600">
+                      {i.doctor?.name ? `Dr. ${i.doctor.name}` : "—"}
+                    </span>
+                  ),
+                },
+                {
+                  key: "netAmount",
+                  header: "Net Amount",
                   align: "right",
                   render: (i) => (
                     <span className="num text-[13px] font-semibold text-ink-900">
-                      {formatMoney(i.totalAmount)}
+                      {formatMoney(i.netAmount ?? i.totalAmount ?? 0)}
+                    </span>
+                  ),
+                },
+                {
+                  key: "paidAmount",
+                  header: "Paid",
+                  align: "right",
+                  render: (i) => (
+                    <span className="num text-[13px] font-semibold text-mint-600">
+                      {formatMoney(i.paidAmount ?? 0)}
                     </span>
                   ),
                 },
                 {
                   key: "dueAmount",
-                  header: "Balance Due",
+                  header: "Due",
                   align: "right",
                   render: (i) => (
                     <span
@@ -385,10 +482,16 @@ export function BillingPage() {
                   ),
                 },
                 {
-                  key: "paymentStatus",
-                  header: "Status",
+                  key: "billStatus",
+                  header: "Bill Status",
                   align: "center",
-                  render: (i) => <StatusBadge status={i.paymentStatus} />,
+                  render: (i) => <BillStatusBadge status={i.billStatus} />,
+                },
+                {
+                  key: "paymentStatus",
+                  header: "Payment",
+                  align: "center",
+                  render: (i) => <BillStatusBadge status={i.paymentStatus} />,
                 },
               ]}
               rows={invoiceRows}
@@ -399,28 +502,45 @@ export function BillingPage() {
                 <RowActions
                   items={[
                     {
-                      label: "View invoice",
+                      label: "View bill",
                       icon: <Eye />,
                       onClick: () => setViewing(i),
                     },
                     {
-                      label: "Record payment",
+                      label: "Receipt",
+                      icon: <Receipt />,
+                      onClick: () => openReceipt(i),
+                    },
+                    {
+                      label: "Collect payment",
                       icon: <Banknote />,
                       hidden:
                         !canEdit("billing") ||
-                        i.paymentStatus === "PAID" ||
-                        i.billStatus === "CANCELLED",
+                        !["GENERATED", "PARTIALLY_PAID"].includes(
+                          i.billStatus,
+                        ) ||
+                        Number(i.dueAmount ?? 0) <= 0,
                       onClick: () => setPaying(i),
                     },
                     {
-                      label: "Cancel Bill",
-                      icon: <Trash2 />,
+                      label: "Refund",
+                      icon: <Undo2 />,
+                      tone: "danger",
+                      hidden:
+                        !canEdit("billing") ||
+                        Number(i.paidAmount ?? 0) <= 0 ||
+                        refundableOf(i) <= 0,
+                      onClick: () => setRefunding(i),
+                    },
+                    {
+                      label: "Cancel bill",
+                      icon: <Ban />,
                       tone: "danger",
                       hidden:
                         !canDelete("billing") ||
-                        i.paymentStatus === "PAID" ||
-                        i.billStatus === "CANCELLED",
-                      onClick: () => handleCancelBill(i),
+                        i.billStatus !== "GENERATED" ||
+                        Number(i.paidAmount ?? 0) !== 0,
+                      onClick: () => setCancelling(i),
                     },
                   ]}
                 />
@@ -512,7 +632,7 @@ export function BillingPage() {
         }
         footer={
           <div className="flex w-full items-center justify-between gap-2">
-            <StatusBadge status={viewing?.paymentStatus ?? ""} />
+            <BillStatusBadge status={viewing?.paymentStatus ?? ""} />
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -540,6 +660,81 @@ export function BillingPage() {
       >
         {viewing && <InvoiceSheet invoice={viewing} />}
       </Dialog>
+
+      {/* Receipt Modal — printable (index.css print rules target .opd-receipt) */}
+      <Dialog
+        open={!!receiptBill}
+        onOpenChange={(v) => {
+          if (!v) {
+            setReceiptBill(null);
+            setReceiptData(null);
+          }
+        }}
+        size="lg"
+        title={
+          <span className="flex items-center gap-2">
+            <Receipt className="size-4.5 text-brand-600" /> Receipt
+          </span>
+        }
+        description={receiptBill ? `Bill ${receiptBill.billNo}` : ""}
+        footer={
+          <div className="flex w-full items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              icon={<Printer />}
+              disabled={!receiptData}
+              onClick={() => window.print()}
+            >
+              Print / PDF
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setReceiptBill(null);
+                setReceiptData(null);
+              }}
+            >
+              Done
+            </Button>
+          </div>
+        }
+      >
+        {receiptData ? (
+          <OpdReceiptSheet receipt={receiptData} />
+        ) : (
+          <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-400">
+            <RefreshCw
+              className={cn("size-4", receiptLoading && "animate-spin")}
+            />
+            {receiptLoading ? "Loading receipt…" : "Receipt unavailable."}
+          </div>
+        )}
+      </Dialog>
+
+      {/* Refund (credit note) confirmation */}
+      {refunding && (
+        <RefundDialog
+          bill={refunding}
+          onClose={() => setRefunding(null)}
+          onSuccess={() => {
+            setRefunding(null);
+            reloadAll(true);
+          }}
+        />
+      )}
+
+      {/* Cancel bill confirmation */}
+      {cancelling && (
+        <CancelBillDialog
+          bill={cancelling}
+          onClose={() => setCancelling(null)}
+          onSuccess={() => {
+            setCancelling(null);
+            reloadAll(true);
+          }}
+        />
+      )}
     </>
   );
 }
