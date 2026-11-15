@@ -1,5 +1,11 @@
 import { Suspense, lazy, useEffect, type ComponentType } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import {
   RequireAuth,
   RequireBootstrap,
@@ -54,14 +60,15 @@ if (typeof window !== "undefined" && window.localStorage.getItem(TOKEN_KEY)) {
  * Idle-time chunk warm-up, mounted only behind the login (see the shell route).
  *
  * The chunks are warmed ONE AT A TIME, on idle, instead of firing all 21
- * imports 1.5s after sign-in: a 21-way burst competes with the dashboard's own
- * API calls for bandwidth and hands the main thread every route's JS to parse
- * in one go — which is what made the first scroll and the first navigation feel
- * sticky. Page components are still lazy; this only removes the network wait
- * from the *second* visit to a module.
+ * imports at once. Warming pauses as soon as the user navigates, so background
+ * imports do not compete with the route they just opened.
  */
 function PreloadPages() {
+ const { pathname } = useLocation();
+
   useEffect(() => {
+    if (pathname !== "/dashboard") return;
+
     // the landing screen first, right away — it is the next navigation
     warmDashboardChunk();
 
@@ -80,20 +87,24 @@ function PreloadPages() {
       timer = setTimeout(cb, 400);
     };
 
-    const step = () => {
+    const step = async () => {
       if (cancelled || index >= pageLoaders.length) return;
       const load = pageLoaders[index++];
-      // a failed warm-up is irrelevant: the route still lazy-loads on demand
-      void load().catch(() => {});
-      schedule(step);
+      // A failed warm-up is irrelevant: the route still lazy-loads on demand.
+      try {
+        await load();
+      } catch {
+        // Ignore preload failures; the route reports errors when opened.
+      }
+      if (!cancelled) schedule(() => void step());
     };
 
-    timer = setTimeout(step, 1500);
+    timer = setTimeout(() => void step(), 1500);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [pathname]);
   return null;
 }
 
