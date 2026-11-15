@@ -429,12 +429,14 @@ export function IpdWardBoardPage() {
                   </PendingBackendNote>
                 </div>
               )}
-              <WardBedGrid
-                beds={visibleBeds}
-                admissionsByBed={admissionsByBed}
-                loading={loading}
-                onSelectBed={handleBedClick}
-              />
+              <div className="max-h-[60vh] overflow-y-auto pr-2">
+                <WardBedGrid
+                  beds={visibleBeds}
+                  admissionsByBed={admissionsByBed}
+                  loading={loading}
+                  onSelectBed={handleBedClick}
+                />
+              </div>
               <div className="mt-4 border-t border-ink-100 pt-3">
                 <BedLegend />
               </div>

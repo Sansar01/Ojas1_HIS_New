@@ -225,14 +225,45 @@ export function PatientDetailPage() {
     [myInvoices, invoiceTotals],
   );
 
-  /** Prescription line count for the tab badge — one pass. */
-  const prescriptionCount = useMemo(
+  const prescriptions = useMemo(
     () =>
-      (myConsultations as any[]).reduce(
-        (n, c) => n + (c.prescriptions?.length ?? 0),
-        0,
+      (myConsultations as any[]).flatMap((c) =>
+        (c.prescriptions ?? []).map((rx: any) => ({
+          ...rx,
+          date: c.date,
+          doctor: `Dr. ${fullName(doctorMap.get(c.doctorId))}`,
+          code: c.code,
+        })),
       ),
-    [myConsultations],
+    [myConsultations, doctorMap],
+  );
+
+  const tabs = useMemo(
+    () => [
+      { value: "overview", label: "Overview" },
+      {
+        value: "appointments",
+        label: "Appointments",
+        count: myAppointments.length,
+      },
+      {
+        value: "consultations",
+        label: "Consultations",
+        count: myConsultations.length,
+      },
+      {
+        value: "prescriptions",
+        label: "Prescriptions",
+        count: prescriptions.length,
+      },
+      { value: "billing", label: "Billing", count: myInvoices.length },
+    ],
+    [
+      myAppointments.length,
+      myConsultations.length,
+      myInvoices.length,
+      prescriptions.length,
+    ],
   );
 
   if (!patient && isLoadingPatient) {
@@ -274,34 +305,6 @@ export function PatientDetailPage() {
       </SectionPanel>
     );
   }
-
-  const tabs = useMemo(
-    () => [
-      { value: "overview", label: "Overview" },
-      {
-        value: "appointments",
-        label: "Appointments",
-        count: myAppointments.length,
-      },
-      {
-        value: "consultations",
-        label: "Consultations",
-        count: myConsultations.length,
-      },
-      {
-        value: "prescriptions",
-        label: "Prescriptions",
-        count: prescriptionCount,
-      },
-      { value: "billing", label: "Billing", count: myInvoices.length },
-    ],
-    [
-      myAppointments.length,
-      myConsultations.length,
-      prescriptionCount,
-      myInvoices.length,
-    ],
-  );
 
   return (
     <div className="space-y-4">
@@ -635,50 +638,34 @@ export function PatientDetailPage() {
 
           {tab === "prescriptions" && (
             <div className="space-y-3">
-              {myConsultations.flatMap((c: any) =>
-                (c.prescriptions ?? []).map((rx: any) => ({
-                  ...rx,
-                  date: c.date,
-                  doctor: `Dr. ${fullName(doctorMap.get(c.doctorId))}`,
-                  code: c.code,
-                })),
-              ).length === 0 && (
+              {prescriptions.length === 0 && (
                 <p className="py-8 text-center text-[13px] text-ink-400">
                   No prescriptions issued yet.
                 </p>
               )}
-              {myConsultations
-                .flatMap((c: any) =>
-                  (c.prescriptions ?? []).map((rx: any) => ({
-                    ...rx,
-                    date: c.date,
-                    doctor: `Dr. ${fullName(doctorMap.get(c.doctorId))}`,
-                    code: c.code,
-                  })),
-                )
-                .map((rx: any) => (
-                  <div
-                    key={rx.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-[13.5px] font-semibold text-ink-900">
-                        {rx.medicine}
-                      </p>
-                      <p className="text-[11.5px] text-ink-400">
-                        {rx.dosage} · {rx.frequency} · {rx.instructions}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[12px] font-medium text-ink-600">
-                        {rx.doctor}
-                      </p>
-                      <p className="text-[11px] text-ink-400">
-                        {formatDate(rx.date)} · {rx.code}
-                      </p>
-                    </div>
+              {prescriptions.map((rx: any) => (
+                <div
+                  key={rx.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-100 bg-white px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-semibold text-ink-900">
+                      {rx.medicine}
+                    </p>
+                    <p className="text-[11.5px] text-ink-400">
+                      {rx.dosage} · {rx.frequency} · {rx.instructions}
+                    </p>
                   </div>
-                ))}
+                  <div className="text-right">
+                    <p className="text-[12px] font-medium text-ink-600">
+                      {rx.doctor}
+                    </p>
+                    <p className="text-[11px] text-ink-400">
+                      {formatDate(rx.date)} · {rx.code}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

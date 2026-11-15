@@ -255,56 +255,82 @@ export const NumberInput = ({
   hint?: React.ReactNode;
   required?: boolean;
   className?: string;
-}) => (
-  <Field
-    label={label}
-    required={required}
-    error={error}
-    hint={hint}
-    className={className}
-  >
-    <div
-      className={cn(
-        "flex h-10 items-center rounded-lg border bg-white",
-        error ? "border-coral-500/70" : "border-ink-200",
-      )}
+}) => {
+  const [inputValue, setInputValue] = useState(
+    Number.isFinite(value) ? String(value) : "",
+  );
+
+  useEffect(() => {
+    setInputValue(Number.isFinite(value) ? String(value) : "");
+  }, [value]);
+
+  const handleChange = (nextValue: string) => {
+    const normalizedValue = nextValue.replace(/^(-?)0+(?=\d)/, "$1");
+    setInputValue(normalizedValue);
+    if (normalizedValue === "") return;
+
+    const parsedValue = Number(normalizedValue);
+    if (Number.isFinite(parsedValue)) onValueChange(parsedValue);
+  };
+
+  const handleBlur = () => {
+    if (inputValue !== "") return;
+    setInputValue(String(min));
+    onValueChange(min);
+  };
+
+  return (
+    <Field
+      label={label}
+      required={required}
+      error={error}
+      hint={hint}
+      className={className}
     >
-      <button
-        type="button"
-        aria-label="decrease"
-        onClick={() =>
-          onValueChange(Math.max(min, (Number(value) || 0) - step))
-        }
-        className="grid size-9 place-items-center rounded-l-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
+      <div
+        className={cn(
+          "flex h-10 items-center rounded-lg border bg-white",
+          error ? "border-coral-500/70" : "border-ink-200",
+        )}
       >
-        <ChevronLeft className="size-4" />
-      </button>
-      <input
-        type="number"
-        value={Number.isFinite(value) ? value : ""}
-        min={min}
-        max={max}
-        onChange={(e) => onValueChange(Number(e.target.value))}
-        className="num h-full w-full min-w-0 border-none bg-transparent text-center text-sm font-medium text-ink-900 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-      />
-      {suffix && (
-        <span className="pr-1 text-[11px] font-medium uppercase text-ink-400">
-          {suffix}
-        </span>
-      )}
-      <button
-        type="button"
-        aria-label="increase"
-        onClick={() =>
-          onValueChange(Math.min(max, (Number(value) || 0) + step))
-        }
-        className="grid size-9 place-items-center rounded-r-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
-      >
-        <ChevronRight className="size-4" />
-      </button>
-    </div>
-  </Field>
-);
+        <button
+          type="button"
+          aria-label="decrease"
+          onClick={() =>
+            onValueChange(Math.max(min, (Number(value) || 0) - step))
+          }
+          className="grid size-9 place-items-center rounded-l-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <input
+          type="number"
+          value={inputValue}
+          min={min}
+          max={max}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={handleBlur}
+          className="num h-full w-full min-w-0 border-none bg-transparent text-center text-sm font-medium text-ink-900 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        {suffix && (
+          <span className="pr-1 text-[11px] font-medium uppercase text-ink-400">
+            {suffix}
+          </span>
+        )}
+        <button
+          type="button"
+          aria-label="increase"
+          onClick={() =>
+            onValueChange(Math.min(max, (Number(value) || 0) + step))
+          }
+          className="grid size-9 place-items-center rounded-r-lg text-ink-500 transition-colors hover:bg-ink-50 hover:text-brand-600"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+    </Field>
+  );
+};
 
 /* ---------------------------------- Select --------------------------------- */
 
